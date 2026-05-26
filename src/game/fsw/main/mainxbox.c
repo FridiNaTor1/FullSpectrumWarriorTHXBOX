@@ -8,8 +8,12 @@
 #include "recomp_funcs.h"
 #include <math.h>
 #include <stdio.h>
+#include <unistd.h>
 
 extern uint32_t fsw_ensure_splash_surface(void);
+#ifdef XBOXRECOMP_VULKAN_GRAPHICS
+extern void d3d8_vulkan_host_present(void);
+#endif
 
 static int mainxbox_va_is_valid(uint32_t va)
 {
@@ -481,6 +485,14 @@ loc_003EC79C:
         if (run_log_count <= 8 || eax == 0 || (run_log_count % 100000000) == 0) {
             fprintf(stderr, "[FSW] main: CApplicationManager_Run #%u returned eax=0x%08X current=0x%08X pending=0x%08X\n",
                     (unsigned)run_log_count, (unsigned)eax, (unsigned)MEM32(0x615298), (unsigned)MEM32(0x61529C));
+        }
+#ifdef XBOXRECOMP_VULKAN_GRAPHICS
+        if (eax != 0) {
+            d3d8_vulkan_host_present();
+        }
+#endif
+        if (eax != 0) {
+            usleep(16000);
         }
     }
     if (TEST_NZ(LO8(eax), LO8(eax))) goto loc_003EC790; /* jne: not equal / not zero */

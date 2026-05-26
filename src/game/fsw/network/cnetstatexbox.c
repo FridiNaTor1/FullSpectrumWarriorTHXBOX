@@ -14764,6 +14764,14 @@ void fn_0026E630_CNetStateXbox_Update(void)
     ebp = g_seh_ebp; /* fpo_leaf: inherit caller's frame */
 
 loc_0026E630:
+    {
+        static uint32_t net_state_skip_log_count = 0;
+        if (net_state_skip_log_count < 4) {
+            fprintf(stderr, "[FSW/Net] CNetStateXbox update skipped for shell bring-up\n");
+            net_state_skip_log_count++;
+        }
+        esp += 16; return; /* ret 12 */
+    }
     eax = MEM32(0x5FA410);
     esp = esp - 0xC;
     (void)0; /* test eax, eax - flags set for next jcc */

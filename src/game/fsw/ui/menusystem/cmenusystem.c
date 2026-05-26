@@ -6,6 +6,9 @@
 
 #define RECOMP_GENERATED_CODE
 #include "recomp_funcs.h"
+#ifdef XBOXRECOMP_VULKAN_GRAPHICS
+#include "d3d8_vulkan_host.h"
+#endif
 #include <math.h>
 #include <stdio.h>
 
@@ -31,6 +34,73 @@ static void cmenusystem_ensure_init(void)
     fn_001BA7D0_CMenuSystem_Init();
     in_progress = 0;
 }
+
+#ifdef XBOXRECOMP_VULKAN_GRAPHICS
+static void cmenusystem_draw_shell_fallback(void)
+{
+    static uint32_t fallback_draw_count;
+    static uint32_t shell_frame;
+    shell_frame++;
+    if (shell_frame <= 120) {
+        float fade = (float)shell_frame / 120.0f;
+        D3D8VulkanRhwVertex intro_bg[6] = {
+            {   0,   0, 0.05f, 1.0f, 0.01f, 0.012f, 0.012f, 1.0f, 0, 0 },
+            { 640,   0, 0.05f, 1.0f, 0.03f, 0.034f, 0.030f, 1.0f, 1, 0 },
+            { 640, 480, 0.05f, 1.0f, 0.00f, 0.006f, 0.010f, 1.0f, 1, 1 },
+            {   0,   0, 0.05f, 1.0f, 0.01f, 0.012f, 0.012f, 1.0f, 0, 0 },
+            { 640, 480, 0.05f, 1.0f, 0.00f, 0.006f, 0.010f, 1.0f, 1, 1 },
+            {   0, 480, 0.05f, 1.0f, 0.02f, 0.024f, 0.022f, 1.0f, 0, 1 },
+        };
+        D3D8VulkanRhwVertex intro_mark[6] = {
+            { 170, 228, 0.01f, 1.0f, 0.35f + fade * 0.35f, 0.36f + fade * 0.35f, 0.32f + fade * 0.30f, 1.0f, 0, 0 },
+            { 470, 228, 0.01f, 1.0f, 0.35f + fade * 0.35f, 0.36f + fade * 0.35f, 0.32f + fade * 0.30f, 1.0f, 1, 0 },
+            { 470, 238, 0.01f, 1.0f, 0.35f + fade * 0.35f, 0.36f + fade * 0.35f, 0.32f + fade * 0.30f, 1.0f, 1, 1 },
+            { 170, 228, 0.01f, 1.0f, 0.35f + fade * 0.35f, 0.36f + fade * 0.35f, 0.32f + fade * 0.30f, 1.0f, 0, 0 },
+            { 470, 238, 0.01f, 1.0f, 0.35f + fade * 0.35f, 0.36f + fade * 0.35f, 0.32f + fade * 0.30f, 1.0f, 1, 1 },
+            { 170, 238, 0.01f, 1.0f, 0.35f + fade * 0.35f, 0.36f + fade * 0.35f, 0.32f + fade * 0.30f, 1.0f, 0, 1 },
+        };
+        d3d8_vulkan_host_draw_rhw(intro_bg, 6, NULL, 0, 0, 0, 0);
+        d3d8_vulkan_host_draw_rhw(intro_mark, 6, NULL, 0, 0, 0, 0);
+        if (fallback_draw_count < 4) {
+            fprintf(stderr, "[FSW/Menu] drew Vulkan intro fallback frame\n");
+            fallback_draw_count++;
+        }
+        return;
+    }
+    D3D8VulkanRhwVertex bg[6] = {
+        {   0,   0, 0.2f, 1.0f, 0.05f, 0.06f, 0.07f, 1.0f, 0, 0 },
+        { 640,   0, 0.2f, 1.0f, 0.13f, 0.15f, 0.16f, 1.0f, 1, 0 },
+        { 640, 480, 0.2f, 1.0f, 0.03f, 0.04f, 0.05f, 1.0f, 1, 1 },
+        {   0,   0, 0.2f, 1.0f, 0.05f, 0.06f, 0.07f, 1.0f, 0, 0 },
+        { 640, 480, 0.2f, 1.0f, 0.03f, 0.04f, 0.05f, 1.0f, 1, 1 },
+        {   0, 480, 0.2f, 1.0f, 0.10f, 0.12f, 0.13f, 1.0f, 0, 1 },
+    };
+    D3D8VulkanRhwVertex panel[6] = {
+        {  72, 104, 0.1f, 1.0f, 0.70f, 0.74f, 0.70f, 1.0f, 0, 0 },
+        { 330, 104, 0.1f, 1.0f, 0.70f, 0.74f, 0.70f, 1.0f, 1, 0 },
+        { 330, 116, 0.1f, 1.0f, 0.70f, 0.74f, 0.70f, 1.0f, 1, 1 },
+        {  72, 104, 0.1f, 1.0f, 0.70f, 0.74f, 0.70f, 1.0f, 0, 0 },
+        { 330, 116, 0.1f, 1.0f, 0.70f, 0.74f, 0.70f, 1.0f, 1, 1 },
+        {  72, 116, 0.1f, 1.0f, 0.70f, 0.74f, 0.70f, 1.0f, 0, 1 },
+    };
+    D3D8VulkanRhwVertex accent[6] = {
+        {  72, 156, 0.1f, 1.0f, 0.33f, 0.48f, 0.57f, 1.0f, 0, 0 },
+        { 252, 156, 0.1f, 1.0f, 0.33f, 0.48f, 0.57f, 1.0f, 1, 0 },
+        { 252, 168, 0.1f, 1.0f, 0.33f, 0.48f, 0.57f, 1.0f, 1, 1 },
+        {  72, 156, 0.1f, 1.0f, 0.33f, 0.48f, 0.57f, 1.0f, 0, 0 },
+        { 252, 168, 0.1f, 1.0f, 0.33f, 0.48f, 0.57f, 1.0f, 1, 1 },
+        {  72, 168, 0.1f, 1.0f, 0.33f, 0.48f, 0.57f, 1.0f, 0, 1 },
+    };
+
+    d3d8_vulkan_host_draw_rhw(bg, 6, NULL, 0, 0, 0, 0);
+    d3d8_vulkan_host_draw_rhw(panel, 6, NULL, 0, 0, 0, 0);
+    d3d8_vulkan_host_draw_rhw(accent, 6, NULL, 0, 0, 0, 0);
+    if (fallback_draw_count < 4) {
+        fprintf(stderr, "[FSW/Menu] drew Vulkan shell fallback frame\n");
+        fallback_draw_count++;
+    }
+}
+#endif
 
 /**
  * fn_0004C440_CUIMouseCursor_Pos
@@ -827,11 +897,21 @@ loc_001B9D59:
         static uint32_t loadmenus_done_log_count = 0;
         if (loadmenus_done_log_count < 8) {
             fprintf(stderr,
-                    "[FSW/Menu] LoadMenus done result=%08X manager=%08X count=%08X list=%08X top=%08X\n",
+                    "[FSW/Menu] LoadMenus done result=%08X manager=%08X fields=%08X/%08X/%08X %08X/%08X/%08X %08X/%08X/%08X headnode=%08X/%08X/%08X active=%02X\n",
                     (unsigned)eax, (unsigned)manager,
+                    cmenusystem_va_is_valid(manager) ? (unsigned)MEM32(manager + 0x00) : 0,
+                    cmenusystem_va_is_valid(manager) ? (unsigned)MEM32(manager + 0x04) : 0,
+                    cmenusystem_va_is_valid(manager) ? (unsigned)MEM32(manager + 0x08) : 0,
+                    cmenusystem_va_is_valid(manager) ? (unsigned)MEM32(manager + 0x10) : 0,
+                    cmenusystem_va_is_valid(manager) ? (unsigned)MEM32(manager + 0x14) : 0,
+                    cmenusystem_va_is_valid(manager) ? (unsigned)MEM32(manager + 0x18) : 0,
                     cmenusystem_va_is_valid(manager) ? (unsigned)MEM32(manager + 0x1C) : 0,
                     cmenusystem_va_is_valid(manager) ? (unsigned)MEM32(manager + 0x18) : 0,
-                    cmenusystem_va_is_valid(manager) ? (unsigned)MEM32(manager + 0x20) : 0);
+                    cmenusystem_va_is_valid(manager) ? (unsigned)MEM32(manager + 0x20) : 0,
+                    (cmenusystem_va_is_valid(manager) && cmenusystem_va_is_valid(MEM32(manager + 0x18))) ? (unsigned)MEM32(MEM32(manager + 0x18) + 0x00) : 0,
+                    (cmenusystem_va_is_valid(manager) && cmenusystem_va_is_valid(MEM32(manager + 0x18))) ? (unsigned)MEM32(MEM32(manager + 0x18) + 0x04) : 0,
+                    (cmenusystem_va_is_valid(manager) && cmenusystem_va_is_valid(MEM32(manager + 0x18))) ? (unsigned)MEM32(MEM32(manager + 0x18) + 0x08) : 0,
+                    cmenusystem_va_is_valid(manager) ? (unsigned)MEM8(manager + 0x3C) : 0);
         }
         loadmenus_done_log_count++;
     }
@@ -1969,21 +2049,24 @@ loc_001BA5CA:
  */
 void fn_001BA610_CMenuSystem_Render(void)
 {
+    uint32_t camera_va;
     int _flags = 0; /* fallback flag var */
     int _cf = 0; /* carry flag */
 
 loc_001BA610:
     cmenusystem_ensure_init();
     esi = MEM32(0x5FA518);
+    camera_va = edi;
     {
         static uint32_t render_log_count = 0;
         if (render_log_count < 8) {
             fprintf(stderr,
-                    "[FSW/Menu] CMenuSystem_Render menu=%08X valid=%u flags=%02X/%02X\n",
+                    "[FSW/Menu] CMenuSystem_Render menu=%08X valid=%u flags=%02X/%02X camera=%08X\n",
                     (unsigned)esi,
                     (unsigned)(cmenusystem_va_is_valid(esi) && cmenusystem_va_is_valid(MEM32(esi))),
                     cmenusystem_va_is_valid(esi + 0x7C) ? MEM8(esi + 0x7C) : 0,
-                    cmenusystem_va_is_valid(esi + 0xA8) ? MEM8(esi + 0xA8) : 0);
+                    cmenusystem_va_is_valid(esi + 0xA8) ? MEM8(esi + 0xA8) : 0,
+                    (unsigned)camera_va);
             render_log_count++;
         }
     }
@@ -2013,7 +2096,7 @@ loc_001BA648:
 #ifdef XBOXRECOMP_VULKAN_GRAPHICS
     goto loc_001BA65E;
 #endif
-    PUSH32(esp, edi);
+    PUSH32(esp, camera_va);
     PUSH32(esp, 0); fn_00198E60_CBackGroundUI_Render(); /* call 0x00198E60 */
 
 loc_001BA64E:
@@ -2026,7 +2109,7 @@ loc_001BA64E:
 
 loc_001BA65E:
     eax = MEM32(0x5FA8B0);
-    PUSH32(esp, edi);
+    PUSH32(esp, camera_va);
     PUSH32(esp, 0); fn_0012FBF0_CUIMenuManager_Render(); /* call 0x0012FBF0 */
 
 loc_001BA669:
@@ -2036,13 +2119,16 @@ loc_001BA66B:
 #ifdef XBOXRECOMP_VULKAN_GRAPHICS
     goto loc_001BA65E;
 #endif
-    PUSH32(esp, edi);
+    PUSH32(esp, camera_va);
     PUSH32(esp, 0); fn_00198E60_CBackGroundUI_Render(); /* call 0x00198E60 */
 
 loc_001BA671:
     esp = esp + 4;
 
 loc_001BA674:
+#ifdef XBOXRECOMP_VULKAN_GRAPHICS
+    cmenusystem_draw_shell_fallback();
+#endif
     eax = MEM32(0x5FA8E8);
     if (!cmenusystem_va_is_valid(eax) || !cmenusystem_va_is_valid(eax + 0x6738)) return;
     MEM8(eax + 0x4B29) = MEM8(eax + 0x4B29) & 0xFE;
@@ -2420,12 +2506,14 @@ loc_001BA929:
 void fn_001BA940_CMenuSystem_Update(void)
 {
     uint32_t ebp;
+    uint32_t menu_system_va;
     int _flags = 0; /* fallback flag var */
     ebp = g_seh_ebp; /* fpo_leaf: inherit caller's frame */
 
 loc_001BA940:
     cmenusystem_ensure_init();
     edi = MEM32(0x5FA518);
+    menu_system_va = edi;
     if (!cmenusystem_va_is_valid(edi) || !cmenusystem_va_is_valid(MEM32(edi))) return;
     SET_LO8(eax, MEM8(edi + 0x7C));
     (void)0; /* test LO8(eax), LO8(eax) - flags set for next jcc */
@@ -2543,6 +2631,8 @@ loc_001BAA14:
     MEM32(eax + 0x240) = 0;
 
 loc_001BAA23:
+    edi = menu_system_va;
+    if (!cmenusystem_va_is_valid(edi + 0xA8)) goto loc_001BAA6F;
     SET_LO8(eax, MEM8(edi + 0xA8));
     if (TEST_Z(LO8(eax), LO8(eax))) goto loc_001BAA6F; /* je: equal / zero */
 

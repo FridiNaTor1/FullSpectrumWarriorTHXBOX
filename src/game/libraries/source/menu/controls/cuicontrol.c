@@ -8,6 +8,21 @@
 #include "recomp_funcs.h"
 #include <math.h>
 
+static int cuicontrol_va_is_valid(uint32_t va)
+{
+    return va >= 0x00010000u && va < 0x04000000u;
+}
+
+static int cuicontrol_method_is_valid(uint32_t object, uint32_t method_offset)
+{
+    if (!cuicontrol_va_is_valid(object) || !cuicontrol_va_is_valid(object + 4)) {
+        return 0;
+    }
+
+    uint32_t vtbl = MEM32(object);
+    return cuicontrol_va_is_valid(vtbl + method_offset) && MEM32(vtbl + method_offset) != 0;
+}
+
 /**
  * fn_00052890_GCUIControl_UAEPAXI_Z
  * Symbol: ??_GCUIControl@@UAEPAXI@Z
@@ -3867,6 +3882,7 @@ loc_00132504:
     MEM8(ebx + 0xE5) = MEM8(ebx + 0xE5) & 0xFD;
 
 loc_0013250B:
+    if (!cuicontrol_method_is_valid(ebx, 0x24) || !cuicontrol_va_is_valid(ebx + 0xEC)) goto loc_001325CF;
     xmm0 = 0.0f; /* xorps self = zero */
     eax = ebx + 0xAC;
     esi = ebx + 0x50;
@@ -3887,8 +3903,14 @@ loc_0013253B:
     /* nop */
 
 loc_00132540:
+    if (!cuicontrol_va_is_valid(eax) || !cuicontrol_va_is_valid(eax + 4)) goto loc_001325CF;
     esi = MEM32(eax);
     if (TEST_Z(esi, esi)) goto loc_001325B6; /* je: equal / zero */
+    if (!cuicontrol_method_is_valid(esi, 0x2C) ||
+        !cuicontrol_method_is_valid(esi, 0x24) ||
+        !cuicontrol_va_is_valid(esi + 0xEC)) {
+        goto loc_001325B6;
+    }
 
 loc_00132546:
     ecx = MEM32(ebp + 0x14);
@@ -4640,13 +4662,30 @@ loc_001328FB:
 /* Fallback for unresolved generated target 0x001328FD. */
 void sub_001328FD(void)
 {
-    recomp_missing_target(0x001328FDu);
+    uint32_t ebp;
+    ebp = g_seh_ebp; /* fpo_leaf: inherit caller's frame */
+
+loc_001328FD:
+    eax = MEM32(ebp + 4);
+    PUSH32(esp, eax);
+    PUSH32(esp, 0); fn_0009EBFC_read(); /* call 0x0009EBFC */
+
+loc_00132906:
+    esp = esp + 0xC;
+    g_seh_ebp = ebp; sub_00132909(); return;
 }
 
-/* Fallback for unresolved generated target 0x00132909. */
 void sub_00132909(void)
 {
-    recomp_missing_target(0x00132909u);
+    uint32_t ebp;
+
+loc_00132909:
+    POP32(esp, edi);
+    POP32(esp, esi);
+    POP32(esp, ebp);
+    POP32(esp, ebx);
+    esp = esp + 0xC;
+    esp += 12; return; /* ret 8 */
 }
 
 /**

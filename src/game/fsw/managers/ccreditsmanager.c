@@ -798,6 +798,20 @@ void fn_002A1030_CCreditsManager_Setup(void)
     ebp = g_seh_ebp; /* fpo_leaf: inherit caller's frame */
 
 loc_002A1030:
+    {
+        uint32_t self = MEM32(esp + 4);
+        if (self >= 0x00010000u && self < 0x04000000u) {
+            MEM32(self + 0x00) = 0;
+            MEM32(self + 0x04) = 0;
+            MEM32(self + 0x08) = 0;
+            MEM8(self + 0x18) = 0;
+            MEM32(self + 0x24) = 0;
+            MEM32(self + 0x28) = 0;
+        }
+        fprintf(stderr, "[FSW/Credits] credits setup skipped for shell bring-up\n");
+        SET_LO8(eax, 1);
+        esp += 8; return; /* ret 4 */
+    }
     PUSH32(esp, 0xFFFFFFFFu);
     eax = MEM32(0);
     PUSH32(esp, 0x4053B1);
@@ -842,6 +856,10 @@ loc_002A106B:
 loc_002A10AB:
     MEM32(esp + 0x40) = esi;
     esi = esp + 0x10;
+    if (MEM32(esp + 0x14) == 0xFFFFFFFFu && MEM32(esp + 0x24) == 0) {
+        fprintf(stderr, "[FSW/Credits] credits.dat missing, skipping credits setup\n");
+        goto loc_002A11AD;
+    }
     PUSH32(esp, 0); fn_00122260_ZeroFile_Size(); /* call 0x00122260 */
 
 loc_002A10B8:

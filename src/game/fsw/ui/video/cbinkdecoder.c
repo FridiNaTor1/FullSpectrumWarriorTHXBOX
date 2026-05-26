@@ -6,7 +6,54 @@
 
 #define RECOMP_GENERATED_CODE
 #include "recomp_funcs.h"
+#ifdef XBOXRECOMP_VULKAN_GRAPHICS
+#include "d3d8_vulkan_host.h"
+#endif
 #include <math.h>
+#include <stdio.h>
+
+#define FSW_BINK_MAGIC 0x42494E4Bu
+
+#ifdef XBOXRECOMP_VULKAN_GRAPHICS
+static void fsw_bink_draw_synthetic(uint32_t bink_va)
+{
+    static uint32_t log_count;
+    uint32_t frame = MEM32(bink_va + 0x0C);
+    float t = (float)(frame % 120u) / 120.0f;
+    float shade = 0.10f + 0.10f * t;
+    D3D8VulkanRhwVertex bg[6] = {
+        {   0,   0, 0.05f, 1.0f, 0.02f, 0.025f, 0.025f, 1.0f, 0, 0 },
+        { 640,   0, 0.05f, 1.0f, 0.06f, 0.065f, 0.060f, 1.0f, 1, 0 },
+        { 640, 480, 0.05f, 1.0f, 0.01f, 0.015f, 0.018f, 1.0f, 1, 1 },
+        {   0,   0, 0.05f, 1.0f, 0.02f, 0.025f, 0.025f, 1.0f, 0, 0 },
+        { 640, 480, 0.05f, 1.0f, 0.01f, 0.015f, 0.018f, 1.0f, 1, 1 },
+        {   0, 480, 0.05f, 1.0f, 0.05f, 0.060f, 0.055f, 1.0f, 0, 1 },
+    };
+    D3D8VulkanRhwVertex letterbox[12] = {
+        { 0, 0, 0.02f, 1.0f, 0, 0, 0, 1, 0, 0 }, { 640, 0, 0.02f, 1.0f, 0, 0, 0, 1, 1, 0 }, { 640, 60, 0.02f, 1.0f, 0, 0, 0, 1, 1, 1 },
+        { 0, 0, 0.02f, 1.0f, 0, 0, 0, 1, 0, 0 }, { 640, 60, 0.02f, 1.0f, 0, 0, 0, 1, 1, 1 }, { 0, 60, 0.02f, 1.0f, 0, 0, 0, 1, 0, 1 },
+        { 0, 420, 0.02f, 1.0f, 0, 0, 0, 1, 0, 0 }, { 640, 420, 0.02f, 1.0f, 0, 0, 0, 1, 1, 0 }, { 640, 480, 0.02f, 1.0f, 0, 0, 0, 1, 1, 1 },
+        { 0, 420, 0.02f, 1.0f, 0, 0, 0, 1, 0, 0 }, { 640, 480, 0.02f, 1.0f, 0, 0, 0, 1, 1, 1 }, { 0, 480, 0.02f, 1.0f, 0, 0, 0, 1, 0, 1 },
+    };
+    D3D8VulkanRhwVertex mark[6] = {
+        { 150, 216, 0.01f, 1.0f, 0.72f, 0.72f, 0.66f, 1.0f, 0, 0 },
+        { 490, 216, 0.01f, 1.0f, 0.72f, 0.72f, 0.66f, 1.0f, 1, 0 },
+        { 490, 226, 0.01f, 1.0f, shade + 0.30f, shade + 0.34f, shade + 0.32f, 1.0f, 1, 1 },
+        { 150, 216, 0.01f, 1.0f, 0.72f, 0.72f, 0.66f, 1.0f, 0, 0 },
+        { 490, 226, 0.01f, 1.0f, shade + 0.30f, shade + 0.34f, shade + 0.32f, 1.0f, 1, 1 },
+        { 150, 226, 0.01f, 1.0f, shade + 0.30f, shade + 0.34f, shade + 0.32f, 1.0f, 0, 1 },
+    };
+
+    d3d8_vulkan_host_draw_rhw(bg, 6, NULL, 0, 0, 0, 0);
+    d3d8_vulkan_host_draw_rhw(letterbox, 12, NULL, 0, 0, 0, 0);
+    d3d8_vulkan_host_draw_rhw(mark, 6, NULL, 0, 0, 0, 0);
+    if (log_count < 4) {
+        fprintf(stderr, "[FSW/Bink] drew synthetic intro frame bink=%08X frame=%u\n",
+                (unsigned)bink_va, (unsigned)frame);
+        log_count++;
+    }
+}
+#endif
 
 /**
  * fn_0004C360_CDecoder_Pause
@@ -1452,6 +1499,24 @@ loc_001BC250:
     PUSH32(esp, edi);
     edi = ecx;
     eax = MEM32(edi + 0x7C);
+#ifdef XBOXRECOMP_VULKAN_GRAPHICS
+    if (eax >= 0x00010000u && eax < 0x04000000u && MEM32(eax + 0x20) == FSW_BINK_MAGIC) {
+        uint32_t frame = MEM32(eax + 0x0C);
+        uint32_t total = MEM32(eax + 0x08);
+        fsw_bink_draw_synthetic(eax);
+        if (frame < total) {
+            MEM32(eax + 0x0C) = frame + 1;
+        } else {
+            MEM8(edi + 0x4C) = 1;
+        }
+        POP32(esp, edi);
+        POP32(esp, esi);
+        POP32(esp, ebp);
+        POP32(esp, ebx);
+        esp = esp + 8;
+        esp += 12; return; /* ret 8 */
+    }
+#endif
     PUSH32(esp, 0); fn_004E8390_BinkWait_4(); /* call 0x004E8390 */
 
 loc_001BC267:

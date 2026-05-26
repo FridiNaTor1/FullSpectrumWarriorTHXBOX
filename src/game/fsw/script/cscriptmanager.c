@@ -1832,6 +1832,7 @@ loc_0004F4A0:
         node = eax;
 
         if (node == 0) {
+            esp += 4;
             return;
         }
 
@@ -1846,6 +1847,8 @@ loc_0004F4A0:
             MEM32(list + 8) = node;
         }
         MEM32(list + 4) = node;
+        eax = node;
+        esp += 4;
         return;
     }
 

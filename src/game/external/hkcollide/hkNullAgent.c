@@ -19,6 +19,30 @@ static uint32_t g_wsa_last_error;
 static uint32_t g_xact_engine_va;
 extern uint32_t xbox_HeapAlloc(uint32_t size, uint32_t alignment);
 
+#define FSW_BINK_MAGIC 0x42494E4Bu
+
+static int xbox_va_is_valid(uint32_t va);
+
+static uint32_t fsw_bink_alloc_synthetic(uint32_t path_va, uint32_t flags)
+{
+    uint32_t bink = xbox_HeapAlloc(0x100, 16);
+    if (!xbox_va_is_valid(bink)) {
+        return 0;
+    }
+
+    memset((void *)XBOX_PTR(bink), 0, 0x100);
+    MEM32(bink + 0x00) = 640;
+    MEM32(bink + 0x04) = 360;
+    MEM32(bink + 0x08) = 180;
+    MEM32(bink + 0x0C) = 1;
+    MEM32(bink + 0x10) = flags;
+    MEM32(bink + 0x14) = path_va;
+    MEM32(bink + 0x20) = FSW_BINK_MAGIC;
+    fprintf(stderr, "[FSW/Bink] synthetic open path=%08X flags=%08X bink=%08X\n",
+            (unsigned)path_va, (unsigned)flags, (unsigned)bink);
+    return bink;
+}
+
 static int xbox_va_is_valid(uint32_t va)
 {
     return va >= 0x00010000u && va < 0x04000000u;
@@ -1581,85 +1605,127 @@ void fn_004DF910_Direct3D_CreateDevice_24(void)
 /* Fallback for unresolved generated target 0x004E6370. */
 void fn_004E6370_BinkSetSoundTrack_8(void)
 {
-    recomp_missing_target(0x004E6370u);
+    eax = 0;
+    esp += 4; return;
 }
 
 /* Fallback for unresolved generated target 0x004E65B0. */
 void fn_004E65B0_BinkGetFrameBuffersInfo_8(void)
 {
-    recomp_missing_target(0x004E65B0u);
+    if (xbox_va_is_valid(eax)) {
+        memset((void *)XBOX_PTR(eax), 0, 0x80);
+    }
+    esp += 4; return;
 }
 
 /* Fallback for unresolved generated target 0x004E6650. */
 void fn_004E6650_BinkRegisterFrameBuffers_8(void)
 {
-    recomp_missing_target(0x004E6650u);
+    eax = 0;
+    esp += 4; return;
 }
 
 /* Fallback for unresolved generated target 0x004E6660. */
 void fn_004E6660_BinkOpen_8(void)
 {
-    recomp_missing_target(0x004E6660u);
+    uint32_t path_va = MEM32(esp + 4);
+    uint32_t flags = MEM32(esp + 8);
+    eax = fsw_bink_alloc_synthetic(path_va, flags);
+    esp += 12; return;
 }
 
 /* Fallback for unresolved generated target 0x004E76B0. */
 void fn_004E76B0_BinkDoFrame_4(void)
 {
-    recomp_missing_target(0x004E76B0u);
+    uint32_t bink = MEM32(esp + 4);
+    if (!xbox_va_is_valid(bink) && xbox_va_is_valid(esi)) {
+        bink = esi;
+    }
+    if (xbox_va_is_valid(bink) && MEM32(bink + 0x20) == FSW_BINK_MAGIC) {
+        uint32_t frame = MEM32(bink + 0x0C);
+        uint32_t total = MEM32(bink + 0x08);
+        if (frame < total) {
+            MEM32(bink + 0x0C) = frame + 1;
+        }
+    }
+    eax = 0;
+    esp += 8; return;
 }
 
 /* Fallback for unresolved generated target 0x004E7C70. */
 void fn_004E7C70_BinkShouldSkip_4(void)
 {
-    recomp_missing_target(0x004E7C70u);
+    eax = 0;
+    esp += 4; return;
 }
 
 /* Fallback for unresolved generated target 0x004E7D10. */
 void fn_004E7D10_BinkNextFrame_4(void)
 {
-    recomp_missing_target(0x004E7D10u);
+    uint32_t bink = xbox_va_is_valid(eax) ? eax : esi;
+    if (xbox_va_is_valid(bink) && MEM32(bink + 0x20) == FSW_BINK_MAGIC) {
+        uint32_t frame = MEM32(bink + 0x0C);
+        uint32_t total = MEM32(bink + 0x08);
+        if (frame < total) {
+            MEM32(bink + 0x0C) = frame + 1;
+        }
+    }
+    eax = 0;
+    esp += 4; return;
 }
 
 /* Fallback for unresolved generated target 0x004E7FB0. */
 void fn_004E7FB0_BinkGoto_12(void)
 {
-    recomp_missing_target(0x004E7FB0u);
+    uint32_t frame = eax;
+    uint32_t bink = ecx;
+    if (xbox_va_is_valid(bink) && MEM32(bink + 0x20) == FSW_BINK_MAGIC) {
+        MEM32(bink + 0x0C) = frame;
+    }
+    eax = 0;
+    esp += 8; return;
 }
 
 /* Fallback for unresolved generated target 0x004E8170. */
 void fn_004E8170_BinkClose_4(void)
 {
-    recomp_missing_target(0x004E8170u);
+    eax = 0;
+    esp += 4; return;
 }
 
 /* Fallback for unresolved generated target 0x004E8390. */
 void fn_004E8390_BinkWait_4(void)
 {
-    recomp_missing_target(0x004E8390u);
+    eax = 0;
+    esp += 4; return;
 }
 
 /* Fallback for unresolved generated target 0x004E85B0. */
 void fn_004E85B0_BinkPause_8(void)
 {
-    recomp_missing_target(0x004E85B0u);
+    eax = 0;
+    esp += 8; return;
 }
 
 /* Fallback for unresolved generated target 0x004E86E0. */
 void fn_004E86E0_BinkSetVolume_12(void)
 {
-    recomp_missing_target(0x004E86E0u);
+    eax = 0;
+    esp += 8; return;
 }
 
 /* Fallback for unresolved generated target 0x004E8720. */
 void fn_004E8720_BinkSetMixBins_16(void)
 {
-    recomp_missing_target(0x004E8720u);
+    eax = 0;
+    esp += 12; return;
 }
 
 /* Fallback for unresolved generated target 0x004E88C0. */
 void fn_004E88C0_BinkSetMemory_8(void)
 {
-    recomp_missing_target(0x004E88C0u);
+    eax = 0;
+    esp += 4; return;
 }
 
 /* Fallback for unresolved generated target 0x004EDCA0. */

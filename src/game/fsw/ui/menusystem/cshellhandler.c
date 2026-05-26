@@ -10,6 +10,7 @@
 #include "d3d8_vulkan_host.h"
 #endif
 #include <math.h>
+#include <string.h>
 
 extern uint32_t xbox_HeapAlloc(uint32_t size, uint32_t alignment);
 
@@ -24,6 +25,64 @@ static uint32_t fsw_shell_video_info_va(void)
         }
     }
     return info_va;
+}
+
+static int fsw_shell_va_is_valid(uint32_t va)
+{
+    return va >= 0x00010000u && va < 0x04000000u;
+}
+
+static uint32_t fsw_f32_bits(float value)
+{
+    uint32_t bits;
+    memcpy(&bits, &value, sizeof(bits));
+    return bits;
+}
+
+static void fsw_write_identity_matrix(uint32_t va)
+{
+    for (uint32_t i = 0; i < 16; i++) {
+        MEM32(va + i * 4) = 0;
+    }
+    MEM32(va + 0x00) = fsw_f32_bits(1.0f);
+    MEM32(va + 0x14) = fsw_f32_bits(1.0f);
+    MEM32(va + 0x28) = fsw_f32_bits(1.0f);
+    MEM32(va + 0x3C) = fsw_f32_bits(1.0f);
+}
+
+static uint32_t fsw_shell_camera_va(uint32_t video_va)
+{
+    static uint32_t camera_va;
+
+    if (fsw_shell_va_is_valid(camera_va) && fsw_shell_va_is_valid(MEM32(camera_va))) {
+        return camera_va;
+    }
+
+    camera_va = xbox_HeapAlloc(0x2D0, 16);
+    if (!fsw_shell_va_is_valid(camera_va)) {
+        camera_va = 0;
+        return 0;
+    }
+
+    for (uint32_t off = 0; off < 0x2D0; off += 4) {
+        MEM32(camera_va + off) = 0;
+    }
+
+    MEM32(camera_va) = 0x5606E8; /* XBCamera vtable */
+    MEM32(camera_va + 0x18) = 640;
+    MEM32(camera_va + 0x1C) = 480;
+    MEM32(camera_va + 0x20) = fsw_f32_bits(640.0f);
+    MEM32(camera_va + 0x24) = fsw_f32_bits(480.0f);
+    fsw_write_identity_matrix(camera_va + 0x110);
+    fsw_write_identity_matrix(camera_va + 0x240);
+    MEM8(camera_va + 0x2BC) = 1;
+    MEM32(camera_va + 0x2C0) = fsw_f32_bits(1.0f);
+    MEM32(camera_va + 0x2C4) = fsw_f32_bits(1.0f);
+
+    if (fsw_shell_va_is_valid(video_va)) {
+        MEM32(video_va + 0xD0) = camera_va;
+    }
+    return camera_va;
 }
 
 /**
@@ -1033,6 +1092,7 @@ void fn_001B9200_CShellHandler_Render(void)
 {
     uint32_t ebp;
     uint32_t render_saved_esp;
+    uint32_t render_camera_va;
     int _flags = 0; /* fallback flag var */
     ebp = g_seh_ebp; /* fpo_leaf: inherit caller's frame */
 
@@ -1043,6 +1103,10 @@ loc_001B9200:
     PUSH32(esp, edi);
     render_saved_esp = esp;
     edi = MEM32(ebx + 0xD0);
+    if (!fsw_shell_va_is_valid(edi) || !fsw_shell_va_is_valid(MEM32(edi))) {
+        edi = fsw_shell_camera_va(ebx);
+    }
+    render_camera_va = edi;
     PUSH32(esp, 0); fn_00153CC0_XBWarmEffect_Get(); /* call 0x00153CC0 */
 
 loc_001B9214:
@@ -1123,6 +1187,7 @@ loc_001B9255:
 
 loc_001B925C:
     esi = MEM32(0x5FA518);
+    edi = render_camera_va;
     PUSH32(esp, 0); fn_001BA610_CMenuSystem_Render(); /* call 0x001BA610 */
 #ifdef XBOXRECOMP_VULKAN_GRAPHICS
     d3d8_vulkan_host_present();

@@ -9612,6 +9612,14 @@ void fn_00279CD0_CNetManager_UpdateSinglePlayer(void)
     ebp = g_seh_ebp; /* fpo_leaf: inherit caller's frame */
 
 loc_00279CD0:
+    {
+        static uint32_t net_sp_skip_log_count = 0;
+        if (net_sp_skip_log_count < 4) {
+            fprintf(stderr, "[FSW/Net] single-player network update skipped for shell bring-up\n");
+            net_sp_skip_log_count++;
+        }
+        esp += 4; return;
+    }
     SET_LO8(eax, MEM8(edi + 0x15BE));
     (void)0; /* test LO8(eax), LO8(eax) - flags set for next jcc */
     PUSH32(esp, ebx);

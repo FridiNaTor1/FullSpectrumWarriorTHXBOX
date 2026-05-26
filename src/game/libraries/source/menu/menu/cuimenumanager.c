@@ -9,6 +9,8 @@
 #include <math.h>
 #include <stdio.h>
 
+extern uint32_t xbox_HeapAlloc(uint32_t size, uint32_t alignment);
+
 /**
  * fn_0012FAB0_CUIMenuManager_LoadStrings
  * Symbol: ?LoadStrings@CUIMenuManager@@QAEXPAD@Z
@@ -363,6 +365,25 @@ loc_0012FC33:
     if (TEST_Z(esi, esi)) goto loc_0012FC44; /* je: equal / zero */
 
 loc_0012FC37:
+    {
+        static uint32_t menu_render_call_log_count = 0;
+        if (menu_render_call_log_count < 16) {
+            uint32_t vtbl = (esi >= 0x00010000u && esi < 0x04000000u) ? MEM32(esi) : 0;
+            uint32_t target = (vtbl >= 0x00010000u && vtbl < 0x04000000u) ? MEM32(vtbl + 0x38) : 0;
+            uint32_t child_head = (esi >= 0x00010000u && esi < 0x04000000u) ? MEM32(esi + 0xB4) : 0;
+            uint32_t first_child = (child_head >= 0x00010000u && child_head < 0x04000000u) ? MEM32(child_head) : 0;
+            fprintf(stderr,
+                    "[FSW/Menu] render selected menu=%08X vtbl=%08X target=%08X camera=%08X flags=%02X callbacks=%08X/%08X/%08X child=%08X/%08X\n",
+                    (unsigned)esi, (unsigned)vtbl, (unsigned)target,
+                    (unsigned)MEM32(ebp + 8),
+                    (unsigned)((esi >= 0x00010000u && esi < 0x04000000u) ? MEM8(esi + 0xE5) : 0),
+                    (unsigned)((esi >= 0x00010000u && esi < 0x04000000u) ? MEM32(esi + 0xBC) : 0),
+                    (unsigned)((esi >= 0x00010000u && esi < 0x04000000u) ? MEM32(esi + 0xC0) : 0),
+                    (unsigned)((esi >= 0x00010000u && esi < 0x04000000u) ? MEM32(esi + 0xC4) : 0),
+                    (unsigned)child_head, (unsigned)first_child);
+            menu_render_call_log_count++;
+        }
+    }
     ecx = MEM32(ebp + 8);
     eax = MEM32(esi);
     { uint32_t _icall_esp = g_esp;
@@ -1019,11 +1040,25 @@ loc_0012FF67:
 void sub_0012FF6A(void)
 {
     uint32_t ebp;
+    uint32_t menu_count;
+    uint32_t first_menu_va = 0;
     int _flags = 0; /* fallback flag var */
     ebp = g_seh_ebp; /* fpo_leaf: inherit caller's frame */
 
 loc_0012FF6A:
+    {
+        static uint32_t loadcontrols_count_log_count = 0;
+        if (loadcontrols_count_log_count < 16) {
+            fprintf(stderr,
+                    "[FSW/Menu] LoadControls count file=%08X count=%08X header=%08X/%08X/%08X esp=%08X\n",
+                    (unsigned)edi, (unsigned)MEM32(esp),
+                    (unsigned)MEM32(esp), (unsigned)MEM32(esp + 4),
+                    (unsigned)MEM32(esp + 8), (unsigned)esp);
+        }
+        loadcontrols_count_log_count++;
+    }
     eax = MEM32(esp);
+    menu_count = eax;
     PUSH32(esp, ebp);
     ebp = 0; /* xor self */
     if (CMP_LE(eax & eax, 0)) goto loc_00130023; /* jle: less or equal (signed <=) */
@@ -1090,6 +1125,9 @@ loc_0012FFF7:
     eax = 0; /* xor self */
 
 loc_0012FFF9:
+    if (first_menu_va == 0 && eax >= 0x00010000u && eax < 0x04000000u) {
+        first_menu_va = eax;
+    }
     edx = MEM32(eax);
     { uint32_t _icall_esp = g_esp;
     PUSH32(esp, 0);
@@ -1105,11 +1143,74 @@ loc_00130007:
     PUSH32(esp, 0); fn_0004F4A0_PAVCUIMenu_ZeroList_Append(); /* call 0x0004F4A0 */
 
 loc_00130014:
-    eax = MEM32(esp + 0xC);
+    eax = menu_count;
+    {
+        static uint32_t loadcontrols_loop_log_count = 0;
+        if (loadcontrols_loop_log_count < 16) {
+            uint32_t manager = MEM32(0x5FA8B0);
+            fprintf(stderr,
+                    "[FSW/Menu] LoadControls loop idx=%08X limit=%08X manager=%08X list=%08X/%08X/%08X stack=%08X/%08X/%08X/%08X eax=%08X\n",
+                    (unsigned)ebp, (unsigned)menu_count, (unsigned)manager,
+                    (manager >= 0x00010000u && manager < 0x04000000u) ? (unsigned)MEM32(manager + 0x10) : 0,
+                    (manager >= 0x00010000u && manager < 0x04000000u) ? (unsigned)MEM32(manager + 0x14) : 0,
+                    (manager >= 0x00010000u && manager < 0x04000000u) ? (unsigned)MEM32(manager + 0x18) : 0,
+                    (unsigned)MEM32(esp + 0x14),
+                    (unsigned)MEM32(esp + 0x18),
+                    (unsigned)MEM32(esp + 0x1C),
+                    (unsigned)MEM32(esp + 0x20),
+                    (unsigned)eax);
+            loadcontrols_loop_log_count++;
+        }
+    }
     ebp++;
     if (CMP_L(ebp, eax)) goto loc_0012FF85; /* jl: less (signed <) */
 
 loc_00130021:
+    {
+        uint32_t manager = MEM32(0x5FA8B0);
+        if (manager >= 0x00010000u && manager < 0x04000000u && MEM32(manager + 0x18) != 0) {
+            uint32_t head = MEM32(manager + 0x18);
+            uint32_t scan = head;
+            uint32_t best_menu = 0;
+            for (uint32_t i = 0; i < 160 && scan >= 0x00010000u && scan < 0x04000000u; i++) {
+                uint32_t value = MEM32(scan);
+                uint32_t next = MEM32(scan + 4);
+                uint32_t child_head = (value >= 0x00010000u && value < 0x04000000u) ? MEM32(value + 0xB4) : 0;
+                uint32_t first_child = (child_head >= 0x00010000u && child_head < 0x04000000u) ? MEM32(child_head) : 0;
+                uint32_t render_cb = (value >= 0x00010000u && value < 0x04000000u) ? MEM32(value + 0xC0) : 0;
+                if (i < 12 || render_cb != 0 || first_child != 0) {
+                    fprintf(stderr,
+                            "[FSW/Menu] loaded node[%02u]=%08X value=%08X vtbl=%08X cb=%08X child=%08X/%08X next=%08X\n",
+                            (unsigned)i, (unsigned)scan, (unsigned)value,
+                            (unsigned)((value >= 0x00010000u && value < 0x04000000u) ? MEM32(value) : 0),
+                            (unsigned)render_cb, (unsigned)child_head, (unsigned)first_child, (unsigned)next);
+                }
+                if (best_menu == 0 &&
+                    ((first_child >= 0x00010000u && first_child < 0x04000000u) || render_cb != 0)) {
+                    best_menu = value;
+                }
+                scan = next;
+            }
+            if (best_menu != 0) {
+                first_menu_va = best_menu;
+            }
+            if (first_menu_va != 0 && head >= 0x00010000u && head < 0x04000000u) {
+                MEM32(head) = first_menu_va;
+            }
+            if (MEM32(manager + 0x20) == 0 && MEM32(manager + 0x10) > 0) {
+                uint32_t selected_index = 0;
+                uint32_t node = xbox_HeapAlloc(0xC, 4);
+                if (node >= 0x00010000u && node < 0x04000000u) {
+                    MEM32(node) = selected_index;
+                    MEM32(node + 4) = 0;
+                    MEM32(node + 8) = 0;
+                    MEM32(manager + 0x1C) = 1;
+                    MEM32(manager + 0x20) = node;
+                    MEM32(manager + 0x24) = node;
+                }
+            }
+        }
+    }
     POP32(esp, esi);
     POP32(esp, ebx);
 
