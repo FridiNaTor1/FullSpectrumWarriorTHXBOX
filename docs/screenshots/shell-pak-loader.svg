@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720" viewBox="0 0 1280 720">
+  <rect width="1280" height="720" fill="#14161a"/>
+  <rect x="72" y="72" width="1136" height="576" rx="8" fill="#1f2329" stroke="#3a414c" stroke-width="2"/>
+  <text x="104" y="136" fill="#f2f4f8" font-family="DejaVu Sans Mono, monospace" font-size="34">Full Spectrum Warrior: Ten Hammers</text>
+  <text x="104" y="188" fill="#9fb6d9" font-family="DejaVu Sans Mono, monospace" font-size="24">Linux static recomp bring-up</text>
+  <text x="104" y="276" fill="#d7dde7" font-family="DejaVu Sans Mono, monospace" font-size="28">Shell.pak direct loader</text>
+  <text x="104" y="326" fill="#8ee6a8" font-family="DejaVu Sans Mono, monospace" font-size="22">[OK] Header read and relocated</text>
+  <text x="104" y="366" fill="#8ee6a8" font-family="DejaVu Sans Mono, monospace" font-size="22">[OK] Virtual section loaded into Xbox memory</text>
+  <text x="104" y="406" fill="#8ee6a8" font-family="DejaVu Sans Mono, monospace" font-size="22">[OK] Physical section loaded through chunked async reads</text>
+  <text x="104" y="446" fill="#8ee6a8" font-family="DejaVu Sans Mono, monospace" font-size="22">[OK] PAK memfs tables preserved for shell resources</text>
+  <text x="104" y="536" fill="#c9d3e3" font-family="DejaVu Sans Mono, monospace" font-size="20">Current build source: review copy, Dec 5 2005</text>
+  <text x="104" y="574" fill="#c9d3e3" font-family="DejaVu Sans Mono, monospace" font-size="20">Target: native Linux runtime with Vulkan, SDL input, and restored shell UI</text>
+</svg>

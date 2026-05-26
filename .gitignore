@@ -1,0 +1,9 @@
+build/
+bin/
+game_files/
+logs/
+xbox_kernel.log
+tools/
+
+__pycache__/
+*.pyc

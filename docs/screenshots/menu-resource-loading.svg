@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720" viewBox="0 0 1280 720">
+  <rect width="1280" height="720" fill="#161817"/>
+  <rect x="72" y="72" width="1136" height="576" rx="8" fill="#202720" stroke="#4a5b4b" stroke-width="2"/>
+  <text x="104" y="136" fill="#f4f7ef" font-family="DejaVu Sans Mono, monospace" font-size="34">Shell UI Resource Bring-Up</text>
+  <text x="104" y="196" fill="#b7d7a8" font-family="DejaVu Sans Mono, monospace" font-size="24">PAK-contained files now resolve through ZeroFile memfs</text>
+  <text x="104" y="286" fill="#dce6d5" font-family="DejaVu Sans Mono, monospace" font-size="24">Resolved resources</text>
+  <text x="128" y="336" fill="#91e6b3" font-family="DejaVu Sans Mono, monospace" font-size="22">English.ui</text>
+  <text x="128" y="376" fill="#91e6b3" font-family="DejaVu Sans Mono, monospace" font-size="22">English.mov</text>
+  <text x="128" y="416" fill="#91e6b3" font-family="DejaVu Sans Mono, monospace" font-size="22">Shell.mbk</text>
+  <text x="128" y="456" fill="#91e6b3" font-family="DejaVu Sans Mono, monospace" font-size="22">menu.ui</text>
+  <text x="104" y="544" fill="#f0cf84" font-family="DejaVu Sans Mono, monospace" font-size="22">Next blocker: menu controls parse path reaches missing target 0x00132909</text>
+  <text x="104" y="586" fill="#cfd8c7" font-family="DejaVu Sans Mono, monospace" font-size="20">Renderer output is still early; final screenshots will replace these progress cards.</text>
+</svg>
