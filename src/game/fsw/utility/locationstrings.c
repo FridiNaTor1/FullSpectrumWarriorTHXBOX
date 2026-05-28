@@ -83,6 +83,17 @@ static uint16_t fsw_location_read_u16_file(const uint8_t *data, size_t size, siz
     return (uint16_t)(data[offset] | ((uint16_t)data[offset + 1] << 8));
 }
 
+static uint32_t fsw_location_read_u32_file(const uint8_t *data, size_t size, size_t offset)
+{
+    if (offset + 3 >= size) {
+        return 0;
+    }
+    return (uint32_t)data[offset] |
+           ((uint32_t)data[offset + 1] << 8) |
+           ((uint32_t)data[offset + 2] << 16) |
+           ((uint32_t)data[offset + 3] << 24);
+}
+
 static uint32_t fsw_location_find_bytes(const uint8_t *data, size_t size, const uint8_t *needle, size_t needle_size)
 {
     if (!data || !needle || needle_size == 0 || needle_size > size) {
@@ -113,6 +124,125 @@ static int fsw_location_prev_utf16_string(const uint8_t *data, size_t size, uint
         pos -= 2;
     }
     *out_start = 0;
+    return 1;
+}
+
+static int fsw_location_pak_body_offset_to_file(uint32_t body_offset, size_t file_size, uint32_t *out_offset)
+{
+    uint32_t file_offset;
+
+    if (!out_offset || body_offset > 0x7FFFFFFFu) {
+        return 0;
+    }
+    file_offset = body_offset + 0x800u;
+    if (file_offset < body_offset || file_offset >= file_size) {
+        return 0;
+    }
+    *out_offset = file_offset;
+    return 1;
+}
+
+static int fsw_location_parse_fallback_pak_table(const char *path, const uint8_t *data, size_t file_size)
+{
+    enum {
+        k_location_table_header_offset = 0x21Cu,
+        k_language_memfs_header_offset = 0x1C4u,
+        k_english_ui_crc = 0x301B801Bu
+    };
+    uint32_t table_body;
+    uint32_t table_offset;
+    uint32_t line_count;
+    uint32_t memfs_body;
+    uint32_t memfs_offset;
+    uint32_t memfs_count;
+    uint32_t english_offset = 0;
+    uint32_t english_size = 0;
+    uint32_t value_offset;
+    FswLocationFallbackLine *lines;
+
+    table_body = fsw_location_read_u32_file(data, file_size, k_location_table_header_offset);
+    if (!fsw_location_pak_body_offset_to_file(table_body, file_size, &table_offset)) {
+        return 0;
+    }
+    line_count = fsw_location_read_u32_file(data, file_size, table_offset);
+    if (line_count == 0 || line_count > 0x10000u ||
+        table_offset + 8u + line_count * 8u > file_size) {
+        return 0;
+    }
+
+    memfs_body = fsw_location_read_u32_file(data, file_size, k_language_memfs_header_offset);
+    if (!fsw_location_pak_body_offset_to_file(memfs_body, file_size, &memfs_offset)) {
+        return 0;
+    }
+    memfs_count = fsw_location_read_u32_file(data, file_size, memfs_offset);
+    if (memfs_count == 0 || memfs_count > 0x10000u ||
+        memfs_offset + 4u + memfs_count * 0xCu > file_size) {
+        return 0;
+    }
+    for (uint32_t i = 0; i < memfs_count; i++) {
+        uint32_t entry = memfs_offset + 4u + i * 0xCu;
+        uint32_t crc = fsw_location_read_u32_file(data, file_size, entry);
+        if (crc == k_english_ui_crc) {
+            uint32_t english_body = fsw_location_read_u32_file(data, file_size, entry + 8u);
+            english_size = fsw_location_read_u32_file(data, file_size, entry + 4u);
+            if (!fsw_location_pak_body_offset_to_file(english_body, file_size, &english_offset) ||
+                english_size == 0 || english_offset + english_size > file_size) {
+                return 0;
+            }
+            break;
+        }
+    }
+    if (english_offset == 0) {
+        return 0;
+    }
+
+    lines = (FswLocationFallbackLine *)calloc(line_count, sizeof(*lines));
+    if (!lines) {
+        return 0;
+    }
+
+    value_offset = english_offset;
+    for (uint32_t i = 0; i < line_count; i++) {
+        uint32_t text_bytes = 0;
+        uint32_t text_va;
+
+        while (value_offset + text_bytes + 1 < english_offset + english_size) {
+            uint16_t value = fsw_location_read_u16_file(data, file_size, value_offset + text_bytes);
+            text_bytes += 2;
+            if (value == 0) {
+                break;
+            }
+        }
+        if (text_bytes < 2 ||
+            fsw_location_read_u16_file(data, file_size, value_offset + text_bytes - 2) != 0) {
+            free(lines);
+            return 0;
+        }
+
+        text_va = xbox_HeapAlloc(text_bytes, 2);
+        if (!fsw_location_table_va_is_valid(text_va)) {
+            free(lines);
+            return 0;
+        }
+        memcpy((void *)XBOX_PTR(text_va), data + value_offset, text_bytes);
+        lines[i].crc = fsw_location_read_u32_file(data, file_size, table_offset + 8u + i * 8u);
+        lines[i].text_va = text_va;
+        value_offset += text_bytes;
+    }
+
+    if (value_offset != english_offset + english_size) {
+        free(lines);
+        return 0;
+    }
+
+    g_fsw_location_fallback_lines = lines;
+    g_fsw_location_fallback_count = line_count;
+    if (g_fsw_location_fallback_log_count < 1) {
+        fprintf(stderr,
+                "[FSW/Location] loaded fallback strings from %s table=%08X english=%08X count=%u\n",
+                path, table_offset, english_offset, line_count);
+        g_fsw_location_fallback_log_count++;
+    }
     return 1;
 }
 
@@ -162,6 +292,11 @@ static int fsw_location_parse_fallback_file(const char *path)
         return 0;
     }
     fclose(file);
+
+    if (fsw_location_parse_fallback_pak_table(path, data, (size_t)file_size)) {
+        free(data);
+        return 1;
+    }
 
     key_anchor = fsw_location_find_bytes(data, (size_t)file_size,
                                          (const uint8_t *)anchor_key, sizeof(anchor_key));

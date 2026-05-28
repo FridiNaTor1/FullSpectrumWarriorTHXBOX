@@ -7,6 +7,43 @@
 #define RECOMP_GENERATED_CODE
 #include "recomp_funcs.h"
 #include <math.h>
+#include <string.h>
+
+extern uint32_t xbox_HeapAlloc(uint32_t size, uint32_t alignment);
+
+static int fsw_variable_text_va_is_valid(uint32_t va)
+{
+    return va >= 0x00010000u && va < 0x04000000u;
+}
+
+static uint32_t fsw_variable_text_not_signed_in(void)
+{
+    static uint32_t text_va;
+    static const uint16_t text[] = {
+        'N', 'o', 't', ' ', 'S', 'i', 'g', 'n', 'e', 'd', ' ', 'i', 'n', '.', 0
+    };
+
+    if (!fsw_variable_text_va_is_valid(text_va)) {
+        uint32_t size = (uint32_t)sizeof(text);
+        text_va = xbox_HeapAlloc(size, 2);
+        if (fsw_variable_text_va_is_valid(text_va)) {
+            memcpy((void *)XBOX_PTR(text_va), text, size);
+        }
+    }
+    return text_va;
+}
+
+static int fsw_variable_text_is_not_signed_control(uint32_t control)
+{
+    if (fsw_variable_text_va_is_valid(MEM32(0x5F31CC) + 0x12C) && control == MEM32(0x5F31CC)) {
+        return 1;
+    }
+    if (MEM32(0x612B38) != 0 && fsw_variable_text_va_is_valid(control + 0x124) &&
+        MEM32(control + 0x124) == MEM32(0x612B38)) {
+        return 1;
+    }
+    return 0;
+}
 
 /**
  * fn_00052A50_GCUIVariableTextControl_UAEPAXI_Z
@@ -264,6 +301,10 @@ loc_0012C7E3:
     PUSH32(esp, 0); fn_00376740_CUIDataRegistry_GetUnicodeString(); /* call 0x00376740 */
 
 loc_0012C7E8:
+    if (fsw_variable_text_is_not_signed_control(esi) &&
+        (!fsw_variable_text_va_is_valid(eax) || MEM16(eax) == 0)) {
+        eax = fsw_variable_text_not_signed_in();
+    }
     MEM32(esi + 0x128) = eax;
     esp += 4; return; /* ret */
 
@@ -277,6 +318,10 @@ loc_0012C7F9:
     PUSH32(esp, 0); fn_003766C0_CUIDataRegistry_GetPtrUnicodeString(); /* call 0x003766C0 */
 
 loc_0012C7FE:
+    if (fsw_variable_text_is_not_signed_control(esi) &&
+        (!fsw_variable_text_va_is_valid(eax) || MEM16(eax) == 0)) {
+        eax = fsw_variable_text_not_signed_in();
+    }
     MEM32(esi + 0x128) = eax;
     esp += 4; return; /* ret */
 

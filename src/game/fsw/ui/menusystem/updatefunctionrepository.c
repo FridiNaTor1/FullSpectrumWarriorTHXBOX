@@ -158,6 +158,22 @@ loc_0019E108:
     if (TEST_Z(esi, esi)) goto loc_0019E118; /* je: equal / zero */
 
 loc_0019E111:
+#ifdef XBOXRECOMP_VULKAN_GRAPHICS
+    if (esi >= 0x00010000u && esi < 0x04000000u && MEM32(esi) == 0x560958u) {
+        MEM8(esi + 0xE4) = MEM8(esi + 0xE4) | 0x84;
+        if (!isfinite(MEMF(esi + 0x9C)) || fabsf(MEMF(esi + 0x9C)) < 1.0f ||
+            !isfinite(MEMF(esi + 0xA0)) || fabsf(MEMF(esi + 0xA0)) < 1.0f) {
+            MEMF(esi + 0x40) = 96.0f;
+            MEMF(esi + 0x44) = 318.0f;
+            MEMF(esi + 0x48) = 0.0f;
+            MEMF(esi + 0x9C) = 448.0f;
+            MEMF(esi + 0xA0) = 92.0f;
+            ebx = esi;
+            PUSH32(esp, 0);
+            fn_0012D620_CUITextEntryControl_SetChildrenPosition();
+        }
+    }
+#endif
     SET_LO8(eax, 1);
     PUSH32(esp, 0); fn_0012CF90_CUITextEntryControl_SetFirstTimeFlag(); /* call 0x0012CF90 */
 

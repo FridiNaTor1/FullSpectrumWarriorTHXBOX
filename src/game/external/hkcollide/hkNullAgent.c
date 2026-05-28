@@ -38,8 +38,10 @@ static uint32_t fsw_bink_alloc_host(uint32_t path_va, uint32_t flags)
     MEM32(bink + 0x08) = 180;
     MEM32(bink + 0x0C) = 1;
     MEM32(bink + 0x10) = flags;
-    MEM32(bink + 0x14) = path_va;
+    MEM32(bink + 0x14) = 30;
+    MEM32(bink + 0x18) = 1;
     MEM32(bink + 0x20) = FSW_BINK_MAGIC;
+    MEM32(bink + 0x24) = path_va;
     g_fsw_last_bink_handle = bink;
     g_fsw_last_bink_path = path_va;
     fprintf(stderr, "[FSW/Bink] host open path=%08X flags=%08X bink=%08X%s%s\n",
@@ -1677,13 +1679,7 @@ void fn_004E76B0_BinkDoFrame_4(void)
     if (!xbox_va_is_valid(bink) && xbox_va_is_valid(esi)) {
         bink = esi;
     }
-    if (xbox_va_is_valid(bink) && MEM32(bink + 0x20) == FSW_BINK_MAGIC) {
-        uint32_t frame = MEM32(bink + 0x0C);
-        uint32_t total = MEM32(bink + 0x08);
-        if (frame < total) {
-            MEM32(bink + 0x0C) = frame + 1;
-        }
-    }
+    (void)bink;
     eax = 0;
     esp += 8; return;
 }
@@ -1702,8 +1698,10 @@ void fn_004E7D10_BinkNextFrame_4(void)
     if (xbox_va_is_valid(bink) && MEM32(bink + 0x20) == FSW_BINK_MAGIC) {
         uint32_t frame = MEM32(bink + 0x0C);
         uint32_t total = MEM32(bink + 0x08);
-        if (frame < total) {
+        if (frame + 1 < total) {
             MEM32(bink + 0x0C) = frame + 1;
+        } else if (total != 0) {
+            MEM32(bink + 0x0C) = total - 1;
         }
     }
     eax = 0;
@@ -1716,6 +1714,10 @@ void fn_004E7FB0_BinkGoto_12(void)
     uint32_t frame = eax;
     uint32_t bink = ecx;
     if (xbox_va_is_valid(bink) && MEM32(bink + 0x20) == FSW_BINK_MAGIC) {
+        uint32_t total = MEM32(bink + 0x08);
+        if (total != 0 && frame >= total) {
+            frame = total - 1;
+        }
         MEM32(bink + 0x0C) = frame;
     }
     eax = 0;

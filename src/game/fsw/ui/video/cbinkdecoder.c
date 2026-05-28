@@ -16,6 +16,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
 #define FSW_BINK_MAGIC 0x42494E4Bu
 extern uint32_t g_fsw_last_bink_handle;
@@ -28,6 +29,7 @@ typedef struct FswHostBinkMovie {
     uint32_t height;
     uint32_t frame_count;
     uint32_t current_frame;
+    uint64_t last_advance_ns;
     uint32_t *bgra;
     uint8_t attempted;
 } FswHostBinkMovie;
@@ -45,6 +47,17 @@ static int fsw_bink_va_range_is_valid(uint32_t va, uint32_t size)
         return 0;
     }
     return va <= 0x04000000u - size;
+}
+
+static uint64_t fsw_bink_now_ns(void)
+{
+#ifndef _WIN32
+    struct timespec ts;
+    if (clock_gettime(CLOCK_MONOTONIC, &ts) == 0) {
+        return (uint64_t)ts.tv_sec * 1000000000ull + (uint64_t)ts.tv_nsec;
+    }
+#endif
+    return (uint64_t)clock() * (1000000000ull / (uint64_t)CLOCKS_PER_SEC);
 }
 
 static const char *fsw_bink_basename(const char *path)
@@ -214,6 +227,15 @@ static int fsw_bink_resolve_host_path(uint32_t path_va, char *out, size_t out_si
     return fsw_bink_resolve_in_memfs(base, out, out_size);
 }
 
+static uint32_t fsw_bink_path_va(uint32_t bink_va)
+{
+    if (fsw_bink_va_is_valid(bink_va) && MEM32(bink_va + 0x20) == FSW_BINK_MAGIC &&
+        fsw_bink_va_is_valid(MEM32(bink_va + 0x24))) {
+        return MEM32(bink_va + 0x24);
+    }
+    return fsw_bink_va_is_valid(bink_va) ? MEM32(bink_va + 0x14) : 0;
+}
+
 static void fsw_bink_shell_quote(char *out, size_t out_size, const char *in)
 {
     size_t pos = 0;
@@ -265,8 +287,8 @@ static FswHostBinkMovie *fsw_bink_get_movie(uint32_t bink_va)
     slot->height = 480;
     slot->attempted = 1;
 
-    if (!fsw_bink_resolve_host_path(MEM32(bink_va + 0x14), host_path, sizeof(host_path))) {
-        fprintf(stderr, "[FSW/Bink] host movie missing path_va=%08X\n", MEM32(bink_va + 0x14));
+    if (!fsw_bink_resolve_host_path(fsw_bink_path_va(bink_va), host_path, sizeof(host_path))) {
+        fprintf(stderr, "[FSW/Bink] host movie missing path_va=%08X\n", fsw_bink_path_va(bink_va));
         return slot;
     }
 
@@ -274,7 +296,7 @@ static FswHostBinkMovie *fsw_bink_get_movie(uint32_t bink_va)
     fsw_bink_shell_quote(quoted_host, sizeof(quoted_host), host_path);
     fsw_bink_shell_quote(quoted_raw, sizeof(quoted_raw), raw_path);
     snprintf(command, sizeof(command),
-             "ffmpeg -y -loglevel error -i %s -vf fps=15,scale=640:480 -frames:v 90 -f rawvideo -pix_fmt bgra %s",
+             "ffmpeg -y -loglevel error -i %s -vf fps=30,scale=640:480 -f rawvideo -pix_fmt bgra %s",
              quoted_host, quoted_raw);
     if (system(command) != 0) {
         fprintf(stderr, "[FSW/Bink] ffmpeg decode failed %s\n", host_path);
@@ -312,6 +334,9 @@ static FswHostBinkMovie *fsw_bink_get_movie(uint32_t bink_va)
         MEM32(bink_va + 0x04) = slot->height;
         MEM32(bink_va + 0x08) = slot->frame_count;
         MEM32(bink_va + 0x0C) = 0;
+        MEM32(bink_va + 0x14) = 30;
+        MEM32(bink_va + 0x18) = 1;
+        slot->last_advance_ns = fsw_bink_now_ns();
         fprintf(stderr, "[FSW/Bink] decoded real movie %s frames=%u\n", host_path, slot->frame_count);
     }
     return slot;
@@ -339,6 +364,48 @@ static FswHostBinkMovie *fsw_bink_draw_host(uint32_t bink_va)
     };
     d3d8_vulkan_host_draw_rhw(rect, 6, bgra, movie->width, movie->height, 0, 0);
     return movie;
+}
+
+static int fsw_bink_advance_host(uint32_t bink_va, FswHostBinkMovie *movie)
+{
+    uint64_t now;
+    uint64_t step_ns = 1000000000ull / 30ull;
+    uint32_t steps;
+
+    if (!movie || !movie->bgra || movie->frame_count == 0) {
+        uint32_t frame = MEM32(bink_va + 0x0C);
+        uint32_t total = MEM32(bink_va + 0x08);
+        if (total != 0 && frame + 1 < total) {
+            MEM32(bink_va + 0x0C) = frame + 1;
+            return 0;
+        }
+        return 1;
+    }
+
+    now = fsw_bink_now_ns();
+    if (movie->last_advance_ns == 0) {
+        movie->last_advance_ns = now;
+        return 0;
+    }
+    if (now <= movie->last_advance_ns || now - movie->last_advance_ns < step_ns) {
+        return 0;
+    }
+
+    steps = (uint32_t)((now - movie->last_advance_ns) / step_ns);
+    if (steps > 4) {
+        steps = 4;
+    }
+    movie->last_advance_ns += (uint64_t)steps * step_ns;
+
+    if (movie->current_frame + steps < movie->frame_count) {
+        movie->current_frame += steps;
+        MEM32(bink_va + 0x0C) = movie->current_frame;
+        return 0;
+    }
+
+    movie->current_frame = movie->frame_count - 1;
+    MEM32(bink_va + 0x0C) = movie->current_frame;
+    return 1;
 }
 #endif
 
@@ -1837,16 +1904,7 @@ loc_001BC250:
         FswHostBinkMovie *movie = fsw_bink_draw_host(eax);
         uint32_t frame = movie ? movie->current_frame : MEM32(eax + 0x0C);
         uint32_t total = (movie && movie->frame_count != 0) ? movie->frame_count : MEM32(eax + 0x08);
-        if (movie && movie->bgra && movie->frame_count != 0 && frame + 1 < total) {
-            movie->current_frame = frame + 1;
-            MEM32(eax + 0x0C) = movie->current_frame;
-        } else if (!movie || !movie->bgra || movie->frame_count == 0) {
-            if (frame < total) {
-                MEM32(eax + 0x0C) = frame + 1;
-            } else {
-                MEM8(edi + 0x4C) = 1;
-            }
-        } else {
+        if (fsw_bink_advance_host(eax, movie)) {
             if (MEM8(edi + 0x4C) == 0 && getenv("FSW_TH_BINK_DEBUG") != NULL) {
                 fprintf(stderr, "[FSW/Bink] host movie complete self=%08X bink=%08X frames=%u\n",
                         (unsigned)edi, (unsigned)eax, (unsigned)total);

@@ -10053,8 +10053,7 @@ loc_002B5A5B:
     fprintf(stderr, "[FSW/Profile] AddNewProfile SaveSelected returned esp=%08X count=%u\n",
             esp, MEM32(fsw_profile_mgr + 0x2C90));
     ebx = fsw_profile_mgr;
-    PUSH32(esp, ebx);
-    PUSH32(esp, 0); fn_002B4320_CProfileManager_SaveGlobalSettings(); /* call 0x002B4320 */
+    fprintf(stderr, "[FSW/Profile] AddNewProfile deferred SaveGlobalSettings after profile write\n");
     if (MEM32(fsw_profile_mgr + 0x2C90) > 0x11) {
         MEM32(fsw_profile_mgr + 0x2C90) = fsw_saved_profile_count;
     }

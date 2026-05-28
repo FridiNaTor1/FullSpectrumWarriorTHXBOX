@@ -12,6 +12,17 @@
 
 extern void fsw_cuiinput_bridge_controller_events_host(void);
 extern void fsw_profile_manager_host_repair(const char *tag);
+extern void fsw_applicationmanager_allow_shutdown_host(void);
+extern void fsw_textentry_profile_activate_host(uint32_t menu);
+extern int fsw_textentry_profile_is_editing(void);
+extern void fsw_textentry_profile_reset_accept_host(void);
+
+static uint8_t g_fsw_profile_setup_accept_requested;
+
+void fsw_profile_setup_request_accept_host(void)
+{
+    g_fsw_profile_setup_accept_requested = 1;
+}
 
 static int cstateupdate_va_is_valid(uint32_t va)
 {
@@ -3600,6 +3611,7 @@ loc_001B31BE:
     esp += 4; return; /* ret */
 
 loc_001B31D5:
+    fsw_applicationmanager_allow_shutdown_host();
     PUSH32(esp, 0); fn_002B0C40_CApplicationManager_Get(); /* call 0x002B0C40 */
 
 loc_001B31DA:
@@ -10684,10 +10696,18 @@ loc_001B60B9:
     { uint32_t _icall_esp = g_esp;
     _saved_esi = esi; _saved_edi = edi;
     PUSH32(esp, 0); RECOMP_ICALL_SAFE(MEM32(eax), _icall_esp); /* indirect call */
+    esp = _icall_esp;
     esi = _saved_esi; edi = _saved_edi;
     }
 
 loc_001B60C5:
+    if (!cstateupdate_va_is_valid(esi) || !cstateupdate_va_is_valid(esi + 0x970) ||
+        MEM32(esi) == 0 || MEM32(esi) == 0xFFFFFFFFu) {
+        esi = 0x6A9D38u;
+    }
+    if (edi == 0x0Du) {
+        fsw_textentry_profile_activate_host(MEM32(esi + 0x970));
+    }
     if (TEST_NZ(LO8(eax), LO8(eax))) goto loc_001B60E7; /* jne: not equal / not zero */
 
 loc_001B60C9:
@@ -10696,6 +10716,7 @@ loc_001B60C9:
     { uint32_t _icall_esp = g_esp;
     _saved_esi = esi; _saved_edi = edi;
     PUSH32(esp, 0); RECOMP_ICALL_SAFE(MEM32(edx + 4), _icall_esp); /* indirect call */
+    esp = _icall_esp;
     esi = _saved_esi; edi = _saved_edi;
     }
 
@@ -10708,6 +10729,7 @@ loc_001B60D4:
     { uint32_t _icall_esp = g_esp;
     _saved_esi = esi; _saved_edi = edi;
     PUSH32(esp, 0); RECOMP_ICALL_SAFE(MEM32(eax + 8), _icall_esp); /* indirect call */
+    esp = _icall_esp;
     esi = _saved_esi; edi = _saved_edi;
     }
 
@@ -10719,18 +10741,57 @@ loc_001B60DF:
     ecx = MEM32(esi + edi * 8 + 4);
     { uint32_t _icall_esp = g_esp;
     PUSH32(esp, 0); RECOMP_ICALL_SAFE(MEM32(esi + edi * 8 + 8), _icall_esp); /* indirect call */
+    esp = _icall_esp;
     }
 
 loc_001B60E7:
     {
         static uint8_t profile_setup_accept_armed;
+        static uint8_t profile_setup_back_armed;
         static uint32_t profile_setup_menu;
         uint8_t accept_active = MEM8(0x5F9E1C) || MEM8(0x5F9E22);
+        uint8_t back_active = MEM8(0x5F9E21);
+        if (edi == 0x0Du && g_fsw_profile_setup_accept_requested && MEM32(esi + 0x968) == 0) {
+            static uint32_t profile_setup_textentry_accept_log_count = 0;
+            MEM32(esi + 0x964) = 0;
+            MEM32(esi + 0x968) = 2;
+            MEM32(esi + 0x96C) = 0;
+            profile_setup_accept_armed = 0;
+            g_fsw_profile_setup_accept_requested = 0;
+            if (profile_setup_textentry_accept_log_count < 8) {
+                fprintf(stderr, "[FSW/Menu] profile setup accepted via text entry state=%08X menu=%08X\n",
+                        (unsigned)edi, (unsigned)MEM32(esi + 0x970));
+                profile_setup_textentry_accept_log_count++;
+            }
+        } else if (edi != 0x0Du) {
+            g_fsw_profile_setup_accept_requested = 0;
+            fsw_textentry_profile_reset_accept_host();
+        }
+        if (edi == 0x0Du && fsw_textentry_profile_is_editing()) {
+            accept_active = 0;
+        }
         if (edi != 0x0Du || profile_setup_menu != MEM32(esi + 0x970)) {
             profile_setup_accept_armed = 0;
+            profile_setup_back_armed = 0;
             profile_setup_menu = (edi == 0x0Du) ? MEM32(esi + 0x970) : 0;
-        } else if (!accept_active) {
-            profile_setup_accept_armed = 1;
+        } else {
+            if (!accept_active) {
+                profile_setup_accept_armed = 1;
+            }
+            if (!back_active) {
+                profile_setup_back_armed = 1;
+            }
+        }
+        if (edi == 0x0Du && MEM32(esi + 0x968) == 0 && back_active && profile_setup_back_armed) {
+            static uint32_t profile_setup_back_log_count = 0;
+            MEM32(esi + 0x968) = 3;
+            MEM32(esi + 0x96C) = 9;
+            profile_setup_back_armed = 0;
+            if (profile_setup_back_log_count < 8) {
+                fprintf(stderr, "[FSW/Menu] profile setup back -> profile selection state=%08X menu=%08X\n",
+                        (unsigned)edi, (unsigned)MEM32(esi + 0x970));
+                profile_setup_back_log_count++;
+            }
         }
         if (edi == 0x0Du && MEM32(esi + 0x968) == 0 && accept_active && profile_setup_accept_armed) {
             static uint32_t profile_setup_log_count = 0;
@@ -10769,6 +10830,28 @@ loc_001B60E7:
     PUSH32(esp, 0); fn_00272490_CNetState_Get(); /* call 0x00272490 */
 
 loc_001B60EC:
+    {
+        uint32_t net_state = MEM32(eax + 0xFA8);
+        uint32_t event = MEM32(esi + 0x968);
+        uint32_t next = MEM32(esi + 0x96C);
+        uint32_t data = MEM32(esi + 0x964);
+        uint32_t input = MEM32(0x5FA89C);
+        uint8_t accept_down = MEM8(0x5F9E1C);
+        uint8_t back_down = MEM8(0x5F9E21);
+
+        if (event > 8 ||
+            (event == 0 && (next != 0 || data != 0)) ||
+            (net_state == 9 && event == 2 && next == 7 && !accept_down &&
+             (!cstateupdate_va_is_valid(input + 0x18) || MEM8(input + 0x18) == 0)) ||
+            (net_state == 0x0D && event == 2 && next == 7 && !accept_down &&
+             (!cstateupdate_va_is_valid(input + 0x18) || MEM8(input + 0x18) == 0)) ||
+            (net_state == 9 && event == 3 && !back_down) ||
+            (net_state == 0x0D && event == 3 && !back_down)) {
+            MEM32(esi + 0x964) = 0;
+            MEM32(esi + 0x968) = 0;
+            MEM32(esi + 0x96C) = 0;
+        }
+    }
     ecx = MEM32(esi + 0x964);
     edx = MEM32(eax);
     {

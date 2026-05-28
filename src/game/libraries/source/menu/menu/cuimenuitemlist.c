@@ -7,6 +7,165 @@
 #define RECOMP_GENERATED_CODE
 #include "recomp_funcs.h"
 #include <math.h>
+#include <stdio.h>
+#include <stdlib.h>
+
+static int fsw_menuitemlist_va_is_valid(uint32_t va)
+{
+    return va >= 0x00010000u && va < 0x04000000u;
+}
+
+#ifdef XBOXRECOMP_VULKAN_GRAPHICS
+static uint32_t fsw_menuitemlist_child_at(uint32_t list, uint32_t index)
+{
+    uint32_t node;
+
+    if (!fsw_menuitemlist_va_is_valid(list + 0xB4)) {
+        return 0;
+    }
+    node = MEM32(list + 0xB4);
+    for (uint32_t i = 0; i < index; i++) {
+        if (!fsw_menuitemlist_va_is_valid(node + 4)) {
+            return 0;
+        }
+        node = MEM32(node + 4);
+    }
+    if (!fsw_menuitemlist_va_is_valid(node)) {
+        return 0;
+    }
+    return MEM32(node);
+}
+
+static int fsw_menuitemlist_is_main_menu(uint32_t list)
+{
+    uint32_t first;
+    uint32_t quit;
+
+    if (!fsw_menuitemlist_va_is_valid(list + 0xB4) ||
+        MEM8(list + 0xD1) != 5 ||
+        MEM32(list + 0xAC) != 7) {
+        return 0;
+    }
+
+    first = fsw_menuitemlist_child_at(list, 0);
+    quit = fsw_menuitemlist_child_at(list, 6);
+    return fsw_menuitemlist_va_is_valid(first + 0x104) &&
+           fsw_menuitemlist_va_is_valid(quit + 0x104) &&
+           MEM32(first + 0x104) == 0x2ADE209Cu &&
+           MEM32(quit + 0x104) == 0xC363DE43u;
+}
+
+static uint32_t fsw_menuitemlist_get_selected_index(uint32_t list)
+{
+    uint32_t count = MEM32(list + 0xAC);
+
+    for (uint32_t i = 0; i < count && i < 32; i++) {
+        uint32_t child = fsw_menuitemlist_child_at(list, i);
+        if (fsw_menuitemlist_va_is_valid(child + 0xE4) &&
+            (MEM8(child + 0xE4) & 4u) != 0) {
+            return i;
+        }
+    }
+    return 0;
+}
+
+static void fsw_menuitemlist_set_selected_index(uint32_t list, uint32_t selected)
+{
+    uint32_t count = MEM32(list + 0xAC);
+
+    for (uint32_t i = 0; i < count && i < 32; i++) {
+        uint32_t child = fsw_menuitemlist_child_at(list, i);
+        if (fsw_menuitemlist_va_is_valid(child + 0xE4)) {
+            if (i == selected) {
+                MEM8(child + 0xE4) = MEM8(child + 0xE4) | 4u;
+            } else {
+                MEM8(child + 0xE4) = MEM8(child + 0xE4) & (uint8_t)~4u;
+            }
+        }
+    }
+}
+
+static uint32_t fsw_menuitemlist_main_menu_next_index(uint32_t selected, uint32_t event_id)
+{
+    switch (event_id) {
+    case 1:
+        switch (selected) {
+        case 0: return 2;
+        case 1: return 0;
+        case 2: return 1;
+        case 3: return 6;
+        case 4: return 3;
+        case 5: return 4;
+        case 6: return 5;
+        default: return 0;
+        }
+    case 2:
+        switch (selected) {
+        case 0: return 1;
+        case 1: return 2;
+        case 2: return 0;
+        case 3: return 4;
+        case 4: return 5;
+        case 5: return 6;
+        case 6: return 3;
+        default: return 0;
+        }
+    case 3:
+        if (selected >= 3 && selected <= 5) return selected - 3;
+        if (selected == 6) return 2;
+        return selected;
+    case 4:
+        if (selected <= 2) return selected + 3;
+        return selected;
+    default:
+        return selected;
+    }
+}
+
+static void fsw_menuitemlist_mark_event_used(uint32_t input, uint32_t event_id)
+{
+    if (fsw_menuitemlist_va_is_valid(input + event_id + 0x18)) {
+        MEM8(input + event_id) = 1;
+        MEM8(input + event_id + 0x18) = 1;
+    }
+}
+
+static void fsw_menuitemlist_repair_main_menu_navigation(uint32_t list, uint32_t input)
+{
+    uint32_t event_id = 0;
+    uint32_t selected;
+    uint32_t next;
+
+    if (!fsw_menuitemlist_is_main_menu(list) ||
+        !fsw_menuitemlist_va_is_valid(input + 0x1C)) {
+        return;
+    }
+
+    if (MEM8(input + 1) == 0 && MEM8(0x5F9E1D) != 0) {
+        event_id = 1;
+    } else if (MEM8(input + 2) == 0 && MEM8(0x5F9E1E) != 0) {
+        event_id = 2;
+    } else if (MEM8(input + 3) == 0 && MEM8(0x5F9E1F) != 0) {
+        event_id = 3;
+    } else if (MEM8(input + 4) == 0 && MEM8(0x5F9E20) != 0) {
+        event_id = 4;
+    }
+
+    if (event_id == 0) {
+        return;
+    }
+
+    selected = fsw_menuitemlist_get_selected_index(list);
+    next = fsw_menuitemlist_main_menu_next_index(selected, event_id);
+    fsw_menuitemlist_set_selected_index(list, next);
+    fsw_menuitemlist_mark_event_used(input, event_id);
+
+    if (getenv("FSW_TH_MAIN_MENU_DEBUG") != NULL) {
+        fprintf(stderr, "[FSW/Menu] repaired main menu nav event=%u selected=%u -> %u list=%08X\n",
+                (unsigned)event_id, (unsigned)selected, (unsigned)next, (unsigned)list);
+    }
+}
+#endif
 
 /**
  * fn_000529E0_GCUIMenuItemList_UAEPAXI_Z
@@ -1783,6 +1942,10 @@ loc_0012F115:
     eax = MEM32(0x5FA89C);
     ebx = 1;
     if (TEST_Z(LO8(eax), LO8(eax))) goto loc_0012F1C0; /* je: equal / zero */
+
+#ifdef XBOXRECOMP_VULKAN_GRAPHICS
+    fsw_menuitemlist_repair_main_menu_navigation(esi, eax);
+#endif
 
 loc_0012F127:
     SET_LO8(ecx, MEM8(eax + 2));

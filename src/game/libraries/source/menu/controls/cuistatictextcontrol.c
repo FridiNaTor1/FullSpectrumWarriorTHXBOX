@@ -233,7 +233,7 @@ static int fsw_statictext_draw_real_font(uint32_t control, uint32_t text, uint32
     if ((color & 0x00FFFFFFu) == 0) {
         r = g = b = 1.0f;
     }
-    if (fsw_static_text_draw_log_count < 48) {
+    if (fsw_static_text_draw_log_count < 1024) {
         fprintf(stderr, "[FSW/Text] native draw control=%08X text=%08X font=%08X pos=%.2f,%.2f color=%08X char_h=%.2f atlas=%ux%u glyphs=%u table=%08X\n",
                 control, text, font, x, y, color, char_h, atlas_w, atlas_h,
                 fsw_static_text_va_is_valid(font + 4) ? MEM32(font + 4) : 0,
@@ -1524,9 +1524,13 @@ loc_0012C54B:
     esi = eax;
     ebp = 0; /* xor self */
     esp = esp + 4;
-    if (fsw_static_text_log_count < 96) {
-        fprintf(stderr, "[FSW/Text] Draw control=%08X text=%08X font_crc=%08X font=%08X flags=%02X w0=%04X w1=%04X w2=%04X w3=%04X\n",
+    if (fsw_static_text_log_count < 4096) {
+        fprintf(stderr, "[FSW/Text] Draw control=%08X text=%08X font_crc=%08X font=%08X flags=%02X pos=%.2f,%.2f parent=%08X matrix=%.2f,%.2f w0=%04X w1=%04X w2=%04X w3=%04X\n",
                 edi, ebx, MEM32(edi + 0x100), esi, MEM8(edi + 0x118),
+                MEMF(edi + 0x40), MEMF(edi + 0x44),
+                fsw_static_text_va_is_valid(edi + 0xD8) ? MEM32(edi + 0xD8) : 0,
+                fsw_static_text_va_is_valid(g_fsw_cuifont_current_matrix + 0x34) ? MEMF(g_fsw_cuifont_current_matrix + 0x30) : 0.0f,
+                fsw_static_text_va_is_valid(g_fsw_cuifont_current_matrix + 0x34) ? MEMF(g_fsw_cuifont_current_matrix + 0x34) : 0.0f,
                 fsw_static_text_va_is_valid(ebx) ? MEM16(ebx) : 0,
                 fsw_static_text_va_is_valid(ebx + 2) ? MEM16(ebx + 2) : 0,
                 fsw_static_text_va_is_valid(ebx + 4) ? MEM16(ebx + 4) : 0,
@@ -1707,9 +1711,13 @@ loc_0012C6C5:
 loc_0012C6D6:
     esp = esp + 4;
     esi = self_control;
-    if (fsw_static_text_log_count < 64) {
-        fprintf(stderr, "[FSW/Text] Render control=%08X visible_arg=%08X text_crc=%08X font_crc=%08X callback=%08X result=%08X w0=%04X w1=%04X\n",
+    if (fsw_static_text_log_count < 4096) {
+        fprintf(stderr, "[FSW/Text] Render control=%08X visible_arg=%08X text_crc=%08X font_crc=%08X callback=%08X result=%08X pos=%.2f,%.2f parent=%08X matrix=%.2f,%.2f w0=%04X w1=%04X\n",
                 esi, MEM32(esp + 8), MEM32(esi + 0x104), MEM32(esi + 0x100), MEM32(esi + 0x108), eax,
+                MEMF(esi + 0x40), MEMF(esi + 0x44),
+                fsw_static_text_va_is_valid(esi + 0xD8) ? MEM32(esi + 0xD8) : 0,
+                fsw_static_text_va_is_valid(MEM32(esp + 0xC) + 0x34) ? MEMF(MEM32(esp + 0xC) + 0x30) : 0.0f,
+                fsw_static_text_va_is_valid(MEM32(esp + 0xC) + 0x34) ? MEMF(MEM32(esp + 0xC) + 0x34) : 0.0f,
                 fsw_static_text_va_is_valid(eax) ? MEM16(eax) : 0,
                 fsw_static_text_va_is_valid(eax + 2) ? MEM16(eax + 2) : 0);
         fsw_static_text_log_count++;

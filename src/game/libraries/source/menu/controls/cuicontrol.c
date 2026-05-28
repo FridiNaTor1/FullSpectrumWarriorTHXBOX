@@ -11,6 +11,8 @@
 #include <stdlib.h>
 
 extern uint32_t xbox_HeapAlloc(uint32_t size, uint32_t alignment);
+extern void fsw_textentry_profile_activate_host(uint32_t menu);
+extern int fsw_textentry_profile_is_active_control(uint32_t control);
 
 static int cuicontrol_va_is_valid(uint32_t va)
 {
@@ -286,12 +288,173 @@ static uint32_t fsw_cuicontrol_host_update_callback(uint32_t crc)
     }
 }
 
+static uint32_t fsw_cuicontrol_crc32_table_value(uint8_t index)
+{
+    uint32_t crc = (uint32_t)index << 24;
+    for (uint32_t bit = 0; bit < 8; bit++) {
+        if ((crc & 0x80000000u) != 0) {
+            crc = (crc << 1) ^ 0x04C11DB7u;
+        } else {
+            crc <<= 1;
+        }
+    }
+    return crc;
+}
+
+static uint32_t fsw_cuicontrol_calc_lower_crc_va(uint32_t string_va)
+{
+    uint32_t crc = ~0u;
+    if (string_va < 0x00010000u || string_va >= 0x04000000u) {
+        return 0;
+    }
+    for (uint32_t i = 0; i < 256; i++) {
+        uint8_t value;
+        if (string_va + i >= 0x04000000u) {
+            break;
+        }
+        value = MEM8(string_va + i);
+        if (value == 0) {
+            break;
+        }
+        if (value >= 'A' && value <= 'Z') {
+            value = (uint8_t)(value + ('a' - 'A'));
+        }
+        crc = (crc << 8) ^ fsw_cuicontrol_crc32_table_value((uint8_t)((crc >> 24) ^ value));
+    }
+    return ~crc;
+}
+
 static uint32_t fsw_cuicontrol_host_visible_callback(uint32_t crc)
 {
+    static uint32_t silent_visible_crc;
+    static uint32_t not_logged_in_visible_crc;
+    static uint32_t logged_in_visible_crc;
+
+    if (silent_visible_crc == 0) {
+        silent_visible_crc = fsw_cuicontrol_calc_lower_crc_va(0x55D488u);
+        not_logged_in_visible_crc = fsw_cuicontrol_calc_lower_crc_va(0x55D498u);
+        logged_in_visible_crc = fsw_cuicontrol_calc_lower_crc_va(0x55D4ACu);
+    }
+
+    if (silent_visible_crc != 0 && crc == silent_visible_crc) return 0x00198420u; /* SilentVisible */
+    if (not_logged_in_visible_crc != 0 && crc == not_logged_in_visible_crc) return 0x00198DD0u; /* NotLoggedInVisible */
+    if (logged_in_visible_crc != 0 && crc == logged_in_visible_crc) return 0x00198E00u; /* LoggedInVisible */
+
+    if (MEM32(0x612B38) != 0 && crc == MEM32(0x612B38)) return 0x00198DD0u; /* NotLoggedInVisible */
+    if (MEM32(0x612BB0) != 0 && crc == MEM32(0x612BB0)) return 0x00197280u; /* RefreshVisible */
+    if (MEM32(0x612BAC) != 0 && crc == MEM32(0x612BAC)) return 0x001972B0u; /* PlayerInfoVisible */
+    if (MEM32(0x612BA8) != 0 && crc == MEM32(0x612BA8)) return 0x00197310u; /* SelectSpawnCharacterVisible */
+    if (MEM32(0x612BA4) != 0 && crc == MEM32(0x612BA4)) return 0x00197350u; /* SelectSpawnVisible */
+    if (MEM32(0x612BA0) != 0 && crc == MEM32(0x612BA0)) return 0x00197380u; /* SelectTeamVisible */
+    if (MEM32(0x612B9C) != 0 && crc == MEM32(0x612B9C)) return 0x001973B0u; /* ZoomVisible */
+    if (MEM32(0x612B98) != 0 && crc == MEM32(0x612B98)) return 0x001974F0u; /* MoveMapVisible */
+    if (MEM32(0x612B94) != 0 && crc == MEM32(0x612B94)) return 0x00197620u; /* RFriendsVisible */
+    if (MEM32(0x612B90) != 0 && crc == MEM32(0x612B90)) return 0x00197650u; /* RecentPlayersVisible */
+    if (MEM32(0x612B8C) != 0 && crc == MEM32(0x612B8C)) return 0x00197680u; /* VoiceMsgVisible */
+    if (MEM32(0x612B88) != 0 && crc == MEM32(0x612B88)) return 0x001976C0u; /* InfoLegendVisible */
+    if (MEM32(0x612B84) != 0 && crc == MEM32(0x612B84)) return 0x001976F0u; /* FilterLegendVisible */
+    if (MEM32(0x612B80) != 0 && crc == MEM32(0x612B80)) return 0x00197720u; /* ReportingLegendVisible */
+    if (MEM32(0x612B74) != 0 && crc == MEM32(0x612B74)) return 0x001977E0u; /* SelectSlotVisible */
+    if (MEM32(0x612BBC) != 0 && crc == MEM32(0x612BBC)) return 0x00197A10u; /* ProceedVisible */
+    if (MEM32(0x612BC0) != 0 && crc == MEM32(0x612BC0)) return 0x00197A40u; /* AcceptVisible */
+    if (MEM32(0x612BC4) != 0 && crc == MEM32(0x612BC4)) return 0x00197AB0u; /* BackVisible */
+    if (MEM32(0x612BC8) != 0 && crc == MEM32(0x612BC8)) return 0x001979E0u; /* DeleteVisible */
+    if (MEM32(0x612BCC) != 0 && crc == MEM32(0x612BCC)) return 0x00197970u; /* FriendLegendVisible */
+    if (MEM32(0x612BD0) != 0 && crc == MEM32(0x612BD0)) return 0x00197950u; /* SelectVisible */
+    if (MEM32(0x612BD4) != 0 && crc == MEM32(0x612BD4)) return 0x00197920u; /* RestoreVisible */
+    if (MEM32(0x612BD8) != 0 && crc == MEM32(0x612BD8)) return 0x001978F0u; /* RecordVisible */
+    if (MEM32(0x612BDC) != 0 && crc == MEM32(0x612BDC)) return 0x00197810u; /* PrioritiesVisible */
+    if (MEM32(0x612BE0) != 0 && crc == MEM32(0x612BE0)) return 0x001977E0u; /* SelectSlotVisible */
+    if (MEM32(0x612BE4) != 0 && crc == MEM32(0x612BE4)) return 0x00197780u; /* SelectFactionVisible */
+    if (MEM32(0x612BE8) != 0 && crc == MEM32(0x612BE8)) return 0x00197750u; /* ObjectivesVisible */
+    if (MEM32(0x612BEC) != 0 && crc == MEM32(0x612BEC)) return 0x00197720u; /* ReportingLegendVisible */
+    if (MEM32(0x612BF0) != 0 && crc == MEM32(0x612BF0)) return 0x001976F0u; /* FilterLegendVisible */
+    if (MEM32(0x612BF4) != 0 && crc == MEM32(0x612BF4)) return 0x001976C0u; /* InfoLegendVisible */
+    if (MEM32(0x612BF8) != 0 && crc == MEM32(0x612BF8)) return 0x00197680u; /* VoiceMsgVisible */
+    if (MEM32(0x612BFC) != 0 && crc == MEM32(0x612BFC)) return 0x00197650u; /* RecentPlayersVisible */
+    if (MEM32(0x612C00) != 0 && crc == MEM32(0x612C00)) return 0x00197620u; /* RFriendsVisible */
+    if (MEM32(0x612C04) != 0 && crc == MEM32(0x612C04)) return 0x001974F0u; /* MoveMapVisible */
+    if (MEM32(0x612C08) != 0 && crc == MEM32(0x612C08)) return 0x001973B0u; /* ZoomVisible */
+    if (MEM32(0x612C0C) != 0 && crc == MEM32(0x612C0C)) return 0x00197380u; /* SelectTeamVisible */
+    if (MEM32(0x612C10) != 0 && crc == MEM32(0x612C10)) return 0x00197350u; /* SelectSpawnVisible */
+    if (MEM32(0x612C14) != 0 && crc == MEM32(0x612C14)) return 0x00197310u; /* SelectSpawnCharacterVisible */
+    if (MEM32(0x612C18) != 0 && crc == MEM32(0x612C18)) return 0x001972B0u; /* PlayerInfoVisible */
+    if (MEM32(0x612C1C) != 0 && crc == MEM32(0x612C1C)) return 0x00197280u; /* RefreshVisible */
+    if (MEM32(0x612C20) != 0 && crc == MEM32(0x612C20)) return 0x001977B0u; /* SelectSlotsVisible */
+
     switch (crc) {
     case 0x4CD9128Du: return 0x0019CC40u; /* StartButtonVisible */
     case 0x113BC4FCu: return 0x0019CCC0u; /* CacheLoadingVisible */
+    case 0x2A6992C3u: return 0x00198DD0u; /* NotLoggedInVisible */
+    case 0x69E2159Bu: return 0x00197280u; /* RefreshVisible */
+    case 0xF6AC1243u: return 0x001972B0u; /* PlayerInfoVisible */
+    case 0x0AA8DB9Au: return 0x00197310u; /* SelectSpawnCharacterVisible */
+    case 0x8B0FFA17u: return 0x00197350u; /* SelectSpawnVisible */
+    case 0x74652550u: return 0x00197380u; /* SelectTeamVisible */
+    case 0x7B4976ADu: return 0x001973B0u; /* ZoomVisible */
+    case 0xC030E43Fu: return 0x001974F0u; /* MoveMapVisible */
+    case 0x899EC904u: return 0x00197620u; /* RFriendsVisible */
+    case 0xD8813FD6u: return 0x00197650u; /* RecentPlayersVisible */
+    case 0xECDAB38Au: return 0x00197680u; /* VoiceMsgVisible */
+    case 0xABA73BA2u: return 0x001976C0u; /* InfoLegendVisible */
+    case 0xD55B5C79u: return 0x001976F0u; /* FilterLegendVisible */
+    case 0x140F9F89u: return 0x00197720u; /* ReportingLegendVisible */
+    case 0x8F873F07u: return 0x001977E0u; /* SelectSlotVisible */
+    case 0x225D00F5u: return 0x00197A10u; /* ProceedVisible */
+    case 0xA85D00A6u: return 0x00197A40u; /* AcceptVisible */
+    case 0x854A1395u: return 0x00197AB0u; /* BackVisible */
+    case 0xFAC355ABu: return 0x001979E0u; /* DeleteVisible */
+    case 0x860DAEEEu: return 0x00197970u; /* FriendLegendVisible */
+    case 0xE74A0004u: return 0x00197950u; /* SelectVisible */
+    case 0xA9064277u: return 0x00197920u; /* RestoreVisible */
+    case 0x29C67AE2u: return 0x001978F0u; /* RecordVisible */
+    case 0x3B2252C0u: return 0x00197810u; /* PrioritiesVisible */
+    case 0x486513C4u: return 0x00197780u; /* SelectFactionVisible */
+    case 0x4D7D0581u: return 0x00197750u; /* ObjectivesVisible */
+    case 0x5288D68Cu: return 0x001977B0u; /* SelectSlotsVisible */
     default: return 0;
+    }
+}
+
+static const char *fsw_cuicontrol_visible_callback_name(uint32_t callback)
+{
+    switch (callback) {
+    case 0x00198410u: return "FriendMsgVisible";
+    case 0x00198420u: return "SilentVisible";
+    case 0x00198DD0u: return "NotLoggedInVisible";
+    case 0x00198DC0u: return "PlayerTalkingVisible";
+    case 0x00198E00u: return "LoggedInVisible";
+    case 0x00198E20u: return "GameInviteVisible";
+    case 0x00198E40u: return "FriendRequestVisible";
+    case 0x00197280u: return "RefreshVisible";
+    case 0x001972B0u: return "PlayerInfoVisible";
+    case 0x00197310u: return "SelectSpawnCharacterVisible";
+    case 0x00197350u: return "SelectSpawnVisible";
+    case 0x00197380u: return "SelectTeamVisible";
+    case 0x001973B0u: return "ZoomVisible";
+    case 0x001974F0u: return "MoveMapVisible";
+    case 0x00197620u: return "RFriendsVisible";
+    case 0x00197650u: return "RecentPlayersVisible";
+    case 0x00197680u: return "VoiceMsgVisible";
+    case 0x001976C0u: return "InfoLegendVisible";
+    case 0x001976F0u: return "FilterLegendVisible";
+    case 0x00197720u: return "ReportingLegendVisible";
+    case 0x00197750u: return "ObjectivesVisible";
+    case 0x00197780u: return "SelectFactionVisible";
+    case 0x001977B0u: return "SelectSlotsVisible";
+    case 0x001977E0u: return "SelectSlotVisible";
+    case 0x00197810u: return "PrioritiesVisible";
+    case 0x001978F0u: return "RecordVisible";
+    case 0x00197920u: return "RestoreVisible";
+    case 0x00197950u: return "SelectVisible";
+    case 0x00197970u: return "FriendLegendVisible";
+    case 0x001979E0u: return "DeleteVisible";
+    case 0x00197A10u: return "ProceedVisible";
+    case 0x00197A40u: return "AcceptVisible";
+    case 0x00197AB0u: return "BackVisible";
+    case 0x0019CC40u: return "StartButtonVisible";
+    case 0x0019CCC0u: return "CacheLoadingVisible";
+    default: return "";
     }
 }
 
@@ -412,6 +575,11 @@ static void fsw_cuicontrol_add_child(uint32_t parent, uint32_t child)
     ebx = saved_ebx;
     esi = saved_esi;
     edi = saved_edi;
+}
+
+void fsw_cuicontrol_add_child_host(uint32_t parent, uint32_t child)
+{
+    fsw_cuicontrol_add_child(parent, child);
 }
 
 static void fsw_cuicontrol_set_image_texture(uint32_t control, uint32_t texture_crc)
@@ -1213,6 +1381,18 @@ loc_0013072B:
 
 loc_00130735:
     ecx = MEM32(esp + 8);
+    {
+        static uint32_t visible_eval_log_count = 0;
+        const char *callback_name = fsw_cuicontrol_visible_callback_name(eax);
+        if (callback_name[0] != '\0' && visible_eval_log_count < 256) {
+            fprintf(stderr,
+                    "[FSW/Menu] visible eval control=%08X type=%u callback=%08X %s crc=%08X flags=%02X statearg=%08X\n",
+                    (unsigned)esi, (unsigned)MEM8(esi + 0xD1), (unsigned)eax,
+                    callback_name, (unsigned)MEM32(esi + 0xC4),
+                    (unsigned)MEM8(esi + 0xE4), (unsigned)ecx);
+            visible_eval_log_count++;
+        }
+    }
     { uint32_t _icall_esp = g_esp;
     PUSH32(esp, esi);
     PUSH32(esp, ecx);
@@ -1220,6 +1400,18 @@ loc_00130735:
     }
 
 loc_0013073D:
+    {
+        static uint32_t visible_result_log_count = 0;
+        uint32_t callback = MEM32(esi + 0xB8);
+        const char *callback_name = fsw_cuicontrol_visible_callback_name(callback);
+        if (callback_name[0] != '\0' && visible_result_log_count < 256) {
+            fprintf(stderr,
+                    "[FSW/Menu] visible result control=%08X callback=%08X %s result=%u before_flags=%02X\n",
+                    (unsigned)esi, (unsigned)callback, callback_name,
+                    (unsigned)(LO8(eax) != 0), (unsigned)MEM8(esi + 0xE4));
+            visible_result_log_count++;
+        }
+    }
     SET_LO8(edx, MEM8(esi + 0xE4));
     SET_LO8(eax, LO8(eax) << 7);
     SET_LO8(edx, LO8(edx) & 0x7F);
@@ -3287,6 +3479,39 @@ loc_00131890:
     if (TEST_Z(esi, esi)) goto loc_001318AF; /* je: equal / zero */
     if (!cuicontrol_va_is_valid(esi + 0xE8) || !cuicontrol_method_is_valid(esi, 0x24)) goto loc_001318AF;
     child_control = esi;
+    if (MEM32(esi) == 0x560958u) {
+        uint32_t net = MEM32(0x5FA38C);
+        uint32_t state = cuicontrol_va_is_valid(net + 0xFA8) ? MEM32(net + 0xFA8) : MEM32(0x613FCC);
+        if (state != 0x0Du && MEM32(0x613FCC) == 0x0Du) {
+            state = 0x0D;
+        }
+        if (state == 0x0Du || fsw_textentry_profile_is_active_control(esi)) {
+            fsw_textentry_profile_activate_host(0);
+            MEM8(esi + 0xE4) = MEM8(esi + 0xE4) | 0x84;
+            MEM8(esi + 0xE5) = MEM8(esi + 0xE5) & 0xFC;
+            if (!isfinite(MEMF(esi + 0x9C)) || fabsf(MEMF(esi + 0x9C)) < 1.0f ||
+                !isfinite(MEMF(esi + 0xA0)) || fabsf(MEMF(esi + 0xA0)) < 1.0f) {
+                MEMF(esi + 0x40) = 96.0f;
+                MEMF(esi + 0x44) = 318.0f;
+                MEMF(esi + 0x48) = 0.0f;
+                MEMF(esi + 0x9C) = 448.0f;
+                MEMF(esi + 0xA0) = 92.0f;
+                ebx = esi;
+                PUSH32(esp, 0);
+                fn_0012D620_CUITextEntryControl_SetChildrenPosition();
+            }
+        }
+    }
+    if (getenv("FSW_TH_TEXTENTRY_DEBUG") != NULL && MEM32(esi) == 0x560958u) {
+        static uint32_t textentry_child_log_count = 0;
+        if (textentry_child_log_count < 32) {
+            fprintf(stderr,
+                    "[FSW/TextEntry] hierarchy child parent=%08X child=%08X flags=%02X/%02X node=%08X\n",
+                    (unsigned)self_control, (unsigned)esi, (unsigned)MEM8(esi + 0xE4),
+                    (unsigned)MEM8(esi + 0xE5), (unsigned)MEM32(esp + 8));
+            textentry_child_log_count++;
+        }
+    }
 
 loc_00131896:
     edx = MEM32(esi);
@@ -3300,6 +3525,11 @@ loc_00131896:
 loc_001318A1:
     esi = child_control;
     edi = camera_arg;
+    if (MEM32(esi) == 0x560958u && fsw_textentry_profile_is_active_control(esi)) {
+        MEM8(esi + 0xE4) = MEM8(esi + 0xE4) | 0x84;
+        MEM8(esi + 0xE5) = MEM8(esi + 0xE5) & 0xFC;
+        SET_LO8(eax, 1);
+    }
     {
         static uint32_t hierarchy_child_log_count = 0;
         if (hierarchy_child_log_count < 96) {
@@ -4966,6 +5196,14 @@ loc_001326C0:
         uint32_t crc = MEM32(esp + 4);
         uint32_t callback = fsw_cuicontrol_host_visible_callback(crc);
         if (callback != 0 || crc == 0xC9EF9119u) {
+            static uint32_t visible_bind_log_count = 0;
+            if (callback != 0 && visible_bind_log_count < 128) {
+                fprintf(stderr,
+                        "[FSW/Menu] bind visible control=%08X type=%u crc=%08X callback=%08X %s\n",
+                        (unsigned)edi, (unsigned)MEM8(edi + 0xD1), (unsigned)crc,
+                        (unsigned)callback, fsw_cuicontrol_visible_callback_name(callback));
+                visible_bind_log_count++;
+            }
             MEM32(edi + 0xC4) = crc;
             MEM32(edi + 0xB8) = callback;
             esp += 8; return; /* ret 4 */

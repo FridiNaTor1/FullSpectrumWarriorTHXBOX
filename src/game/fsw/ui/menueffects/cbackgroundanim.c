@@ -8,6 +8,7 @@
 #include "recomp_funcs.h"
 #include <math.h>
 #include <stdio.h>
+#include <stdlib.h>
 
 static int cmenubganim_va_is_valid(uint32_t va)
 {
@@ -290,54 +291,94 @@ loc_0019AB1E:
  */
 void fn_0019AB40_CImageItem_GetData(void)
 {
-    uint32_t ebp;
-    int _flags = 0; /* fallback flag var */
-    float xmm0, xmm1;
-    ebp = g_seh_ebp; /* fpo_leaf: inherit caller's frame */
+    uint32_t item = edx;
+    uint32_t out0 = MEM32(esp + 4);
+    uint32_t out1 = MEM32(esp + 8);
+    uint32_t out2 = MEM32(esp + 0xC);
+    uint32_t out3 = MEM32(esp + 0x10);
+    uint32_t out4 = MEM32(esp + 0x14);
+    uint32_t count;
+    uint32_t table;
+    float t;
 
-loc_0019AB40:
-    eax = MEM32(edx + 8);
-    xmm1 = xmm1 * MEMF(0x561490); /* mulss */
-    PUSH32(esp, ebx);
-    ebx = MEM32(esp + 0x18);
-    PUSH32(esp, ebp);
-    ebp = MEM32(esp + 0x14);
-    PUSH32(esp, esi);
-    ecx = 0; /* xor self */
-    (void)0; /* test eax, eax - flags set for next jcc */
-    PUSH32(esp, edi);
-    edi = MEM32(esp + 0x20);
-    if (CMP_LE(eax & eax, 0)) goto loc_0019AB75; /* jle: less or equal (signed <=) */
+    if (!cmenubganim_va_range_is_valid(item, 0x10)) {
+        esp += 24; return; /* ret 20 */
+    }
 
-loc_0019AB61:
-    esi = MEM32(edx + 0xC);
+    count = MEM32(item + 8);
+    table = MEM32(item + 0xC);
+    t = MEMF(0x5F33F8) * MEMF(0x561490);
+    if (!isfinite(t) || t < 0.0f) {
+        t = 0.0f;
+    }
 
-loc_0019AB64:
-    xmm0 = (float)(int32_t)MEM32(esi); /* cvtsi2ss */
-    /* comiss xmm0, xmm1 - sets EFLAGS */
-    if ((xmm0 >= xmm1)) { sub_0019ABA4(); return; } /* jae: above or equal (unsigned >=) */
+#ifdef XBOXRECOMP_VULKAN_GRAPHICS
+    if (getenv("FSW_TH_BG_KEYS") != NULL) {
+        static uint32_t key_log_count;
+        if (key_log_count < 96 && count > 0 && count <= 0x4000u &&
+            cmenubganim_va_range_is_valid(table, count * 0x18u)) {
+            uint32_t first = table;
+            uint32_t last = table + (count - 1) * 0x18u;
+            fprintf(stderr,
+                    "[FSW/BG/KEYS] item=%08X crc=%08X count=%u t=%.3f first=%d %.3f %.3f %.3f %.3f %.3f last=%d %.3f %.3f %.3f %.3f %.3f\n",
+                    (unsigned)item, (unsigned)MEM32(item), (unsigned)count, t,
+                    (int32_t)MEM32(first), MEMF(first + 4), MEMF(first + 8),
+                    MEMF(first + 0xC), MEMF(first + 0x10), MEMF(first + 0x14),
+                    (int32_t)MEM32(last), MEMF(last + 4), MEMF(last + 8),
+                    MEMF(last + 0xC), MEMF(last + 0x10), MEMF(last + 0x14));
+            key_log_count++;
+        }
+    }
+#endif
 
-loc_0019AB6D:
-    ecx++;
-    esi = esi + 0x18;
-    if (CMP_L(ecx, eax)) goto loc_0019AB64; /* jl: less (signed <) */
+    if (count == 0 || count > 0x4000u || !cmenubganim_va_range_is_valid(table, count * 0x18u)) {
+        if (cmenubganim_va_is_valid(out0)) MEMF(out0) = 0.0f;
+        if (cmenubganim_va_is_valid(out1)) MEMF(out1) = 0.0f;
+        if (cmenubganim_va_is_valid(out2)) MEMF(out2) = MEMF(0x561418);
+        if (cmenubganim_va_is_valid(out3)) MEMF(out3) = MEMF(0x561418);
+        if (cmenubganim_va_is_valid(out4)) MEMF(out4) = 0.0f;
+        esp += 24; return; /* ret 20 */
+    }
 
-loc_0019AB75:
-    xmm0 = 0.0f; /* xorps self = zero */
-    ecx = MEM32(esp + 0x14);
-    edx = MEM32(esp + 0x18);
-    xmm1 = MEMF(0x561418); /* movss */
-    MEMF(ecx) = xmm0; /* movss */
-    MEMF(edx) = xmm0; /* movss */
-    MEMF(ebp) = xmm1; /* movss */
-    MEMF(edi) = xmm1; /* movss */
-    POP32(esp, edi);
-    POP32(esp, esi);
-    POP32(esp, ebp);
-    MEMF(ebx) = xmm0; /* movss */
-    POP32(esp, ebx);
+    uint32_t index = 0;
+    while (index < count && (float)(int32_t)MEM32(table + index * 0x18u) < t) {
+        index++;
+    }
+
+    if (index >= count) {
+        index = count - 1;
+    }
+
+    if (index == 0) {
+        uint32_t frame = table;
+        if (cmenubganim_va_is_valid(out0)) MEMF(out0) = MEMF(frame + 4);
+        if (cmenubganim_va_is_valid(out1)) MEMF(out1) = MEMF(frame + 8);
+        if (cmenubganim_va_is_valid(out2)) MEMF(out2) = MEMF(frame + 0xC);
+        if (cmenubganim_va_is_valid(out3)) MEMF(out3) = MEMF(frame + 0x10);
+        if (cmenubganim_va_is_valid(out4)) MEMF(out4) = MEMF(frame + 0x14);
+        esp += 24; return; /* ret 20 */
+    }
+
+    {
+        uint32_t prev = table + (index - 1) * 0x18u;
+        uint32_t next = table + index * 0x18u;
+        float prev_t = (float)(int32_t)MEM32(prev);
+        float next_t = (float)(int32_t)MEM32(next);
+        float amount = 0.0f;
+        float inv_amount;
+        if (next_t > prev_t) {
+            amount = (t - prev_t) / (next_t - prev_t);
+        }
+        if (!isfinite(amount) || amount < 0.0f) amount = 0.0f;
+        if (amount > 1.0f) amount = 1.0f;
+        inv_amount = 1.0f - amount;
+        if (cmenubganim_va_is_valid(out0)) MEMF(out0) = MEMF(prev + 4) * inv_amount + MEMF(next + 4) * amount;
+        if (cmenubganim_va_is_valid(out1)) MEMF(out1) = MEMF(prev + 8) * inv_amount + MEMF(next + 8) * amount;
+        if (cmenubganim_va_is_valid(out2)) MEMF(out2) = MEMF(prev + 0xC) * inv_amount + MEMF(next + 0xC) * amount;
+        if (cmenubganim_va_is_valid(out3)) MEMF(out3) = MEMF(prev + 0x10) * inv_amount + MEMF(next + 0x10) * amount;
+        if (cmenubganim_va_is_valid(out4)) MEMF(out4) = MEMF(prev + 0x14) * inv_amount + MEMF(next + 0x14) * amount;
+    }
     esp += 24; return; /* ret 20 */
-
 }
 
 /**

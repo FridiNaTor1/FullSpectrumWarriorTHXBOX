@@ -9,6 +9,7 @@
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <time.h>
 
 #ifdef XBOXRECOMP_VULKAN_GRAPHICS
 extern int fsw_cuiimagecontrol_draw_texture_crc(uint32_t crc, float x, float y,
@@ -19,6 +20,7 @@ extern int fsw_cuiimagecontrol_draw_texture_crc_uv(uint32_t crc, float x, float 
 extern uint32_t fsw_cuitexture_find_surface(uint32_t crc);
 static uint32_t g_fsw_bg_debug_log_count;
 static uint32_t g_fsw_bg_update_debug_log_count;
+static uint32_t g_fsw_bg_last_visible_crc;
 #endif
 
 static int cbackgroundui_va_is_valid(uint32_t va)
@@ -30,6 +32,197 @@ static int cbackgroundui_is_static_text(uint32_t va)
 {
     return cbackgroundui_va_is_valid(va + 0x108) && MEM32(va) == 0x55B110u;
 }
+
+static uint8_t g_fsw_bg_signin_force_allowed;
+#ifdef XBOXRECOMP_VULKAN_GRAPHICS
+static uint8_t g_fsw_bg_signin_scroll_initialized;
+static float g_fsw_bg_signin_scroll_x;
+#endif
+
+static uint32_t cbackgroundui_crc_table_value(uint8_t index)
+{
+    uint32_t crc = (uint32_t)index << 24;
+
+    for (uint32_t bit = 0; bit < 8; bit++) {
+        if ((crc & 0x80000000u) != 0) {
+            crc = (crc << 1) ^ 0x04C11DB7u;
+        } else {
+            crc <<= 1;
+        }
+    }
+    return crc;
+}
+
+static uint32_t cbackgroundui_calc_lower_crc_va(uint32_t string_va)
+{
+    uint32_t crc = 0xFFFFFFFFu;
+
+    if (!cbackgroundui_va_is_valid(string_va)) {
+        return 0;
+    }
+    for (uint32_t pos = string_va; cbackgroundui_va_is_valid(pos); pos++) {
+        uint8_t ch = MEM8(pos);
+        if (ch == 0) {
+            break;
+        }
+        if (ch >= 'A' && ch <= 'Z') {
+            ch = (uint8_t)(ch + ('a' - 'A'));
+        }
+        crc = (crc << 8) ^ cbackgroundui_crc_table_value((uint8_t)((crc >> 24) ^ ch));
+    }
+    return ~crc;
+}
+
+static void cbackgroundui_init_static_crcs(void)
+{
+    static uint8_t initialized;
+
+    if (initialized) {
+        return;
+    }
+    initialized = 1;
+    if (MEM32(0x612B30) == 0) MEM32(0x612B30) = cbackgroundui_calc_lower_crc_va(0x55D4E4u);
+    if (MEM32(0x612B34) == 0) MEM32(0x612B34) = cbackgroundui_calc_lower_crc_va(0x55D4D8u);
+    if (MEM32(0x612B38) == 0) MEM32(0x612B38) = cbackgroundui_calc_lower_crc_va(0x55D4CCu);
+}
+
+#ifdef XBOXRECOMP_VULKAN_GRAPHICS
+static void cbackgroundui_tick_signin_status(uint32_t dt_ms)
+{
+    float seconds_per_tick = MEMF(0x561410);
+    float pixels_per_second = MEMF(0x561490) * 0.70f;
+    float screen_w = 640.0f;
+    float dx;
+    uint32_t frame = MEM32(0x5FA8E8);
+    uint32_t root = MEM32(0x5F31D8);
+
+    if (!cbackgroundui_va_is_valid(root + 0x48) ||
+        !cbackgroundui_va_is_valid(MEM32(0x5F31CC) + 0x12C)) {
+        g_fsw_bg_signin_scroll_initialized = 0;
+        return;
+    }
+    if (!isfinite(seconds_per_tick) || seconds_per_tick <= 0.0f || seconds_per_tick > 1.0f) {
+        seconds_per_tick = 0.001f;
+    }
+    if (!isfinite(pixels_per_second) || pixels_per_second <= 0.0f || pixels_per_second > 120.0f) {
+        pixels_per_second = 21.0f;
+    }
+    if (cbackgroundui_va_is_valid(frame + 0xD8) && MEM32(frame + 0xD8) > 0 && MEM32(frame + 0xD8) < 4096) {
+        screen_w = (float)(int32_t)MEM32(frame + 0xD8);
+    }
+    dx = (float)(int32_t)dt_ms * seconds_per_tick * pixels_per_second;
+    if (!isfinite(dx) || dx < 0.0f || dx > 48.0f) {
+        return;
+    }
+    if (!g_fsw_bg_signin_scroll_initialized) {
+        g_fsw_bg_signin_scroll_x = screen_w * 0.42f;
+        g_fsw_bg_signin_scroll_initialized = 1;
+    } else {
+        g_fsw_bg_signin_scroll_x -= dx;
+        if (g_fsw_bg_signin_scroll_x < -180.0f) {
+            g_fsw_bg_signin_scroll_x += screen_w + 320.0f;
+        }
+    }
+    MEMF(root + 0x40) = g_fsw_bg_signin_scroll_x;
+}
+
+static uint32_t cbackgroundui_normalize_update_dt(uint32_t dt_ms)
+{
+    static uint8_t initialized;
+    static uint64_t last_ms;
+    struct timespec ts;
+    uint64_t now_ms = 0;
+    uint32_t host_dt = 0;
+
+    if (dt_ms > 0 && dt_ms <= 100) {
+        return dt_ms;
+    }
+
+    if (clock_gettime(CLOCK_MONOTONIC, &ts) == 0) {
+        now_ms = (uint64_t)ts.tv_sec * 1000u + (uint64_t)ts.tv_nsec / 1000000u;
+        if (initialized && now_ms > last_ms) {
+            uint64_t delta = now_ms - last_ms;
+            host_dt = delta > 100u ? 100u : (uint32_t)delta;
+        }
+        last_ms = now_ms;
+        initialized = 1;
+    }
+
+    if (host_dt == 0 || host_dt > 100) {
+        host_dt = 16;
+    }
+    return host_dt;
+}
+
+static int cbackgroundui_shell_menu_should_tick(void)
+{
+    uint32_t bg_root = MEM32(0x5F3444);
+    uint32_t anim = MEM32(0x5F33E8);
+    uint32_t net = MEM32(0x5FA38C);
+    uint32_t state = cbackgroundui_va_is_valid(net + 0xFA8) ? MEM32(net + 0xFA8) : 0;
+    uint32_t has_quotes = 0;
+
+    for (uint32_t slot = 0x5F3418u; slot < 0x5F3438u; slot += 4) {
+        if (cbackgroundui_is_static_text(MEM32(slot))) {
+            has_quotes = 1;
+            break;
+        }
+    }
+    if (state == 0 && cbackgroundui_va_is_valid(0x613FCC)) {
+        state = MEM32(0x613FCC);
+    }
+
+    return state != 6 &&
+           state != 7 &&
+           (has_quotes ||
+            (cbackgroundui_va_is_valid(bg_root) &&
+             cbackgroundui_va_is_valid(MEM32(bg_root)) &&
+             cbackgroundui_va_is_valid(anim + 8) &&
+             MEM32(anim) != 0 &&
+             MEM32(anim + 4) != 0));
+}
+
+static void cbackgroundui_tick_shell_quotes(uint32_t dt_ms)
+{
+    float seconds_per_tick = MEMF(0x561410);
+    float pixels_per_second = MEMF(0x561490) * 0.25f;
+    float dx;
+    float screen_w = 640.0f;
+    uint32_t frame = MEM32(0x5FA8E8);
+
+    if (!cbackgroundui_shell_menu_should_tick()) {
+        return;
+    }
+    if (!isfinite(seconds_per_tick) || seconds_per_tick <= 0.0f || seconds_per_tick > 1.0f) {
+        seconds_per_tick = 0.001f;
+    }
+    if (!isfinite(pixels_per_second) || pixels_per_second <= 0.0f || pixels_per_second > 60.0f) {
+        pixels_per_second = 7.5f;
+    }
+    if (cbackgroundui_va_is_valid(frame + 0xD8) && MEM32(frame + 0xD8) > 0 && MEM32(frame + 0xD8) < 4096) {
+        screen_w = (float)(int32_t)MEM32(frame + 0xD8);
+    }
+    dx = (float)(int32_t)dt_ms * seconds_per_tick * pixels_per_second;
+    if (!isfinite(dx) || dx < 0.0f || dx > 16.0f) {
+        return;
+    }
+
+    for (uint32_t slot = 0x5F3418u; slot < 0x5F3438u; slot += 4) {
+        uint32_t control = MEM32(slot);
+        float x;
+
+        if (!cbackgroundui_is_static_text(control) || !cbackgroundui_va_is_valid(control + 0x48)) {
+            continue;
+        }
+        x = MEMF(control + 0x40) - dx;
+        if (x < -260.0f) {
+            x += screen_w + 320.0f;
+        }
+        MEMF(control + 0x40) = x;
+    }
+
+}
+#endif
 
 /**
  * fn_00198410_FriendMsgVisible
@@ -1142,6 +1335,10 @@ void fn_00198DD0_NotLoggedInVisible(void)
     int _flags = 0; /* fallback flag var */
 
 loc_00198DD0:
+    if (MEM8(0x5FA52D) == 0 && cbackgroundui_va_is_valid(MEM32(0x5F31D8))) {
+        SET_LO8(eax, 1);
+        esp += 4; return; /* ret */
+    }
     SET_LO8(eax, MEM8(0x5FA52D));
     if (TEST_NZ(LO8(eax), LO8(eax))) { sub_00198DDC(); return; } /* jne: not equal / not zero */
 
@@ -1392,6 +1589,11 @@ loc_00198F34:
 
 loc_00198F47:
     /* FPU: fdivr dword ptr [esp + 0x14] */
+#ifdef XBOXRECOMP_VULKAN_GRAPHICS
+    if (MEM8(0x5F33FC) == 0 && cbackgroundui_shell_menu_should_tick()) {
+        MEM8(0x5F33FC) = 1;
+    }
+#endif
     SET_LO8(eax, MEM8(0x5F33FC));
     (void)0; /* test LO8(eax), LO8(eax) - flags set for next jcc */
     fp_push(MEMF(esp + 0x30)); /* fld float */
@@ -1420,6 +1622,9 @@ loc_00198F9C:
     (void)0; /* test LO8(eax), LO8(eax) - flags set for next jcc */
     PUSH32(esp, 0);
     PUSH32(esp, ebx);
+#ifdef XBOXRECOMP_VULKAN_GRAPHICS
+    if (cbackgroundui_shell_menu_should_tick()) goto loc_00199019;
+#endif
     if (TEST_NZ(LO8(eax), LO8(eax))) goto loc_00199019; /* jne: not equal / not zero */
 
 loc_00198FA8:
@@ -1522,9 +1727,7 @@ loc_00199052:
 
 loc_0019905D:
     edi = esp + 0x70;
-#ifndef XBOXRECOMP_VULKAN_GRAPHICS
     PUSH32(esp, 0); fn_0012BBD0_0CUIImageControl_QAE_XZ(); /* call 0x0012BBD0 */
-#endif
 
 loc_00199066:
     MEM32(esp + 0x1CC) = 0;
@@ -1549,11 +1752,6 @@ loc_00199066:
     MEMF(esp + 0x10C) = xmm1; /* movss */
     MEMF(esp + 0x110) = xmm0; /* movss */
     eax = MEM32(edx + 4);
-#ifdef XBOXRECOMP_VULKAN_GRAPHICS
-    if (eax > 16) {
-        eax = 16;
-    }
-#endif
     eax--;
     if (((int32_t)eax < 0)) goto loc_0019929B; /* js: sign (negative) */
 
@@ -1605,8 +1803,8 @@ loc_00199150:
                 cbackgroundui_va_is_valid(surface_dbg + 0x1C) ? (unsigned)MEM32(surface_dbg + 0x18) : 0,
                 cbackgroundui_va_is_valid(surface_dbg + 0x1C) ? (unsigned)MEM32(surface_dbg + 0x1C) : 0,
                 (unsigned)MEM8(esi + 4), (unsigned)MEM8(esi + 5), MEMF(0x5F33F8),
-                MEMF(esp + 0x1C), MEMF(esp + 0xC), MEMF(esp + 0x20), MEMF(esp + 0x24), MEMF(esp + 0x28),
-                MEMF(esp + 0xC), MEMF(esp + 0x1C), MEMF(esp + 0x20), MEMF(esp + 0x24), MEMF(esp + 0x28));
+                MEMF(esp + 0xC), MEMF(esp + 0x24), MEMF(esp + 0x1C), MEMF(esp + 0x18), MEMF(esp + 0x20),
+                MEMF(esp + 0xC), MEMF(esp + 0x1C), MEMF(esp + 0x20), MEMF(esp + 0x24), MEMF(esp + 0x18));
         g_fsw_bg_debug_log_count++;
     }
 #endif
@@ -1655,16 +1853,11 @@ loc_001991C2:
         float band_bottom = MEMF(0x582D70);
         float band_h = band_bottom - band_top;
         float alpha = MEMF(esp + 0x20);
-        float fade_alpha = MEMF(esp + 0x24);
-        float u0 = 0.0f;
-        float v0 = MEMF(esp + 0xC);
-        float u1 = 1.0f;
-        float v1 = MEMF(esp + 0x28);
+        float u0 = MEMF(esp + 0xC);
+        float v0 = MEMF(esp + 0x24);
+        float u1 = MEMF(esp + 0x1C);
+        float v1 = MEMF(esp + 0x18);
         uint32_t color;
-        if ((!isfinite(alpha) || alpha <= 0.01f) &&
-            isfinite(fade_alpha) && fade_alpha > 0.01f) {
-            alpha = fade_alpha;
-        }
         if (!isfinite(alpha) || alpha < 0.0f) alpha = 0.0f;
         if (alpha > 1.0f) alpha = 1.0f;
         if (cbackgroundui_va_is_valid(surface + 0x1C) &&
@@ -1681,7 +1874,10 @@ loc_001991C2:
             fsw_cuiimagecontrol_draw_texture_crc_uv(
                 fsw_bg_crc, 0.0f, band_top, 640.0f, band_h, color, u0, v0, u1, v1);
             fsw_bg_drawn = 1;
-            if (alpha > 0.01f) fsw_bg_any_visible = 1;
+            if (alpha > 0.01f) {
+                fsw_bg_any_visible = 1;
+                g_fsw_bg_last_visible_crc = fsw_bg_crc;
+            }
         }
         goto loc_0019927E;
     }
@@ -1760,6 +1956,19 @@ loc_00199285:
 
 loc_0019929B:
 #ifdef XBOXRECOMP_VULKAN_GRAPHICS
+    if (!fsw_bg_any_visible &&
+        g_fsw_bg_last_visible_crc != 0 &&
+        fsw_cuitexture_find_surface(g_fsw_bg_last_visible_crc) != 0 &&
+        cbackgroundui_shell_menu_should_tick()) {
+        float band_top = MEMF(0x582D6C);
+        float band_bottom = MEMF(0x582D70);
+        float band_h = band_bottom - band_top;
+        if (!isfinite(band_top) || band_top < 0.0f || band_top > 480.0f) band_top = 100.0f;
+        if (!isfinite(band_h) || band_h < 1.0f || band_h > 480.0f) band_h = 260.0f;
+        fsw_cuiimagecontrol_draw_texture_crc_uv(
+            g_fsw_bg_last_visible_crc, 0.0f, band_top, 640.0f, band_h,
+            0xFFFFFFFFu, 0.0f, 0.0f, 1.0f, 1.0f);
+    }
     goto loc_001992C2;
 #endif
     MEM32(esp + 0x1CC) = 0xFFFFFFFFu;
@@ -2010,9 +2219,34 @@ loc_00199499:
  */
 void fn_001994A0_CBackGroundUI_AddSignInStatus(void)
 {
+    uint32_t saved_heapflag = 0;
+    uint8_t forced_malloc = 0;
     int _flags = 0; /* fallback flag var */
 
 loc_001994A0:
+    cbackgroundui_init_static_crcs();
+    if (MEM32(0x5F9E40) != 0 && MEM32(0x6135C8) == 0) {
+        if (!g_fsw_bg_signin_force_allowed) {
+            if (getenv("FSW_TH_BG_DEBUG") != NULL) {
+                fprintf(stderr,
+                        "[FSW/BG] deferring AddSignInStatus root=%08X heapflag=%08X heap=%08X crcs=%08X/%08X/%08X signed=%u\n",
+                        (unsigned)MEM32(0x5F3444), (unsigned)MEM32(0x5F9E40),
+                        (unsigned)MEM32(0x6135C8), (unsigned)MEM32(0x612B30),
+                        (unsigned)MEM32(0x612B34), (unsigned)MEM32(0x612B38),
+                        (unsigned)MEM8(0x5FA52D));
+            }
+            esp += 4; return; /* ret */
+        }
+        saved_heapflag = MEM32(0x5F9E40);
+        MEM32(0x5F9E40) = 0;
+        forced_malloc = 1;
+    }
+    if (getenv("FSW_TH_BG_DEBUG") != NULL) {
+        fprintf(stderr, "[FSW/BG] AddSignInStatus begin root=%08X heapflag=%08X heap=%08X crcs=%08X/%08X/%08X signed=%u\n",
+                (unsigned)MEM32(0x5F3444), (unsigned)MEM32(0x5F9E40), (unsigned)MEM32(0x6135C8),
+                (unsigned)MEM32(0x612B30), (unsigned)MEM32(0x612B34), (unsigned)MEM32(0x612B38),
+                (unsigned)MEM8(0x5FA52D));
+    }
     PUSH32(esp, ecx);
     eax = MEM32(0x5F9E40);
     (void)0; /* test eax, eax - flags set for next jcc */
@@ -2429,12 +2663,85 @@ loc_00199889:
     PUSH32(esp, 0); fn_00199370_CBackGroundUI_RegisterStrings(); /* call 0x00199370 */
 
 loc_0019988E:
+    if (forced_malloc) {
+        MEM32(0x5F9E40) = saved_heapflag;
+    }
     POP32(esp, edi);
     POP32(esp, esi);
     POP32(esp, ebx);
     POP32(esp, ecx);
     esp += 4; return; /* ret */
 
+}
+
+static uint32_t cbackgroundui_current_state_slot(uint32_t *net_index_out)
+{
+    uint32_t net_index = MEM32(0x6971F0u + 0xFA8u);
+    uint32_t updater = 0x6A9D38u;
+
+    if (net_index_out != NULL) {
+        *net_index_out = net_index;
+    }
+    if (net_index >= 0xC8u || !cbackgroundui_va_is_valid(updater + net_index * 4 + 0x644u)) {
+        return 0;
+    }
+    return MEM32(updater + net_index * 4 + 0x644u);
+}
+
+static int cbackgroundui_can_lazy_signin_init(void)
+{
+    uint32_t net_index = 0;
+    uint32_t state_slot = cbackgroundui_current_state_slot(&net_index);
+
+    if (MEM32(0x5FA89C) == 0 || state_slot == 0) {
+        return 0;
+    }
+    if (net_index == 6 || net_index == 7) {
+        return 0;
+    }
+#ifdef XBOXRECOMP_VULKAN_GRAPHICS
+    if (!cbackgroundui_shell_menu_should_tick()) {
+        return 0;
+    }
+#endif
+    if (!cbackgroundui_va_is_valid(MEM32(0x5F3444)) ||
+        !cbackgroundui_va_is_valid(MEM32(MEM32(0x5F3444)))) {
+        return 0;
+    }
+    return 1;
+}
+
+static void cbackgroundui_lazy_signin_init_if_needed(void)
+{
+    uint32_t root = MEM32(0x5F31D8);
+
+    if (cbackgroundui_va_is_valid(root) && cbackgroundui_va_is_valid(MEM32(root))) {
+        return;
+    }
+    if (!cbackgroundui_can_lazy_signin_init()) {
+        return;
+    }
+
+    uint32_t saved_eax = eax;
+    uint32_t saved_ebx = ebx;
+    uint32_t saved_ecx = ecx;
+    uint32_t saved_edx = edx;
+    uint32_t saved_esi = esi;
+    uint32_t saved_edi = edi;
+    uint32_t saved_esp = esp;
+
+    g_fsw_bg_signin_force_allowed = 1;
+    PUSH32(esp, 0);
+    fn_001994A0_CBackGroundUI_AddSignInStatus();
+    g_fsw_bg_signin_force_allowed = 0;
+
+    eax = saved_eax;
+    ebx = saved_ebx;
+    ecx = saved_ecx;
+    edx = saved_edx;
+    esi = saved_esi;
+    edi = saved_edi;
+    esp = saved_esp;
 }
 
 void sub_001994BC(void) { recomp_missing_target(0x001994BCu); }
@@ -3888,6 +4195,10 @@ loc_0019A410:
     PUSH32(esp, edi);
     ebx = eax;
     fsw_bg_update_dt = ebx;
+#ifdef XBOXRECOMP_VULKAN_GRAPHICS
+    fsw_bg_update_dt = cbackgroundui_normalize_update_dt(fsw_bg_update_dt);
+    ebx = fsw_bg_update_dt;
+#endif
     PUSH32(esp, 0); fn_00019360_GetIdentityMatrix(); /* call 0x00019360 */
 
 loc_0019A423:
@@ -3966,6 +4277,9 @@ loc_0019A489:
 
 loc_0019A4E6:
 #ifdef XBOXRECOMP_VULKAN_GRAPHICS
+    if (MEM8(0x5F33FC) == 0 && cbackgroundui_shell_menu_should_tick()) {
+        MEM8(0x5F33FC) = 1;
+    }
     if (getenv("FSW_TH_BG_DEBUG") != NULL && g_fsw_bg_update_debug_log_count < 128) {
         uint32_t frame_state = MEM32(0x5FA8E8);
         uint32_t bg_anim = MEM32(0x5F33E8);
@@ -4126,6 +4440,17 @@ loc_0019A60E:
     }
 
 loc_0019A61E:
+#ifdef XBOXRECOMP_VULKAN_GRAPHICS
+    if (cbackgroundui_shell_menu_should_tick()) {
+        cbackgroundui_tick_shell_quotes(fsw_bg_update_dt);
+        cbackgroundui_lazy_signin_init_if_needed();
+        if (cbackgroundui_va_is_valid(MEM32(0x5F31D8)) &&
+            cbackgroundui_va_is_valid(MEM32(MEM32(0x5F31D8)))) {
+            goto loc_0019A6B6;
+        }
+        goto loc_0019A72B;
+    }
+#endif
     SET_LO8(eax, MEM8(0x60EF2C));
     if (TEST_Z(LO8(eax), LO8(eax))) goto loc_0019A6B6; /* je: equal / zero */
 
@@ -4201,6 +4526,7 @@ loc_0019A6A7:
 
 loc_0019A6B6:
     ecx = MEM32(0x5F31D8);
+    if (!cbackgroundui_va_is_valid(ecx) || !cbackgroundui_va_is_valid(MEM32(ecx))) goto loc_0019A72B;
     edx = ecx + 0x40;
     eax = MEM32(edx);
     MEM32(esp + 0x34) = eax;
@@ -4247,6 +4573,9 @@ loc_0019A71D:
     }
 
 loc_0019A72B:
+#ifdef XBOXRECOMP_VULKAN_GRAPHICS
+    cbackgroundui_tick_signin_status(fsw_bg_update_dt);
+#endif
     esi = MEM32(0x5FA38C);
     PUSH32(esp, 0); fn_00272490_CNetState_Get(); /* call 0x00272490 */
 

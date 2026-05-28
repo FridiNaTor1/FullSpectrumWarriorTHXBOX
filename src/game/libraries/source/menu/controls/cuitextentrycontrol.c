@@ -7,7 +7,19 @@
 #define RECOMP_GENERATED_CODE
 #include "recomp_funcs.h"
 #include <math.h>
+#include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
+
+extern void fsw_cuicontrol_add_child_host(uint32_t parent, uint32_t child);
+extern void fsw_profile_setup_request_accept_host(void);
+extern void fn_00377150_CUIDataRegistry_Init(void);
+extern void fn_002B1BF0_CProfileManager_GetNewProfileName(void);
+extern void fn_003767A0_CUIDataRegistry_UIRegisterUnicodeString(void);
+extern void fn_0012C530_CUIStaticTextControl_Draw(void);
+#ifdef XBOXRECOMP_VULKAN_GRAPHICS
+extern uint32_t fsw_cuitexture_find_surface(uint32_t crc);
+#endif
 
 static int cuitextentry_va_is_valid(uint32_t va)
 {
@@ -54,6 +66,716 @@ static uint32_t cuitextentry_read_u32(uint32_t file)
     uint32_t value = 0;
     cuitextentry_read_memfile(file, &value, sizeof(value));
     return value;
+}
+
+static uint32_t cuitextentry_stream_pos(uint32_t file)
+{
+    uint32_t stream;
+    if (!cuitextentry_va_is_valid(file + 0x24)) {
+        return 0;
+    }
+    stream = MEM32(file + 0x24);
+    if (!cuitextentry_va_is_valid(stream + 0xC)) {
+        return 0;
+    }
+    return MEM32(stream + 0xC);
+}
+
+static uint32_t g_fsw_profile_textentry_control;
+static uint32_t g_fsw_profile_textentry_attached_menu;
+static uint8_t g_fsw_profile_textentry_accept_committed;
+
+int fsw_textentry_profile_is_active_control(uint32_t control)
+{
+    return control != 0 &&
+           control == g_fsw_profile_textentry_control &&
+           g_fsw_profile_textentry_attached_menu != 0;
+}
+
+int fsw_textentry_profile_is_editing(void)
+{
+    return fsw_textentry_profile_is_active_control(g_fsw_profile_textentry_control);
+}
+
+void fsw_textentry_profile_reset_accept_host(void)
+{
+    g_fsw_profile_textentry_accept_committed = 0;
+}
+
+static int cuitextentry_profile_is_active_item(uint32_t item)
+{
+    uint32_t first;
+    uint32_t offset;
+
+    if (!fsw_textentry_profile_is_active_control(g_fsw_profile_textentry_control)) {
+        return 0;
+    }
+    first = g_fsw_profile_textentry_control + 0x100;
+    if (item < first || item >= first + 0x27u * 0x4C0u) {
+        return 0;
+    }
+    offset = item - first;
+    return (offset % 0x4C0u) == 0 && MEM32(item) == 0x5609B0u;
+}
+
+static uint32_t cuitextentry_registry_find_value(uint32_t set_offset, uint32_t key)
+{
+    uint32_t registry;
+    uint32_t set;
+    uint32_t table;
+    uint32_t mask;
+
+    registry = MEM32(0x5FA8A0);
+    if (!cuitextentry_va_is_valid(registry)) {
+        PUSH32(esp, 0);
+        fn_00377150_CUIDataRegistry_Init();
+        registry = MEM32(0x5FA8A0);
+    }
+    if (!cuitextentry_va_is_valid(registry + set_offset + 0xC)) {
+        return 0;
+    }
+
+    set = registry + set_offset;
+    table = MEM32(set);
+    mask = MEM32(set + 4);
+    if (!cuitextentry_va_is_valid(table) || mask == 0 || mask > 0x3FFFu) {
+        return 0;
+    }
+
+    for (uint32_t probe = 0; probe <= mask; probe++) {
+        uint32_t slot = table + (((key + probe) & mask) * 12u);
+        uint32_t slot_hash;
+        if (!cuitextentry_va_is_valid(slot + 8)) {
+            return 0;
+        }
+        slot_hash = MEM32(slot);
+        if (slot_hash == 0xFFFFFFFFu) {
+            return 0;
+        }
+        if (MEM32(slot + 4) == key) {
+            return MEM32(slot + 8);
+        }
+    }
+    return 0;
+}
+
+static uint32_t cuitextentry_profile_name_buffer(void)
+{
+    PUSH32(esp, 0);
+    fn_002B1BF0_CProfileManager_GetNewProfileName();
+    return eax;
+}
+
+static void cuitextentry_register_profile_name_key(uint32_t key)
+{
+    uint32_t registry;
+    uint32_t text;
+    uint32_t saved_esp = esp;
+
+    if (key == 0 || key == 0xFFFFFFFFu) {
+        return;
+    }
+    registry = MEM32(0x5FA8A0);
+    if (!cuitextentry_va_is_valid(registry)) {
+        PUSH32(esp, 0);
+        fn_00377150_CUIDataRegistry_Init();
+        registry = MEM32(0x5FA8A0);
+    }
+    text = cuitextentry_profile_name_buffer();
+    if (!cuitextentry_va_is_valid(registry + 0x40) ||
+        !cuitextentry_va_is_valid(text + 1)) {
+        esp = saved_esp;
+        return;
+    }
+
+    MEM32(saved_esp + 0x14) = key;
+    ecx = registry;
+    edx = text;
+    eax = saved_esp + 0x14;
+    PUSH32(esp, 0);
+    fn_003767A0_CUIDataRegistry_UIRegisterUnicodeString();
+    esp = saved_esp;
+}
+
+static void cuitextentry_profile_accept_host(void)
+{
+    uint32_t manager = MEM32(0x5FA358);
+
+    if (cuitextentry_va_is_valid(manager + 0x5700)) {
+        MEM8(manager + 0x5700) = 1;
+    }
+}
+
+static uint32_t cuitextentry_wcslen_bounded(uint32_t str, uint32_t max_chars)
+{
+    uint32_t len = 0;
+
+    if (!cuitextentry_va_is_valid(str + 1)) {
+        return 0;
+    }
+    while (len < max_chars && cuitextentry_va_is_valid(str + len * 2u + 1)) {
+        if (MEM16(str + len * 2u) == 0) {
+            break;
+        }
+        len++;
+    }
+    return len;
+}
+
+static uint16_t cuitextentry_char_for_cursor(uint32_t cursor)
+{
+    if (cursor <= 0x19u) {
+        return (uint16_t)('A' + cursor);
+    }
+    if (cursor <= 0x23u) {
+        return (uint16_t)('0' + (cursor - 0x1Au));
+    }
+    if (cursor == 0x24u) {
+        return ' ';
+    }
+    return 0;
+}
+
+static void cuitextentry_render_profile_text(uint32_t control, uint32_t camera, uint32_t matrix)
+{
+    uint32_t label;
+    uint32_t text;
+    uint32_t max_len;
+    uint32_t saved_esp;
+    uint32_t saved_eax;
+    uint32_t saved_ecx;
+    uint32_t saved_edx;
+    uint32_t saved_ebx;
+    uint32_t saved_esi;
+    uint32_t saved_edi;
+    float old_x;
+    float old_y;
+    float old_z;
+    float old_w;
+    float old_h;
+    uint8_t old_e4;
+    uint8_t old_e5;
+    uint8_t old_flags;
+    uint32_t old_color;
+
+    if (!fsw_textentry_profile_is_active_control(control) ||
+        !cuitextentry_va_is_valid(control + 0xBA58) ||
+        camera == 0 || matrix == 0) {
+        return;
+    }
+
+    text = cuitextentry_registry_find_value(0x40u, MEM32(control + 0xBA48));
+    if (!cuitextentry_va_is_valid(text + 1)) {
+        text = cuitextentry_profile_name_buffer();
+    }
+    if (!cuitextentry_va_is_valid(text + 1) || MEM16(text) == 0) {
+        return;
+    }
+
+    label = control + 0x100u + 0x3A0u;
+    if (!cuitextentry_va_is_valid(label + 0x128) ||
+        !cuitextentry_va_is_valid(MEM32(label))) {
+        return;
+    }
+
+    max_len = MEM32(control + 0xBA4C);
+    if (max_len == 0 || max_len > 64u) {
+        max_len = 15u;
+    }
+
+    old_x = MEMF(label + 0x40);
+    old_y = MEMF(label + 0x44);
+    old_z = MEMF(label + 0x48);
+    old_w = MEMF(label + 0x9C);
+    old_h = MEMF(label + 0xA0);
+    old_e4 = MEM8(label + 0xE4);
+    old_e5 = MEM8(label + 0xE5);
+    old_flags = MEM8(label + 0x118);
+    old_color = MEM32(label + 0x90);
+
+    MEMF(label + 0x40) = MEMF(control + 0x40);
+    MEMF(label + 0x44) = MEMF(control + 0x44) - 42.0f;
+    MEMF(label + 0x48) = 0.0f;
+    MEMF(label + 0x9C) = MEMF(control + 0x9C);
+    MEMF(label + 0xA0) = 28.0f;
+    MEM8(label + 0xE4) = (MEM8(label + 0xE4) | 0x84u) & 0xFBu;
+    MEM8(label + 0xE5) = MEM8(label + 0xE5) & 0xFCu;
+    MEM8(label + 0x118) = (MEM8(label + 0x118) | 0x01u) & 0xFBu;
+    MEM32(label + 0x90) = 0xFFFFFFFFu;
+
+    saved_esp = esp;
+    saved_eax = eax;
+    saved_ecx = ecx;
+    saved_edx = edx;
+    saved_ebx = ebx;
+    saved_esi = esi;
+    saved_edi = edi;
+    PUSH32(esp, max_len);
+    PUSH32(esp, matrix);
+    eax = text;
+    ecx = label;
+    PUSH32(esp, 0);
+    fn_0012C530_CUIStaticTextControl_Draw();
+    esp = saved_esp;
+    eax = saved_eax;
+    ecx = saved_ecx;
+    edx = saved_edx;
+    ebx = saved_ebx;
+    esi = saved_esi;
+    edi = saved_edi;
+
+    MEMF(label + 0x40) = old_x;
+    MEMF(label + 0x44) = old_y;
+    MEMF(label + 0x48) = old_z;
+    MEMF(label + 0x9C) = old_w;
+    MEMF(label + 0xA0) = old_h;
+    MEM8(label + 0xE4) = old_e4;
+    MEM8(label + 0xE5) = old_e5;
+    MEM8(label + 0x118) = old_flags;
+    MEM32(label + 0x90) = old_color;
+}
+
+static void cuitextentry_profile_add_char_host(uint32_t control)
+{
+    static uint8_t previous_accept;
+    static uint8_t previous_delete;
+    static uint32_t previous_control;
+    static uint32_t debug_call_count;
+    static uint8_t debug_last_accept;
+    static uint8_t debug_last_delete;
+    static uint32_t debug_last_cursor = 0xFFFFFFFFu;
+    uint8_t accept;
+    uint8_t delete_pressed;
+    uint32_t text;
+    uint32_t len;
+    uint32_t max_len;
+    uint32_t cursor;
+    int debug_enabled = getenv("FSW_TH_TEXTENTRY_DEBUG") != NULL;
+
+    if (!fsw_textentry_profile_is_active_control(control) ||
+        !cuitextentry_va_is_valid(control + 0xBA58)) {
+        if (debug_enabled && debug_call_count < 128) {
+            fprintf(stderr, "[FSW/TextEntry] add inactive control=%08X active=%08X attached=%08X\n",
+                    (unsigned)control, (unsigned)g_fsw_profile_textentry_control,
+                    (unsigned)g_fsw_profile_textentry_attached_menu);
+            debug_call_count++;
+        }
+        previous_accept = 0;
+        previous_delete = 0;
+        return;
+    }
+
+    accept = MEM8(0x5F9E1C) != 0;
+    delete_pressed = (MEM8(0x5F9E22) != 0 || MEM8(0x5F9E23) != 0);
+    cursor = MEM32(control + 0xBA54);
+    if (debug_enabled &&
+        (debug_call_count < 256 ||
+         accept != debug_last_accept ||
+         delete_pressed != debug_last_delete ||
+         cursor != debug_last_cursor)) {
+        fprintf(stderr,
+                "[FSW/TextEntry] add poll control=%08X cursor=%u accept=%u delete=%u prev_accept=%u prev_delete=%u selected=%u input_latch=%u/%u/%u data_key=%08X max=%u\n",
+                (unsigned)control, (unsigned)cursor, (unsigned)accept, (unsigned)delete_pressed,
+                (unsigned)previous_accept, (unsigned)previous_delete,
+                (unsigned)((MEM8(control + 0xE4) & 4u) != 0),
+                (unsigned)MEM8(MEM32(0x5FA89C) + 0x18),
+                (unsigned)MEM8(MEM32(0x5FA89C) + 0x1E),
+                (unsigned)MEM8(MEM32(0x5FA89C) + 0x1F),
+                (unsigned)MEM32(control + 0xBA48), (unsigned)MEM32(control + 0xBA4C));
+        debug_call_count++;
+        debug_last_accept = accept;
+        debug_last_delete = delete_pressed;
+        debug_last_cursor = cursor;
+    }
+    if (previous_control != control) {
+        previous_control = control;
+        previous_accept = accept;
+        previous_delete = delete_pressed;
+        g_fsw_profile_textentry_accept_committed = 0;
+        if (debug_enabled) {
+            fprintf(stderr, "[FSW/TextEntry] add arm control=%08X accept=%u delete=%u\n",
+                    (unsigned)control, (unsigned)accept, (unsigned)delete_pressed);
+        }
+        return;
+    }
+    if ((!accept || previous_accept) && (!delete_pressed || previous_delete)) {
+        previous_accept = accept;
+        previous_delete = delete_pressed;
+        return;
+    }
+
+    text = cuitextentry_registry_find_value(0x40u, MEM32(control + 0xBA48));
+    if (!cuitextentry_va_is_valid(text + 1)) {
+        cuitextentry_register_profile_name_key(MEM32(control + 0xBA48));
+        text = cuitextentry_registry_find_value(0x40u, MEM32(control + 0xBA48));
+    }
+    if (!cuitextentry_va_is_valid(text + 1)) {
+        text = cuitextentry_profile_name_buffer();
+    }
+    max_len = MEM32(control + 0xBA4C);
+    if (max_len == 0 || max_len > 64u) {
+        max_len = 15u;
+    }
+    if (!cuitextentry_va_is_valid(text + max_len * 2u + 1)) {
+        if (debug_enabled) {
+            fprintf(stderr, "[FSW/TextEntry] add no-text control=%08X key=%08X text=%08X max=%u\n",
+                    (unsigned)control, (unsigned)MEM32(control + 0xBA48), (unsigned)text,
+                    (unsigned)max_len);
+        }
+        previous_accept = accept;
+        previous_delete = delete_pressed;
+        return;
+    }
+
+    len = cuitextentry_wcslen_bounded(text, max_len);
+    if (debug_enabled) {
+        fprintf(stderr,
+                "[FSW/TextEntry] add edge control=%08X cursor=%u accept=%u delete=%u text=%08X len=%u max=%u callback=%08X\n",
+                (unsigned)control, (unsigned)cursor, (unsigned)accept, (unsigned)delete_pressed,
+                (unsigned)text, (unsigned)len, (unsigned)max_len, (unsigned)MEM32(control + 0xBA40));
+    }
+
+    if (delete_pressed && !previous_delete) {
+        if (len != 0) {
+            MEM16(text + (len - 1u) * 2u) = 0;
+        }
+    } else if (accept && !previous_accept) {
+        if (cursor == 0x26u) {
+            uint32_t callback = MEM32(control + 0xBA40);
+            if (len != 0 && !g_fsw_profile_textentry_accept_committed) {
+                if (getenv("FSW_TH_TEXTENTRY_DEBUG") != NULL) {
+                    fprintf(stderr, "[FSW/TextEntry] accept profile text len=%u callback=%08X\n",
+                            (unsigned)len, (unsigned)callback);
+                }
+                g_fsw_profile_textentry_accept_committed = 1;
+                if (cuitextentry_va_is_valid(callback)) {
+                    uint32_t _icall_esp = g_esp;
+                    PUSH32(esp, 0);
+                    RECOMP_ICALL_SAFE(callback, _icall_esp);
+                } else {
+                    cuitextentry_profile_accept_host();
+                }
+            }
+        } else if (cursor == 0x25u) {
+            if (len != 0) {
+                MEM16(text + (len - 1u) * 2u) = 0;
+            }
+        } else if (len < max_len) {
+            uint16_t ch = cuitextentry_char_for_cursor(cursor);
+            if (ch != 0 && (ch != ' ' || len != 0)) {
+                MEM16(text + len * 2u) = ch;
+                MEM16(text + (len + 1u) * 2u) = 0;
+                if (getenv("FSW_TH_TEXTENTRY_DEBUG") != NULL) {
+                    fprintf(stderr, "[FSW/TextEntry] append char cursor=%u ch=%04X len=%u text=%08X\n",
+                            (unsigned)cursor, (unsigned)ch, (unsigned)(len + 1u), (unsigned)text);
+                }
+            }
+        }
+    }
+
+    previous_accept = accept;
+    previous_delete = delete_pressed;
+}
+
+static uint32_t cuitextentry_default_label_crc(const char *label)
+{
+    uint32_t crc = MEM32(0x615FC4);
+    const unsigned char *p = (const unsigned char *)label;
+
+    if (crc == 0) {
+        return 0xFFFFFFFFu;
+    }
+    crc = ~crc;
+    while (*p != 0) {
+        uint32_t ch = MEM8(0x5CE110 + *p);
+        uint32_t idx = ch ^ (crc >> 24);
+        crc = (crc << 8) ^ MEM32(0x5CDD10 + idx * 4);
+        p++;
+    }
+    return ~crc;
+}
+
+static void cuitextentry_repair_default_item_labels(uint32_t control)
+{
+    static const char labels[39][4] = {
+        "A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L", "M",
+        "N", "O", "P", "Q", "R", "S", "T", "U", "V", "W", "X", "Y", "Z",
+        "0", "1", "2", "3", "4", "5", "6", "7", "8", "9",
+        "Spc", "Del", "Acc"
+    };
+
+    if (!cuitextentry_va_is_valid(control + 0xBA58) || MEM32(control) != 0x560958u) {
+        return;
+    }
+    for (uint32_t i = 0, item = control + 0x100; i < 39; i++, item += 0x4C0) {
+        uint32_t crc;
+        if (!cuitextentry_va_is_valid(item + 0x4A8) || MEM32(item) != 0x5609B0u) {
+            continue;
+        }
+        crc = cuitextentry_default_label_crc(labels[i]);
+        if (crc != 0xFFFFFFFFu) {
+            MEM32(item + 0x4A4) = crc;
+            MEM32(item + 0x4A8) = 0x00129FF0u;
+            MEM32(item + 0x3A0 + 0x104) = crc;
+            MEM32(item + 0x3A0 + 0x108) = 0x00129FF0u;
+        }
+    }
+}
+
+static void cuitextentry_set_child_rect(uint32_t child, float x, float y, float z, float w, float h)
+{
+    if (!cuitextentry_va_is_valid(child + 0xA0) || !cuitextentry_va_is_valid(MEM32(child))) {
+        return;
+    }
+
+    MEMF(child + 0x40) = x;
+    MEMF(child + 0x44) = y;
+    MEMF(child + 0x48) = z;
+    MEMF(child + 0x9C) = w;
+    MEMF(child + 0xA0) = h;
+    MEM8(child + 0xE4) = MEM8(child + 0xE4) | 0x80;
+    MEM8(child + 0xE5) = MEM8(child + 0xE5) & 0xFC;
+    if (MEM32(child) == 0x55B110u) {
+        MEM8(child + 0xD2) = 0;
+        MEM8(child + 0xD3) = 0;
+    }
+}
+
+static void cuitextentry_hide_child(uint32_t child)
+{
+    if (!cuitextentry_va_is_valid(child + 0xE5)) {
+        return;
+    }
+    MEM8(child + 0xE5) = MEM8(child + 0xE5) | 2;
+}
+
+static int cuitextentry_show_image_child_if_texture(uint32_t child, float x, float y,
+                                                    float z, float w, float h)
+{
+#ifdef XBOXRECOMP_VULKAN_GRAPHICS
+    uint32_t crc;
+
+    if (!cuitextentry_va_is_valid(child + 0x138) || MEM32(child) != 0x560A90u) {
+        return 0;
+    }
+    crc = MEM32(child + 0x138);
+    if (crc == 0 || crc == 0xFFFFFFFFu || fsw_cuitexture_find_surface(crc) == 0) {
+        return 0;
+    }
+    cuitextentry_set_child_rect(child, x, y, z, w, h);
+    MEM8(child + 0xE4) = MEM8(child + 0xE4) | 0x80;
+    MEM8(child + 0xE5) = MEM8(child + 0xE5) & 0xFC;
+    MEM32(child + 0x90) = 0xFFFFFFFFu;
+    return 1;
+#else
+    (void)child; (void)x; (void)y; (void)z; (void)w; (void)h;
+    return 0;
+#endif
+}
+
+static void cuitextentry_update_item_visuals(uint32_t item, int selected)
+{
+    uint32_t selected_child = item + 0x100;
+    uint32_t normal_child = item + 0x250;
+    uint32_t label_child = item + 0x3A0;
+    float x = MEMF(item + 0x40);
+    float y = MEMF(item + 0x44);
+    float z = MEMF(item + 0x48);
+    float w = MEMF(item + 0x9C);
+    float h = MEMF(item + 0xA0);
+    uint32_t visible_child = selected ? selected_child : normal_child;
+    uint32_t hidden_child = selected ? normal_child : selected_child;
+
+    if (cuitextentry_va_is_valid(label_child + 0xE5)) {
+        MEM8(label_child + 0xE4) = (MEM8(label_child + 0xE4) | 0x80) & 0xFB;
+        if (selected) {
+            MEM8(label_child + 0x118) = (MEM8(label_child + 0x118) | 0x01) & 0xFB;
+        } else {
+            MEM8(label_child + 0x118) = MEM8(label_child + 0x118) & 0xFE;
+        }
+        MEM8(label_child + 0xE5) = MEM8(label_child + 0xE5) & 0xFC;
+        MEM32(label_child + 0x90) = 0xFFFFFFFFu;
+    }
+
+    if (!isfinite(w) || w <= 0.0f || w > 640.0f ||
+        !isfinite(h) || h <= 0.0f || h > 480.0f) {
+        cuitextentry_hide_child(selected_child);
+        cuitextentry_hide_child(normal_child);
+        return;
+    }
+
+    cuitextentry_hide_child(hidden_child);
+    if (!cuitextentry_show_image_child_if_texture(visible_child, x, y, z, w, h)) {
+        cuitextentry_hide_child(visible_child);
+    }
+}
+
+static void cuitextentry_render_label_index(uint32_t control, uint32_t camera, uint32_t matrix,
+                                            uint32_t index, int selected)
+{
+    uint32_t item;
+    uint32_t label;
+    uint32_t label_vtbl;
+    uint32_t _icall_esp;
+
+    if (!fsw_textentry_profile_is_active_control(control) ||
+        !cuitextentry_va_is_valid(control + 0xBA58) ||
+        camera == 0) {
+        return;
+    }
+
+    if (index >= 0x27u) {
+        return;
+    }
+
+    item = control + 0x100 + index * 0x4C0u;
+    label = item + 0x3A0;
+    if (!cuitextentry_va_is_valid(label + 0x108) ||
+        !cuitextentry_va_is_valid(MEM32(label))) {
+        return;
+    }
+
+    cuitextentry_set_child_rect(label, MEMF(item + 0x40) + MEMF(item + 0x9C) * 0.28f,
+                                MEMF(item + 0x44) + MEMF(item + 0xA0) * 0.08f,
+                                0.0f, MEMF(item + 0x9C) * 0.72f,
+                                MEMF(item + 0xA0) * 0.86f);
+    MEM8(label + 0xE4) = (MEM8(label + 0xE4) | 0x80) & 0xFB;
+    if (selected) {
+        MEM8(label + 0x118) = (MEM8(label + 0x118) | 0x01) & 0xFB;
+    } else {
+        MEM8(label + 0x118) = MEM8(label + 0x118) & 0xFE;
+    }
+    MEM8(label + 0xE5) = MEM8(label + 0xE5) & 0xFC;
+    MEM32(label + 0x90) = 0xFFFFFFFFu;
+
+    label_vtbl = MEM32(label);
+    _icall_esp = g_esp;
+    PUSH32(esp, matrix);
+    PUSH32(esp, camera);
+    ecx = label;
+    PUSH32(esp, 0); RECOMP_ICALL_SAFE(MEM32(label_vtbl + 0x38), _icall_esp);
+}
+
+static void cuitextentry_render_selected_label(uint32_t control, uint32_t camera, uint32_t matrix)
+{
+    uint32_t cursor;
+
+    if (!fsw_textentry_profile_is_active_control(control) ||
+        !cuitextentry_va_is_valid(control + 0xBA58) ||
+        camera == 0) {
+        return;
+    }
+
+    cursor = MEM32(control + 0xBA54);
+    for (uint32_t i = 0; i < 0x27u; i++) {
+        cuitextentry_render_label_index(control, camera, matrix, i, i == cursor);
+    }
+}
+
+void fsw_textentry_profile_activate_host(uint32_t menu)
+{
+#ifdef XBOXRECOMP_VULKAN_GRAPHICS
+    uint32_t control = g_fsw_profile_textentry_control;
+    if (!cuitextentry_va_is_valid(control + 0xBA58) || MEM32(control) != 0x560958u) {
+        return;
+    }
+    if (g_fsw_profile_textentry_accept_committed) {
+        return;
+    }
+
+    if (cuitextentry_va_is_valid(menu) && g_fsw_profile_textentry_attached_menu != menu) {
+        fsw_cuicontrol_add_child_host(menu, control);
+        MEM32(control + 0xD8) = menu;
+        g_fsw_profile_textentry_attached_menu = menu;
+        g_fsw_profile_textentry_accept_committed = 0;
+    }
+
+    MEM8(control + 0xE4) = MEM8(control + 0xE4) | 0x84;
+    MEM8(control + 0xE5) = MEM8(control + 0xE5) & 0xFC;
+    if (getenv("FSW_TH_TEXTENTRY_DEBUG") != NULL) {
+        static uint32_t activate_log_count = 0;
+        if (activate_log_count < 16) {
+            fprintf(stderr,
+                    "[FSW/TextEntry] activate control=%08X parent=%08X pos=%.2f,%.2f size=%.2f,%.2f flags=%02X/%02X vtbl=%08X render=%08X hierarchy=%08X\n",
+                    (unsigned)control, (unsigned)MEM32(control + 0xD8),
+                    MEMF(control + 0x40), MEMF(control + 0x44), MEMF(control + 0x9C),
+                    MEMF(control + 0xA0), (unsigned)MEM8(control + 0xE4),
+                    (unsigned)MEM8(control + 0xE5), (unsigned)MEM32(control),
+                    cuitextentry_va_is_valid(MEM32(control) + 0x34) ? (unsigned)MEM32(MEM32(control) + 0x34) : 0,
+                    cuitextentry_va_is_valid(MEM32(control) + 0x38) ? (unsigned)MEM32(MEM32(control) + 0x38) : 0);
+            activate_log_count++;
+        }
+    }
+    if (MEM32(control + 0xBA50) == 0 || MEM32(control + 0xBA50) > 16) {
+        MEM32(control + 0xBA50) = 12;
+    }
+    cuitextentry_register_profile_name_key(MEM32(control + 0xBA48));
+    if (!isfinite(MEMF(control + 0x9C)) || fabsf(MEMF(control + 0x9C)) < 1.0f ||
+        !isfinite(MEMF(control + 0xA0)) || fabsf(MEMF(control + 0xA0)) < 1.0f) {
+        MEMF(control + 0x40) = 96.0f;
+        MEMF(control + 0x44) = 318.0f;
+        MEMF(control + 0x48) = 0.0f;
+        MEMF(control + 0x9C) = 448.0f;
+        MEMF(control + 0xA0) = 92.0f;
+    }
+    ebx = control;
+    PUSH32(esp, 0);
+    fn_0012D620_CUITextEntryControl_SetChildrenPosition();
+    if (MEM32(control + 0x5A0) == 0) {
+        eax = control;
+        PUSH32(esp, 0xCD939667u); /* MyriadWebBold12 */
+        PUSH32(esp, 0);
+        fn_0012DA30_CUITextEntryControl_SetFont();
+    }
+    cuitextentry_repair_default_item_labels(control);
+    for (uint32_t i = 0, item = control + 0x100; i < 0x27; i++, item += 0x4C0) {
+        if (!cuitextentry_va_is_valid(item + 0x4A8) || MEM32(item) != 0x5609B0u) {
+            continue;
+        }
+        if (getenv("FSW_TH_TEXTENTRY_DEBUG") != NULL && i < 8) {
+            static uint32_t item_log_count = 0;
+            if (item_log_count < 32) {
+                fprintf(stderr,
+                        "[FSW/TextEntry] item%u item=%08X pos=%.2f,%.2f size=%.2f,%.2f text_crc=%08X font_crc=%08X cb=%08X flags=%02X/%02X sel_crc=%08X norm_crc=%08X label=%08X label_text=%08X\n",
+                        (unsigned)i, (unsigned)item, MEMF(item + 0x40), MEMF(item + 0x44),
+                        MEMF(item + 0x9C), MEMF(item + 0xA0), (unsigned)MEM32(item + 0x4A4),
+                        (unsigned)MEM32(item + 0x4A0), (unsigned)MEM32(item + 0x4A8),
+                        (unsigned)MEM8(item + 0xE4), (unsigned)MEM8(item + 0xE5),
+                        (unsigned)MEM32(item + 0x100 + 0x138),
+                        (unsigned)MEM32(item + 0x250 + 0x138),
+                        (unsigned)(item + 0x3A0), (unsigned)MEM32(item + 0x3A0 + 0x104));
+                item_log_count++;
+            }
+        }
+        {
+            float key_w = MEMF(control + 0x9C) / 12.0f;
+            float key_h = MEMF(control + 0xA0) / 4.0f;
+            uint32_t col = i % 12;
+            uint32_t row = i / 12;
+            MEMF(item + 0x40) = MEMF(control + 0x40) + (float)col * key_w;
+            MEMF(item + 0x44) = MEMF(control + 0x44) + (float)row * key_h;
+            MEMF(item + 0x48) = 0.0f;
+            MEMF(item + 0x9C) = key_w;
+            MEMF(item + 0xA0) = key_h;
+            PUSH32(esp, *(uint32_t *)&key_h);
+            PUSH32(esp, *(uint32_t *)&key_w);
+            PUSH32(esp, item);
+            PUSH32(esp, 0);
+            fn_0012D520_CUITextItem_SetDimensions();
+            cuitextentry_update_item_visuals(item, i == MEM32(control + 0xBA54));
+            cuitextentry_set_child_rect(item + 0x3A0, MEMF(item + 0x40) + key_w * 0.28f,
+                                        MEMF(item + 0x44) + key_h * 0.08f,
+                                        0.0f, key_w * 0.72f, key_h * 0.86f);
+        }
+        MEM8(item + 0xE4) = MEM8(item + 0xE4) | 0x80;
+        MEM8(item + 0xE5) = MEM8(item + 0xE5) & 0xFC;
+        MEM32(item + 0x90) = 0xFFFFFFFFu;
+        cuitextentry_update_item_visuals(item, i == MEM32(control + 0xBA54));
+        MEM8(item + 0x3A0 + 0xE4) = MEM8(item + 0x3A0 + 0xE4) | 0x80;
+        MEM8(item + 0x3A0 + 0xE5) = MEM8(item + 0x3A0 + 0xE5) & 0xFC;
+        MEM32(item + 0x3A0 + 0x90) = 0xFFFFFFFFu;
+    }
+#endif
 }
 
 /**
@@ -474,6 +1196,20 @@ void fn_0012D110_CUITextEntryControl_Render(void)
     ebp = g_seh_ebp; /* fpo_leaf: inherit caller's frame */
 
 loc_0012D110:
+    if (getenv("FSW_TH_TEXTENTRY_DEBUG") != NULL) {
+        static uint32_t textentry_render_log_count = 0;
+        if (textentry_render_log_count < 64) {
+            fprintf(stderr,
+                    "[FSW/TextEntry] render control=%08X pos=%.2f,%.2f size=%.2f,%.2f selected=%u cursor=%u cols=%u data_len=%u\n",
+                    (unsigned)ecx, MEMF(ecx + 0x40), MEMF(ecx + 0x44),
+                    MEMF(ecx + 0x9C), MEMF(ecx + 0xA0),
+                    (unsigned)((MEM8(ecx + 0xE4) & 4) != 0),
+                    (unsigned)MEM32(ecx + 0xBA54),
+                    (unsigned)MEM32(ecx + 0xBA50),
+                    (unsigned)MEM32(ecx + 0xBA4C));
+            textentry_render_log_count++;
+        }
+    }
     PUSH32(esp, ebp);
     ebp = MEM32(esp + 8);
     if (TEST_Z(ebp, ebp)) goto loc_0012D145; /* je: equal / zero */
@@ -504,6 +1240,8 @@ loc_0012D139:
     if ((edi != 0)) goto loc_0012D130; /* jne: not equal / not zero */
 
 loc_0012D142:
+    cuitextentry_render_selected_label(g_fsw_profile_textentry_control, ebp, ebx);
+    cuitextentry_render_profile_text(g_fsw_profile_textentry_control, ebp, ebx);
     POP32(esp, edi);
     POP32(esp, esi);
     POP32(esp, ebx);
@@ -1206,6 +1944,18 @@ loc_0012D5B0:
     PUSH32(esp, esi);
     PUSH32(esp, edi);
     esi = ecx;
+    if (cuitextentry_va_is_valid(esi + 0x4A8) && cuitextentry_va_is_valid(esi + 0x4A4)) {
+        uint32_t label = esi + 0x3A0;
+        if (cuitextentry_va_is_valid(label + 0x108)) {
+            if (MEM32(esi + 0x4A0) != 0) {
+                MEM32(label + 0x100) = MEM32(esi + 0x4A0);
+            } else if (MEM32(label + 0x100) != 0) {
+                MEM32(esi + 0x4A0) = MEM32(label + 0x100);
+            }
+            MEM32(label + 0x104) = MEM32(esi + 0x4A4);
+            MEM32(label + 0x108) = MEM32(esi + 0x4A8);
+        }
+    }
     edi = MEM32(esi);
     PUSH32(esp, 1);
     PUSH32(esp, 0); fn_0005A39C_GetTickCount_0(); /* call 0x0005A39C */
@@ -1218,6 +1968,18 @@ loc_0012D5C6:
     }
 
 loc_0012D5CC:
+    if (cuitextentry_profile_is_active_item(esi)) {
+        uint32_t first = g_fsw_profile_textentry_control + 0x100;
+        uint32_t index = (esi - first) / 0x4C0u;
+        MEM8(esi + 0xE4) = MEM8(esi + 0xE4) | 0x80;
+        MEM8(esi + 0xE5) = MEM8(esi + 0xE5) & 0xFC;
+        cuitextentry_update_item_visuals(esi, index == MEM32(g_fsw_profile_textentry_control + 0xBA54));
+        cuitextentry_set_child_rect(esi + 0x3A0, MEMF(esi + 0x40) + MEMF(esi + 0x9C) * 0.28f,
+                                    MEMF(esi + 0x44) + MEMF(esi + 0xA0) * 0.08f,
+                                    0.0f, MEMF(esi + 0x9C) * 0.72f,
+                                    MEMF(esi + 0xA0) * 0.86f);
+        SET_LO8(eax, 1);
+    }
     if (TEST_Z(LO8(eax), LO8(eax))) goto loc_0012D613; /* je: equal / zero */
 
 loc_0012D5D0:
@@ -1503,6 +2265,10 @@ void fn_0012D7A0_CUITextEntryControl_AddChar(void)
     ebp = g_seh_ebp; /* fpo_leaf: inherit caller's frame */
 
 loc_0012D7A0:
+    if (fsw_textentry_profile_is_active_control(MEM32(esp + 4))) {
+        cuitextentry_profile_add_char_host(MEM32(esp + 4));
+        esp += 8; return; /* ret 4 */
+    }
     PUSH32(esp, ecx);
     eax = MEM32(0x5FA89C);
     SET_LO8(ecx, MEM8(eax + 7));
@@ -2696,6 +3462,14 @@ loc_0012DFB7:
     POP32(esp, edi);
 
 loc_0012DFBF:
+    if (fsw_textentry_profile_is_active_control(esi)) {
+        if (TEST_NZ(MEM8(esi + 0xE4), 4)) {
+            PUSH32(esp, 0);
+            fn_0012DC70_CUITextEntryControl_GetCursorPosition();
+        }
+        cuitextentry_profile_add_char_host(esi);
+        goto loc_0012DFD3;
+    }
     if (TEST_Z(MEM8(esi + 0xE4), 4)) goto loc_0012DFD3; /* je: equal / zero */
 
 loc_0012DFC8:
@@ -3010,7 +3784,7 @@ loc_0012E1F0:
     PUSH32(esp, edi);
     esi = esi + 0x454;
     MEM32(esp + 0x10) = 0x27;
-    /* nop */
+    g_seh_ebp = ebp; sub_0012E210(); return; /* fall through to original loop body */
 
 }
 
@@ -3189,7 +3963,7 @@ loc_0012E2E0:
     PUSH32(esp, edi);
     esi = esi + 0x304;
     MEM32(esp + 0x10) = 0x27;
-    /* nop */
+    g_seh_ebp = ebp; sub_0012E300(); return; /* fall through to original loop body */
 
 }
 
@@ -3371,6 +4145,7 @@ loc_0012E3D0:
         uint32_t default_key_crc;
 
         if (cuitextentry_va_is_valid(control + 0xBA54) && cuitextentry_va_is_valid(file)) {
+            edi = control;
             ecx = control;
             PUSH32(esp, 0);
             fn_0012D200_CUITextEntryControl_Initialise();
@@ -3409,12 +4184,56 @@ loc_0012E3D0:
             MEM32(control + 0xBA4C) = cuitextentry_read_u32(file);
             MEM32(control + 0xBA50) = cuitextentry_read_u32(file);
             MEM32(control + 0xBA54) = cuitextentry_read_u32(file);
+            if (getenv("FSW_TH_TEXTENTRY_DEBUG") != NULL) {
+                static uint32_t textentry_load_log_count = 0;
+                if (textentry_load_log_count < 16) {
+                    fprintf(stderr,
+                            "[FSW/TextEntry] load control=%08X parent=%08X key=%08X data=%08X len=%u cols=%u cursor=%u\n",
+                            (unsigned)control, (unsigned)parent, (unsigned)MEM32(control + 0xBA44),
+                            (unsigned)MEM32(control + 0xBA48), (unsigned)MEM32(control + 0xBA4C),
+                            (unsigned)MEM32(control + 0xBA50), (unsigned)MEM32(control + 0xBA54));
+                    {
+                        uint32_t pos = cuitextentry_stream_pos(file);
+                        if (cuitextentry_va_is_valid(pos + 0x58)) {
+                            fprintf(stderr,
+                                    "[FSW/TextEntry] base-peek pos=%08X type=%02X x=%08X y=%08X w=%08X h=%08X color=%08X visible=%08X\n",
+                                    (unsigned)pos, (unsigned)MEM8(pos + 0x40),
+                                    (unsigned)MEM32(pos + 0x41), (unsigned)MEM32(pos + 0x45),
+                                    (unsigned)MEM32(pos + 0x49), (unsigned)MEM32(pos + 0x4D),
+                                    (unsigned)MEM32(pos + 0x51), (unsigned)MEM32(pos + 0x55));
+                        }
+                    }
+                    textentry_load_log_count++;
+                }
+            }
 
             ecx = control;
             PUSH32(esp, parent);
             PUSH32(esp, file);
             PUSH32(esp, 0);
             fn_00132850_CUIControl_Load();
+            esp = saved_esp;
+            if (MEM32(control + 0xBA4C) != 0 && MEM32(control + 0xBA50) != 0) {
+                g_fsw_profile_textentry_control = control;
+            }
+            if (getenv("FSW_TH_TEXTENTRY_DEBUG") != NULL) {
+                static uint32_t textentry_post_load_log_count = 0;
+                if (textentry_post_load_log_count < 16) {
+                    uint32_t first = cuitextentry_va_is_valid(parent + 0xB4) ? MEM32(parent + 0xB4) : 0;
+                    fprintf(stderr,
+                            "[FSW/TextEntry] post-load control=%08X vtbl=%08X parent=%08X pos=%.2f,%.2f size=%.2f,%.2f flags=%02X/%02X parent_first=%08X first_child=%08X\n",
+                            (unsigned)control, (unsigned)MEM32(control), (unsigned)parent,
+                            MEMF(control + 0x40), MEMF(control + 0x44), MEMF(control + 0x9C),
+                            MEMF(control + 0xA0), (unsigned)MEM8(control + 0xE4),
+                            (unsigned)MEM8(control + 0xE5), (unsigned)first,
+                            cuitextentry_va_is_valid(first) ? (unsigned)MEM32(first) : 0);
+                    textentry_post_load_log_count++;
+                }
+            }
+            ebx = control;
+            ecx = control;
+            PUSH32(esp, 0);
+            fn_0012D620_CUITextEntryControl_SetChildrenPosition();
             esp = saved_esp;
             esp += 12; return; /* ret 8 */
         }

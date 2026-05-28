@@ -254,6 +254,63 @@ static const uint32_t *fsw_cuiimagecontrol_decode_texture(uint32_t crc, uint32_t
     return NULL;
 }
 
+static int fsw_cuiimagecontrol_dim_rect(uint32_t control, float w, float h, float *out_x, float *out_y)
+{
+    uint32_t parent;
+    float raw_x;
+    float raw_y;
+    float parent_x = 0.0f;
+    float parent_y = 0.0f;
+    float parent_w;
+    float parent_h;
+    uint32_t parent_crc;
+
+    if (!cuiimagecontrol_va_is_valid(control + 0xD8)) {
+        return 0;
+    }
+    raw_x = MEMF(control + 0x40);
+    raw_y = MEMF(control + 0x44);
+    if (!isfinite(raw_x) || !isfinite(raw_y) ||
+        raw_x <= -640.0f || raw_x >= 1280.0f ||
+        raw_y <= -480.0f || raw_y >= 960.0f) {
+        return 0;
+    }
+
+    parent = MEM32(control + 0xD8);
+    if (raw_x != 0.0f && raw_y <= 80.0f) {
+        *out_x = raw_x - w * 0.5f;
+        *out_y = raw_y;
+        return 1;
+    }
+    if (cuiimagecontrol_va_is_valid(parent + 0x13D) && MEM8(parent + 0x13D)) {
+        parent_w = MEMF(parent + 0x9C);
+        parent_h = MEMF(parent + 0xA0);
+        if (parent_w <= 0.0f || parent_w > 1280.0f) parent_w = MEMF(parent + 0x10C);
+        if (parent_h <= 0.0f || parent_h > 960.0f) parent_h = MEMF(parent + 0x110);
+        parent_crc = MEM32(parent + 0x138);
+        if (parent_w > 0.0f && parent_h > 0.0f &&
+            parent_w < 640.0f && parent_h < 480.0f &&
+            parent_crc != 0 && fsw_cuitexture_find_surface(parent_crc) != 0 &&
+            !fsw_cuiimagecontrol_dim_rect(parent, parent_w, parent_h, &parent_x, &parent_y)) {
+            parent_x = 0.0f;
+            parent_y = 0.0f;
+        }
+        *out_x = parent_x + raw_x;
+        *out_y = parent_y + raw_y;
+        if (raw_x != 0.0f) {
+            *out_x -= w * 0.5f;
+        }
+        if (raw_y != 0.0f && raw_x != 0.0f) {
+            *out_y -= h * 0.5f;
+        }
+        return 1;
+    }
+
+    *out_x = raw_x == 0.0f ? 0.0f : raw_x - w * 0.5f;
+    *out_y = raw_y;
+    return 1;
+}
+
 static int fsw_cuiimagecontrol_draw_real_texture(uint32_t control, uint32_t matrix)
 {
     static uint32_t miss_log_count;
@@ -289,6 +346,7 @@ static int fsw_cuiimagecontrol_draw_real_texture(uint32_t control, uint32_t matr
     float sy;
     int use_matrix;
     int center_anchor;
+    int use_dimensions;
     float lx0;
     float ly0;
     float lx1;
@@ -338,9 +396,12 @@ static int fsw_cuiimagecontrol_draw_real_texture(uint32_t control, uint32_t matr
     if (h <= 0.0f || h > 960.0f) h = (float)tex_h;
     if (!isfinite(w) || w <= 0.0f || w > 1280.0f) w = (float)tex_w;
     if (!isfinite(h) || h <= 0.0f || h > 960.0f) h = (float)tex_h;
+    use_dimensions = MEM8(control + 0x13D) != 0;
     raw_x = MEMF(control + 0x40);
     raw_y = MEMF(control + 0x44);
-    if ((raw_x != 0.0f || raw_y != 0.0f) &&
+    if (use_dimensions && fsw_cuiimagecontrol_dim_rect(control, w, h, &x, &y)) {
+        /* The shell layout stores dimensioned child controls in parent-local menu space. */
+    } else if ((raw_x != 0.0f || raw_y != 0.0f) &&
         raw_x > -640.0f && raw_x < 1280.0f &&
         raw_y > -480.0f && raw_y < 960.0f) {
         x = raw_x - w * 0.5f;
@@ -354,12 +415,14 @@ static int fsw_cuiimagecontrol_draw_real_texture(uint32_t control, uint32_t matr
         w = 640.0f;
         h = 221.0f;
     }
-    if (draw_log_count < 80) {
+    if (getenv("FSW_TH_IMAGE_DEBUG") != NULL || draw_log_count < 80) {
         fprintf(stderr,
-                "[FSW/Menu] draw texture control=%08X crc=%08X pos=%.2f,%.2f size=%.2f,%.2f tex=%ux%u flags full=%u dim=%u m00=%.3f m01=%.3f m10=%.3f m11=%.3f rawpos=%.2f,%.2f\n",
+                "[FSW/Menu] draw texture control=%08X crc=%08X pos=%.2f,%.2f size=%.2f,%.2f tex=%ux%u flags full=%u dim=%u parent=%08X m00=%.3f m01=%.3f m10=%.3f m11=%.3f tx=%.2f ty=%.2f rawpos=%.2f,%.2f\n",
                 control, crc, x, y, w, h, tex_w, tex_h,
                 (unsigned)MEM8(control + 0x13C), (unsigned)MEM8(control + 0x13D),
-                MEMF(matrix), MEMF(matrix + 4), MEMF(matrix + 0x10), MEMF(matrix + 0x14), raw_x, raw_y);
+                cuiimagecontrol_va_is_valid(control + 0xD8) ? MEM32(control + 0xD8) : 0,
+                MEMF(matrix), MEMF(matrix + 4), MEMF(matrix + 0x10), MEMF(matrix + 0x14),
+                MEMF(matrix + 0x30), MEMF(matrix + 0x34), raw_x, raw_y);
         draw_log_count++;
     }
 
@@ -396,7 +459,10 @@ static int fsw_cuiimagecontrol_draw_real_texture(uint32_t control, uint32_t matr
                  isfinite(tx) && isfinite(ty) && sx > 0.001f && sy > 0.001f &&
                  sx < 16.0f && sy < 16.0f &&
                  tx > -2048.0f && tx < 4096.0f && ty > -2048.0f && ty < 4096.0f;
-    center_anchor = (raw_x != 0.0f || raw_y != 0.0f) && !MEM8(control + 0x13C);
+    if (use_dimensions) {
+        use_matrix = 0;
+    }
+    center_anchor = (raw_x != 0.0f || raw_y != 0.0f) && !MEM8(control + 0x13C) && !use_dimensions;
     if (center_anchor &&
         (fabsf(tx - raw_x) > 0.5f || fabsf(ty - raw_y) > 0.5f)) {
         use_matrix = 0;

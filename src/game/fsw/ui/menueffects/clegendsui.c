@@ -14,6 +14,160 @@ static int clegends_va_is_valid(uint32_t va)
     return va >= 0x00010000u && va < 0x04000000u;
 }
 
+static uint32_t fsw_legends_saved_allocator;
+static int fsw_legends_forced_malloc;
+
+static uint32_t fsw_legends_current_state_slot(uint32_t *net_index_out)
+{
+    uint32_t net_index = MEM32(0x6971F0u + 0xFA8u);
+    uint32_t updater = 0x6A9D38u;
+
+    if (net_index_out != NULL) {
+        *net_index_out = net_index;
+    }
+    if (net_index >= 0xC8u || !clegends_va_is_valid(updater + net_index * 4 + 0x644u)) {
+        return 0;
+    }
+    return MEM32(updater + net_index * 4 + 0x644u);
+}
+
+static int fsw_legends_can_init_now(void)
+{
+    uint32_t net_index = 0;
+    uint32_t state_slot = fsw_legends_current_state_slot(&net_index);
+
+    if (MEM32(0x5FA89C) == 0) {
+        return 0;
+    }
+    if (net_index == 6 || net_index == 7) {
+        return 0;
+    }
+    return state_slot != 0;
+}
+
+static void fsw_legends_lazy_init_if_needed(uint32_t state_slot)
+{
+    if (state_slot == 0 || MEM32(0x5F3448) != 0 || !fsw_legends_can_init_now()) {
+        return;
+    }
+
+    uint32_t saved_eax = eax;
+    uint32_t saved_ebx = ebx;
+    uint32_t saved_ecx = ecx;
+    uint32_t saved_edx = edx;
+    uint32_t saved_esi = esi;
+    uint32_t saved_edi = edi;
+    uint32_t saved_esp = esp;
+
+    PUSH32(esp, 0);
+    fn_00196BF0_CLegendsUI_Init();
+
+    eax = saved_eax;
+    ebx = saved_ebx;
+    ecx = saved_ecx;
+    edx = saved_edx;
+    esi = saved_esi;
+    edi = saved_edi;
+    esp = saved_esp;
+}
+
+static void fsw_legends_force_malloc_if_heap_missing(void)
+{
+    if (!fsw_legends_forced_malloc && MEM32(0x5F9E40) != 0 &&
+        (!clegends_va_is_valid(0x6135C8) || MEM32(0x6135C8) == 0)) {
+        fsw_legends_saved_allocator = MEM32(0x5F9E40);
+        MEM32(0x5F9E40) = 0;
+        fsw_legends_forced_malloc = 1;
+        fprintf(stderr,
+                "[FSW/Menu] legends using malloc path while heap allocator object is unavailable saved=%08X\n",
+                (unsigned)fsw_legends_saved_allocator);
+    }
+}
+
+static void fsw_legends_restore_allocator(void)
+{
+    if (fsw_legends_forced_malloc) {
+        MEM32(0x5F9E40) = fsw_legends_saved_allocator;
+        fsw_legends_saved_allocator = 0;
+        fsw_legends_forced_malloc = 0;
+    }
+}
+
+static uint32_t fsw_legends_calc_lower_crc(uint32_t string_va)
+{
+    uint32_t saved_eax = eax;
+    uint32_t saved_ecx = ecx;
+    uint32_t saved_edx = edx;
+    uint32_t saved_esp = esp;
+    uint32_t value;
+
+    eax = 0;
+    ecx = string_va;
+    PUSH32(esp, 0);
+    fn_00128D90_CalcLowerCRC();
+    value = eax;
+    eax = saved_eax;
+    ecx = saved_ecx;
+    edx = saved_edx;
+    esp = saved_esp;
+    return value;
+}
+
+static void fsw_legends_init_static_crcs(void)
+{
+    static int initialized;
+    static const struct {
+        uint32_t slot;
+        uint32_t string_va;
+    } entries[] = {
+        {0x612B20u, 0x55D538u}, {0x612B24u, 0x55D51Cu},
+        {0x612B28u, 0x55D508u}, {0x612B2Cu, 0x55D4F0u},
+        {0x612B30u, 0x55D4E4u}, {0x612B34u, 0x55D4D8u},
+        {0x612B38u, 0x55D4CCu}, {0x612B4Cu, 0x5388ACu},
+        {0x612B50u, 0x55D9E8u}, {0x612B54u, 0x55D9D4u},
+        {0x612B58u, 0x55D9C0u}, {0x612B5Cu, 0x55D9B0u},
+        {0x612B60u, 0x55D99Cu}, {0x612B64u, 0x55D988u},
+        {0x612B68u, 0x55D96Cu}, {0x612B6Cu, 0x55D958u},
+        {0x612B70u, 0x55D940u}, {0x612B74u, 0x55D928u},
+        {0x612B78u, 0x55D90Cu}, {0x612B7Cu, 0x55D8F4u},
+        {0x612B80u, 0x55D8DCu}, {0x612B84u, 0x55D8C8u},
+        {0x612B88u, 0x55D8B8u}, {0x612B8Cu, 0x55D8A4u},
+        {0x612B90u, 0x55D888u}, {0x612B94u, 0x55D874u},
+        {0x612B98u, 0x55D860u}, {0x612B9Cu, 0x55D850u},
+        {0x612BA0u, 0x55D838u}, {0x612BA4u, 0x55D820u},
+        {0x612BA8u, 0x55D800u}, {0x612BACu, 0x55D7E8u},
+        {0x612BB0u, 0x55D7D4u}, {0x612BB4u, 0x55D7BCu},
+        {0x612BB8u, 0x55D7A0u}, {0x612BBCu, 0x55D790u},
+        {0x612BC0u, 0x55D780u}, {0x612BC4u, 0x55D774u},
+        {0x612BC8u, 0x55D764u}, {0x612BCCu, 0x55D750u},
+        {0x612BD0u, 0x55D740u}, {0x612BD4u, 0x55D730u},
+        {0x612BD8u, 0x55D720u}, {0x612BDCu, 0x55D70Cu},
+        {0x612BE0u, 0x55D6F8u}, {0x612BE4u, 0x55D6E0u},
+        {0x612BE8u, 0x55D6CCu}, {0x612BECu, 0x55D6B4u},
+        {0x612BF0u, 0x55D6A0u}, {0x612BF4u, 0x55D68Cu},
+        {0x612BF8u, 0x55D67Cu}, {0x612BFCu, 0x55D664u},
+        {0x612C00u, 0x55D654u}, {0x612C04u, 0x55D644u},
+        {0x612C08u, 0x55D638u}, {0x612C0Cu, 0x55D624u},
+        {0x612C10u, 0x55D610u}, {0x612C14u, 0x55D5F4u},
+        {0x612C18u, 0x55D5E0u}, {0x612C1Cu, 0x55D5D0u},
+        {0x612C20u, 0x55D5BCu}, {0x612C24u, 0x5403C8u},
+    };
+
+    if (initialized && MEM32(0x612BC0) != 0 && MEM32(0x612C24) != 0) {
+        return;
+    }
+    for (uint32_t i = 0; i < sizeof(entries) / sizeof(entries[0]); i++) {
+        if (MEM32(entries[i].slot) == 0) {
+            MEM32(entries[i].slot) = fsw_legends_calc_lower_crc(entries[i].string_va);
+        }
+    }
+    initialized = 1;
+    fprintf(stderr,
+            "[FSW/Menu] initialized legend static CRCs font=%08X accept=%08X delete=%08X not_logged=%08X\n",
+            (unsigned)MEM32(0x612C24), (unsigned)MEM32(0x612BC0),
+            (unsigned)MEM32(0x612BC8), (unsigned)MEM32(0x612B38));
+}
+
 /**
  * fn_00195610_CLegendsUI_Render
  * Symbol: ?Render@CLegendsUI@@YAXPAVZeroCamera@@AAVZeroMatrix@@@Z
@@ -26,6 +180,18 @@ void fn_00195610_CLegendsUI_Render(void)
 
 loc_00195610:
     ecx = MEM32(0x5F3448);
+    {
+        static uint32_t render_log_count = 0;
+        if (render_log_count < 64) {
+            fprintf(stderr,
+                    "[FSW/Menu] legends render root=%08X a=%08X x=%08X b=%08X y=%08X del=%08X acc=%08X statebyte=%02X\n",
+                    (unsigned)ecx, (unsigned)MEM32(0x5FA530), (unsigned)MEM32(0x5FA534),
+                    (unsigned)MEM32(0x5FA53C), (unsigned)MEM32(0x5FA540),
+                    (unsigned)MEM32(0x5FA544), (unsigned)MEM32(0x5FA548),
+                    (unsigned)MEM8(0x60EF2C));
+            render_log_count++;
+        }
+    }
     eax = MEM32(ecx);
     { uint32_t _icall_esp = g_esp;
     PUSH32(esp, 0);
@@ -81,6 +247,18 @@ void fn_00195640_CLegendsUI_CreateTexts(void)
     ebp = g_seh_ebp; /* fpo_leaf: inherit caller's frame */
 
 loc_00195640:
+    fsw_legends_force_malloc_if_heap_missing();
+    fsw_legends_init_static_crcs();
+    {
+        static uint32_t create_log_count = 0;
+        if (create_log_count < 8) {
+            fprintf(stderr,
+                    "[FSW/Menu] legends create texts begin root=%08X allocator=%08X crc_accept=%08X crc_delete=%08X\n",
+                    (unsigned)MEM32(0x5F3448), (unsigned)MEM32(0x5F9E40),
+                    (unsigned)MEM32(0x612BC0), (unsigned)MEM32(0x612BC8));
+            create_log_count++;
+        }
+    }
     esp = esp - 0x14;
     xmm0 = 0.0f; /* xorps self = zero */
     PUSH32(esp, ebx);
@@ -2431,6 +2609,30 @@ void fn_00196BF0_CLegendsUI_Init(void)
     ebp = g_seh_ebp; /* fpo_leaf: inherit caller's frame */
 
 loc_00196BF0:
+    if (MEM32(0x5F3448) == 0 && !fsw_legends_can_init_now()) {
+        static uint32_t defer_log_count = 0;
+        if (defer_log_count < 16) {
+            uint32_t net_index = 0;
+            uint32_t state_slot = fsw_legends_current_state_slot(&net_index);
+            fprintf(stderr,
+                    "[FSW/Menu] legends init deferred manager=%08X net=%u state=%08X esp=%08X\n",
+                    (unsigned)MEM32(0x5FA89C), (unsigned)net_index,
+                    (unsigned)state_slot, (unsigned)esp);
+            defer_log_count++;
+        }
+        esp += 4; return; /* ret */
+    }
+    fsw_legends_force_malloc_if_heap_missing();
+    {
+        static uint32_t init_log_count = 0;
+        if (init_log_count < 16) {
+            fprintf(stderr,
+                    "[FSW/Menu] legends init begin root=%08X allocator=%08X heap=%08X esp=%08X\n",
+                    (unsigned)MEM32(0x5F3448), (unsigned)MEM32(0x5F9E40),
+                    (unsigned)MEM32(0x6135C8), (unsigned)esp);
+            init_log_count++;
+        }
+    }
     ecx = MEM32(0x5F3448);
     esp = esp - 0x10;
     if (TEST_Z(ecx, ecx)) goto loc_00196C03; /* je: equal / zero */
@@ -2453,6 +2655,15 @@ loc_00196C16:
     PUSH32(esp, 0); fn_0009E3F2_malloc(); /* call 0x0009E3F2 */
 
 loc_00196C20:
+    {
+        static uint32_t init_malloc_log_count = 0;
+        if (init_malloc_log_count < 16) {
+            fprintf(stderr,
+                    "[FSW/Menu] legends init malloc result=%08X esp=%08X\n",
+                    (unsigned)eax, (unsigned)esp);
+            init_malloc_log_count++;
+        }
+    }
     esp = esp + 4;
     g_seh_ebp = ebp; sub_00196C70(); return; /* tail jmp 0x00196C70 */
 
@@ -2549,6 +2760,15 @@ void sub_00196C7E(void)
 
 loc_00196C7E:
     MEM32(0x5F3448) = eax;
+    {
+        static uint32_t init_root_log_count = 0;
+        if (init_root_log_count < 16) {
+            fprintf(stderr,
+                    "[FSW/Menu] legends init root assigned=%08X vtbl=%08X\n",
+                    (unsigned)eax, clegends_va_is_valid(eax) ? (unsigned)MEM32(eax) : 0u);
+            init_root_log_count++;
+        }
+    }
     PUSH32(esp, 0); fn_00195640_CLegendsUI_CreateTexts(); /* call 0x00195640 */
 
 loc_00196C88:
@@ -2984,6 +3204,7 @@ loc_00197268:
     }
 
 loc_0019727A:
+    fsw_legends_restore_allocator();
     esp = esp + 0x10;
     esp += 4; return; /* ret */
 
@@ -4578,6 +4799,23 @@ loc_00197B46:
 
 loc_00197B4D:
     eax = MEM32(eax + 0xFA8);
+    {
+        static uint32_t update_log_count = 0;
+        if (update_log_count < 128) {
+            uint32_t state_slot = 0;
+            if (clegends_va_is_valid(esi) && eax < 0xC8u &&
+                clegends_va_is_valid(esi + eax * 4 + 0x644)) {
+                state_slot = MEM32(esi + eax * 4 + 0x644);
+            }
+            fprintf(stderr,
+                    "[FSW/Menu] legends update net=%u updater=%08X state=%08X root=%08X a=%08X x=%08X del=%08X acc=%08X\n",
+                    (unsigned)eax, (unsigned)esi, (unsigned)state_slot,
+                    (unsigned)MEM32(0x5F3448), (unsigned)MEM32(0x5FA530),
+                    (unsigned)MEM32(0x5FA534), (unsigned)MEM32(0x5FA544),
+                    (unsigned)MEM32(0x5FA548));
+            update_log_count++;
+        }
+    }
     if (!clegends_va_is_valid(esi) || eax >= 0xC8u ||
         !clegends_va_is_valid(esi + eax * 4 + 0x644)) {
         static uint32_t invalid_legend_state_count = 0;
@@ -4588,6 +4826,10 @@ loc_00197B4D:
         invalid_legend_state_count++;
         POP32(esp, esi);
         esp += 4; return; /* ret */
+    }
+    {
+        uint32_t state_slot = MEM32(esi + eax * 4 + 0x644);
+        fsw_legends_lazy_init_if_needed(state_slot);
     }
     esi = MEM32(esi + eax * 4 + 0x644);
     eax = esi + -1;

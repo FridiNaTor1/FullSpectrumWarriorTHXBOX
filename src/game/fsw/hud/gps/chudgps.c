@@ -11,7 +11,15 @@
 
 static int chudgps_va_range_is_valid(uint32_t va, uint32_t size)
 {
-    return va > 0x00010000u && va < 0x04000000u && size <= 0x04000000u - va;
+    uint32_t stack_lo = esp > 0x20000u ? esp - 0x20000u : 0;
+    uint32_t stack_hi = esp <= 0xFFFFFFFFu - 0x20000u ? esp + 0x20000u : 0xFFFFFFFFu;
+    if (va > 0x00010000u && va < 0x04000000u && size <= 0x04000000u - va) {
+        return 1;
+    }
+    if (size <= 0x1000u && va >= stack_lo && va <= stack_hi && va + size >= va) {
+        return 1;
+    }
+    return 0;
 }
 
 /**

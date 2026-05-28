@@ -56,7 +56,7 @@ static int fsw_cuilinecontrol_render_vulkan(uint32_t control, uint32_t matrix)
     len = sqrtf(dx * dx + dy * dy);
     if (len <= 0.001f || x0 < -2048.0f || x0 > 2048.0f || y0 < -2048.0f || y0 > 2048.0f ||
         x1 < -2048.0f || x1 > 2048.0f || y1 < -2048.0f || y1 > 2048.0f) {
-        if (log_count < 24) {
+        if (log_count < 2048) {
             fprintf(stderr, "[FSW/Menu] skip line control=%08X p0=%.2f,%.2f p1=%.2f,%.2f matrix=%08X\n",
                     control, x0, y0, x1, y1, matrix);
             log_count++;
@@ -89,7 +89,7 @@ static int fsw_cuilinecontrol_render_vulkan(uint32_t control, uint32_t matrix)
     };
     d3d8_vulkan_host_draw_rhw(rect, 6, NULL, 0, 0, 0, 0);
 
-    if (log_count < 24) {
+    if (log_count < 2048) {
         fprintf(stderr, "[FSW/Menu] draw line control=%08X p0=%.2f,%.2f p1=%.2f,%.2f color=%08X matrix=%08X\n",
                 control, x0, y0, x1, y1, color, matrix);
         log_count++;

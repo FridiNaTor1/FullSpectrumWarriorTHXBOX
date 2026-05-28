@@ -7,6 +7,77 @@
 #define RECOMP_GENERATED_CODE
 #include "recomp_funcs.h"
 #include <math.h>
+#include <stdint.h>
+
+extern uint32_t xbox_HeapAlloc(uint32_t size, uint32_t alignment);
+
+static uint32_t g_fsw_textentry_label_va[39];
+
+static int fsw_default_va_is_valid(uint32_t va)
+{
+    return va >= 0x00010000u && va < 0x04000000u;
+}
+
+static uint32_t fsw_default_textentry_label_crc(const char *label)
+{
+    uint32_t crc = MEM32(0x615FC4);
+    const unsigned char *p = (const unsigned char *)label;
+
+    if (crc == 0) {
+        return 0;
+    }
+    crc = ~crc;
+    while (*p != 0) {
+        uint32_t ch = MEM8(0x5CE110 + *p);
+        uint32_t idx = ch ^ (crc >> 24);
+        crc = (crc << 8) ^ MEM32(0x5CDD10 + idx * 4);
+        p++;
+    }
+    return ~crc;
+}
+
+static uint32_t fsw_default_make_wide_label(uint32_t index, const char *label)
+{
+    uint32_t len = 0;
+    uint32_t va;
+
+    if (index >= 39) {
+        return 0;
+    }
+    if (g_fsw_textentry_label_va[index] != 0) {
+        return g_fsw_textentry_label_va[index];
+    }
+    while (label[len] != 0) {
+        len++;
+    }
+    va = xbox_HeapAlloc((len + 1u) * 2u, 16);
+    if (va == 0) {
+        return 0;
+    }
+    for (uint32_t i = 0; i < len; i++) {
+        MEM16(va + i * 2u) = (uint16_t)(unsigned char)label[i];
+    }
+    MEM16(va + len * 2u) = 0;
+    g_fsw_textentry_label_va[index] = va;
+    return va;
+}
+
+static uint32_t fsw_default_textentry_label_for_crc(uint32_t crc)
+{
+    static const char labels[39][4] = {
+        "A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L", "M",
+        "N", "O", "P", "Q", "R", "S", "T", "U", "V", "W", "X", "Y", "Z",
+        "0", "1", "2", "3", "4", "5", "6", "7", "8", "9",
+        "Spc", "Del", "Acc"
+    };
+
+    for (uint32_t i = 0; i < 39; i++) {
+        if (fsw_default_textentry_label_crc(labels[i]) == crc) {
+            return fsw_default_make_wide_label(i, labels[i]);
+        }
+    }
+    return 0;
+}
 
 /**
  * fn_00129FE0_CUIDefaultCallbacks_DefaultUpdateCallback
@@ -32,8 +103,16 @@ loc_00129FE0:
  */
 void fn_00129FF0_CUIDefaultCallbacks_DefaultTextCallBack(void)
 {
+    uint32_t fsw_key_crc;
+    uint32_t fsw_fallback;
 
 loc_00129FF0:
+    fsw_key_crc = MEM32(esp + 4);
+    fsw_fallback = fsw_default_textentry_label_for_crc(fsw_key_crc);
+    if (fsw_fallback != 0) {
+        eax = fsw_fallback;
+        esp += 4; return; /* ret */
+    }
     PUSH32(esp, ecx);
     ecx = MEM32(esp + 8);
     eax = esp;

@@ -11,6 +11,12 @@
 #include <stdlib.h>
 
 static int fsw_app_va_range_is_valid(uint32_t va, uint32_t size);
+static uint8_t g_fsw_host_allow_app_shutdown;
+
+void fsw_applicationmanager_allow_shutdown_host(void)
+{
+    g_fsw_host_allow_app_shutdown = 1;
+}
 
 static int fsw_app_debug_enabled(void)
 {
@@ -963,7 +969,7 @@ void fn_002B1110_CApplicationManager_Run(void)
 loc_002B1110:
     esi = app;
     SET_LO8(eax, MEM8(esi + 0x1D));
-    if (LO8(eax) != 0 && MEM32(esi) != 0) {
+    if (LO8(eax) != 0 && MEM32(esi) != 0 && !g_fsw_host_allow_app_shutdown) {
         static uint32_t shutdown_suppressed_count = 0;
         if (shutdown_suppressed_count < 8) {
             fprintf(stderr, "[FSW] CApplicationManager_Run: suppressing early shell shutdown #%u current=0x%08X\n",
@@ -972,6 +978,9 @@ loc_002B1110:
         shutdown_suppressed_count++;
         MEM8(esi + 0x1D) = 0;
         SET_LO8(eax, 0);
+    }
+    if (LO8(eax) != 0) {
+        g_fsw_host_allow_app_shutdown = 0;
     }
     PUSH32(esp, ebx);
     ebx = 0; /* xor self */

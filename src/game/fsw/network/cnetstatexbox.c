@@ -55,7 +55,7 @@ static void fsw_linux_ensure_local_campaign_level(const char *tag)
 
     uint32_t campaign = fsw_linux_find_campaign_object(campaigns, campaign_crc);
     uint32_t level_crc = before_level;
-    if (level_crc == 0 && fsw_netxbox_va_is_valid(campaign + 0x18)) {
+    if ((level_crc == 0 || level_crc == 0xFFFFFFFFu) && fsw_netxbox_va_is_valid(campaign + 0x18)) {
         uint32_t levels = MEM32(campaign + 0x14);
         uint32_t level_count = MEM32(campaign + 8);
         if (level_count != 0 && level_count < 256 && fsw_netxbox_va_is_valid(levels)) {
@@ -14841,6 +14841,9 @@ loc_0026E630:
         static uint32_t forced_state_applied = 0;
         static uint32_t linux_bootstrap_applied = 0;
         static uint32_t linux_shell_logo_sequence = 0;
+        static uint32_t linux_logo_accept_was_down = 0;
+        static uint32_t linux_shell_accept_block_until_release = 0;
+        static uint32_t linux_shell_accept_block_frames = 0;
         uint32_t net_obj = ecx;
         uint32_t event = MEM32(esp + 4);
         uint32_t next_state = MEM32(esp + 8);
@@ -14874,9 +14877,37 @@ loc_0026E630:
             linux_shell_logo_sequence = 1;
             linux_bootstrap_applied = 1;
         }
+        if ((MEM32(net_obj + 0xFA8) == 7 || MEM32(net_obj + 0xFA8) == 6) &&
+            (linux_shell_logo_sequence == 1 || linux_shell_logo_sequence == 2)) {
+            uint32_t accept_down = MEM8(0x5F9E1C) != 0;
+            if (!accept_down) {
+                linux_logo_accept_was_down = 0;
+            } else if (!linux_logo_accept_was_down) {
+                linux_logo_accept_was_down = 1;
+                if (MEM8(0x60F0BC) == 0) {
+                    uint32_t saved_ebx = ebx;
+                    if (getenv("FSW_TH_BINK_DEBUG") != NULL) {
+                        fprintf(stderr, "[FSW/Bink] Linux logo accept edge state=%08X -> movie done\n",
+                                (unsigned)MEM32(net_obj + 0xFA8));
+                    }
+                    ebx = 0x60F060;
+                    PUSH32(esp, 0); fn_001BACC0_CVideoObject_Cleanup(); /* call CVideoObject::Cleanup */
+                    ebx = saved_ebx;
+                    MEM8(0x60F0BC) = 1;
+                    MEM32(0x60F0C0) = 0;
+                }
+            }
+        } else {
+            linux_logo_accept_was_down = 0;
+        }
         if (linux_shell_logo_sequence == 1 && MEM32(net_obj + 0xFA8) == 7 && MEM8(0x60F0BC) != 0) {
+            uint32_t input_latches = MEM32(0x5FA89C);
             fprintf(stderr, "[FSW/Net] Linux shell logo sequence Pandemic -> THQ\n");
             MEM8(0x60F0BC) = 0;
+            if (input_latches >= 0x00010000u && input_latches < 0x04000000u) {
+                MEM8(input_latches) = 0;
+                MEM8(input_latches + 0x18) = 0;
+            }
             eax = 6;
             ecx = net_obj;
             esi = 0;
@@ -14885,13 +14916,20 @@ loc_0026E630:
             esp += 16; return; /* ret 12 */
         }
         if (linux_shell_logo_sequence == 2 && MEM32(net_obj + 0xFA8) == 6 && MEM8(0x60F0BC) != 0) {
+            uint32_t input_latches = MEM32(0x5FA89C);
             fprintf(stderr, "[FSW/Net] Linux shell logo sequence THQ -> shell\n");
             MEM8(0x60F0BC) = 0;
+            if (input_latches >= 0x00010000u && input_latches < 0x04000000u) {
+                MEM8(input_latches) = 0;
+                MEM8(input_latches + 0x18) = 0;
+            }
             eax = 0xAA;
             ecx = net_obj;
             esi = 0;
             PUSH32(esp, 0); fn_00272580_CNetState_SetState(); /* call 0x00272580 */
             linux_shell_logo_sequence = 3;
+            linux_shell_accept_block_until_release = 1;
+            linux_shell_accept_block_frames = 30;
             esp += 16; return; /* ret 12 */
         }
         if (event > 4 || next_state >= 0x100) {
@@ -14929,12 +14967,32 @@ loc_0026E630:
             net_state_skip_log_count++;
             esp += 16; return; /* ret 12 */
         }
+        if (linux_shell_accept_block_until_release && MEM32(net_obj + 0xFA8) == 0xAA) {
+            if (linux_shell_accept_block_frames != 0) {
+                linux_shell_accept_block_frames--;
+            }
+            if (MEM8(0x5F9E1C) == 0 && linux_shell_accept_block_frames == 0) {
+                linux_shell_accept_block_until_release = 0;
+            } else if (event == 2) {
+                if (getenv("FSW_TH_BINK_DEBUG") != NULL) {
+                    fprintf(stderr, "[FSW/Bink] blocking held logo-skip accept on Press Start\n");
+                }
+                event = 0;
+                next_state = 0;
+                data = 0;
+            }
+        }
         PUSH32(esp, data);
         PUSH32(esp, next_state);
         PUSH32(esp, event);
         uint32_t before_state = MEM32(net_obj + 0xFA8);
         PUSH32(esp, 0); fn_00272C20_CNetState_Update(); /* call base CNetState::Update */
-        if (event == 2 && before_state == 0xAA) {
+        if (event == 2 && before_state == 0xAA &&
+            (linux_shell_accept_block_until_release || linux_shell_accept_block_frames != 0)) {
+            if (getenv("FSW_TH_BINK_DEBUG") != NULL) {
+                fprintf(stderr, "[FSW/Bink] swallowed held logo-skip accept after Press Start update\n");
+            }
+        } else if (event == 2 && before_state == 0xAA) {
             fsw_profile_manager_host_repair("LinuxStartRoute");
             uint32_t mgr = MEM32(0x5FA358);
             uint32_t target_state = 0x0D;
@@ -14964,14 +15022,20 @@ loc_0026E630:
             esi = 0;
             PUSH32(esp, 0); fn_00272580_CNetState_SetState(); /* call SetState */
             MEM32(0x613FCC) = 0x13;
-        } else if (event == 2 && before_state == 0x13 && next_state == 0x00) {
-            fprintf(stderr, "[FSW/Net] Linux main menu local play -> campaign selection state=00000012\n");
-            fsw_linux_ensure_local_campaign_level("main-to-campaign");
-            eax = 0x12;
+        } else if (event == 3 && before_state == 0x0D) {
+            fprintf(stderr, "[FSW/Net] Linux profile creation back -> profile selection state=00000009\n");
+            eax = 0x09;
             ecx = net_obj;
             esi = 0;
             PUSH32(esp, 0); fn_00272580_CNetState_SetState(); /* call SetState */
-            MEM32(0x613FCC) = 0x12;
+            MEM32(0x613FCC) = 0x09;
+        } else if (event == 2 && before_state == 0x13 && next_state == 0x00) {
+            fprintf(stderr, "[FSW/Net] Linux main menu local play -> process original play-menu route\n");
+            fsw_linux_ensure_local_campaign_level("main-to-campaign");
+            ecx = net_obj;
+            PUSH32(esp, next_state);
+            PUSH32(esp, 1);
+            PUSH32(esp, 0); fn_00269D40_CNetStateXbox_ProcessStates(); /* call ProcessStates(true, next) */
         } else if (event == 2 && before_state == 0x12 && next_state == 0x00) {
             fprintf(stderr, "[FSW/Net] Linux campaign selection -> difficulty selection state=0000002C\n");
             fsw_linux_ensure_local_campaign_level("campaign-to-difficulty");
