@@ -7,6 +7,41 @@
 #define RECOMP_GENERATED_CODE
 #include "recomp_funcs.h"
 #include <math.h>
+#include <stdio.h>
+
+static int hkopqueue_va_range_is_valid(uint32_t va, uint32_t size)
+{
+    if (size == 0) {
+        return va >= 0x00010000u && va < 0x04000000u;
+    }
+    if (va < 0x00010000u || va >= 0x04000000u || va + size < va) {
+        return 0;
+    }
+    return va + size <= 0x04000000u;
+}
+
+static int hkopqueue_is_plausible(uint32_t queue)
+{
+    uint32_t data;
+    uint32_t size;
+    uint32_t flags;
+    uint32_t capacity;
+
+    if (!hkopqueue_va_range_is_valid(queue, 0x10)) {
+        return 0;
+    }
+    data = MEM32(queue);
+    size = MEM32(queue + 4);
+    flags = MEM32(queue + 8);
+    capacity = flags & 0x3FFFFFFFu;
+    if (size > capacity || capacity > 0x100000u) {
+        return 0;
+    }
+    if (capacity != 0 && !hkopqueue_va_range_is_valid(data, capacity * 0x10u)) {
+        return 0;
+    }
+    return 1;
+}
 
 /**
  * fn_000BA430_hkWorldOperationQueue_queueOperation
@@ -22,6 +57,18 @@ void fn_000BA430_hkWorldOperationQueue_queueOperation(void)
     ebp = g_seh_ebp; /* fpo_leaf: inherit caller's frame */
 
 loc_000BA430:
+    if (!hkopqueue_is_plausible(ecx) || !hkopqueue_va_range_is_valid(MEM32(esp + 4), 0x10)) {
+        static uint32_t invalid_queue_count;
+        if (invalid_queue_count < 12 || (invalid_queue_count % 128) == 0) {
+            fprintf(stderr,
+                    "[FSW/Havok] skipping invalid queueOperation queue=%08X op=%08X count=%u\n",
+                    (unsigned)ecx,
+                    (unsigned)MEM32(esp + 4),
+                    (unsigned)(invalid_queue_count + 1));
+        }
+        invalid_queue_count++;
+        esp += 4; return; /* ret */
+    }
     PUSH32(esp, esi);
     PUSH32(esp, edi);
     edi = ecx;

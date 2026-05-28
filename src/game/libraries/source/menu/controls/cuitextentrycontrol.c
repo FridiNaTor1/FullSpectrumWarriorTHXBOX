@@ -7,6 +7,54 @@
 #define RECOMP_GENERATED_CODE
 #include "recomp_funcs.h"
 #include <math.h>
+#include <string.h>
+
+static int cuitextentry_va_is_valid(uint32_t va)
+{
+    return va >= 0x00010000u && va < 0x04000000u;
+}
+
+static int cuitextentry_read_memfile(uint32_t file, void *dst, uint32_t size)
+{
+    uint32_t stream;
+    uint32_t start;
+    uint32_t length;
+    uint32_t pos;
+    uint32_t available;
+
+    if (!cuitextentry_va_is_valid(file + 0x24)) {
+        return 0;
+    }
+
+    stream = MEM32(file + 0x24);
+    if (!cuitextentry_va_is_valid(stream + 0xC)) {
+        return 0;
+    }
+
+    start = MEM32(stream + 4);
+    length = MEM32(stream + 8);
+    pos = MEM32(stream + 0xC);
+    if (!cuitextentry_va_is_valid(start) || pos < start || (pos - start) > length) {
+        return 0;
+    }
+
+    available = length - (pos - start);
+    if (size > available) {
+        size = available;
+    }
+    if (size != 0) {
+        memcpy(dst, (const void *)XBOX_PTR(pos), size);
+        MEM32(stream + 0xC) = pos + size;
+    }
+    return 1;
+}
+
+static uint32_t cuitextentry_read_u32(uint32_t file)
+{
+    uint32_t value = 0;
+    cuitextentry_read_memfile(file, &value, sizeof(value));
+    return value;
+}
 
 /**
  * fn_00052A00_GCUITextItem_UAEPAXI_Z
@@ -3313,6 +3361,65 @@ void fn_0012E3D0_CUITextEntryControl_Load(void)
     ebp = g_seh_ebp; /* fpo_leaf: inherit caller's frame */
 
 loc_0012E3D0:
+#ifdef XBOXRECOMP_VULKAN_GRAPHICS
+    {
+        uint32_t control = ecx;
+        uint32_t file = MEM32(esp + 4);
+        uint32_t parent = MEM32(esp + 8);
+        uint32_t saved_esp = esp;
+        uint32_t key_crc;
+        uint32_t default_key_crc;
+
+        if (cuitextentry_va_is_valid(control + 0xBA54) && cuitextentry_va_is_valid(file)) {
+            ecx = control;
+            PUSH32(esp, 0);
+            fn_0012D200_CUITextEntryControl_Initialise();
+            esp = saved_esp;
+
+            key_crc = cuitextentry_read_u32(file);
+            MEM32(control + 0xBA44) = key_crc;
+            eax = 0;
+            ecx = 0x53B054;
+            PUSH32(esp, 0);
+            fn_00128D90_CalcLowerCRC();
+            default_key_crc = eax;
+            esp = saved_esp;
+
+            if (key_crc != default_key_crc) {
+                if (MEM32(0x5FA8A0) == 0) {
+                    PUSH32(esp, 0);
+                    fn_00377150_CUIDataRegistry_Init();
+                    esp = saved_esp;
+                }
+                if (MEM32(0x5FA8A0) != 0) {
+                    MEM32(saved_esp + 0x14) = key_crc;
+                    edx = MEM32(0x5FA8A0) + 0x80;
+                    PUSH32(esp, edx);
+                    eax = saved_esp + 0x14;
+                    PUSH32(esp, 0);
+                    fn_000525C0_VCRC_ZeroHashMap_Find();
+                    if (eax != 0) {
+                        MEM32(control + 0xBA40) = MEM32(eax);
+                    }
+                    esp = saved_esp;
+                }
+            }
+
+            MEM32(control + 0xBA48) = cuitextentry_read_u32(file);
+            MEM32(control + 0xBA4C) = cuitextentry_read_u32(file);
+            MEM32(control + 0xBA50) = cuitextentry_read_u32(file);
+            MEM32(control + 0xBA54) = cuitextentry_read_u32(file);
+
+            ecx = control;
+            PUSH32(esp, parent);
+            PUSH32(esp, file);
+            PUSH32(esp, 0);
+            fn_00132850_CUIControl_Load();
+            esp = saved_esp;
+            esp += 12; return; /* ret 8 */
+        }
+    }
+#endif
     esp = esp - 0x114;
     eax = MEM32(0x57ED94);
     PUSH32(esp, ebx);
@@ -3325,7 +3432,7 @@ loc_0012E3D0:
     PUSH32(esp, 0); fn_0012D200_CUITextEntryControl_Initialise(); /* call 0x0012D200 */
 
 loc_0012E3EF:
-    esi = MEM32(esp + 0x128);
+    esi = MEM32(esp + 0x124);
     eax = MEM32(esi + 0x24);
     (void)0; /* test eax, eax - flags set for next jcc */
     edi = ebx + 0xBA44;

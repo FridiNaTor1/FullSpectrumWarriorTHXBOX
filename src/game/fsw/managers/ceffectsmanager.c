@@ -7,6 +7,49 @@
 #define RECOMP_GENERATED_CODE
 #include "recomp_funcs.h"
 #include <math.h>
+#include <stdio.h>
+
+static int ceffectsmanager_va_range_is_valid(uint32_t va, uint32_t size)
+{
+    return va >= 0x00010000u && va < 0x04000000u && size <= 0x04000000u - va;
+}
+
+static int ceffectsmanager_guard_list_node(const char *name, uint32_t node,
+                                           uint32_t *last_node, uint32_t *repeat_count,
+                                           uint32_t *step_count)
+{
+    if (!ceffectsmanager_va_range_is_valid(node, 8)) {
+        fprintf(stderr, "[FSW/Effects] stopping %s invalid node=%08X steps=%u\n",
+                name, (unsigned)node, (unsigned)*step_count);
+        return 0;
+    }
+    (*step_count)++;
+    if (node == *last_node) {
+        (*repeat_count)++;
+    } else {
+        *last_node = node;
+        *repeat_count = 0;
+    }
+    if (*repeat_count >= 2 || *step_count > 4096) {
+        fprintf(stderr, "[FSW/Effects] stopping %s cyclic node=%08X data=%08X next=%08X steps=%u repeat=%u\n",
+                name, (unsigned)node, (unsigned)MEM32(node), (unsigned)MEM32(node + 4),
+                (unsigned)*step_count, (unsigned)*repeat_count);
+        return 0;
+    }
+    return 1;
+}
+
+static int ceffectsmanager_object_has_vtable(uint32_t object)
+{
+    uint32_t vtable;
+
+    if (object < 0x00400000u || !ceffectsmanager_va_range_is_valid(object, 4)) {
+        return 0;
+    }
+
+    vtable = MEM32(object);
+    return vtable >= 0x00400000u && vtable < 0x00700000u;
+}
 
 /**
  * fn_0002E610_PAVCBodyChunks_ZeroList_DeleteAll
@@ -204,6 +247,17 @@ loc_003AA940:
     esi = MEM32(ebp + 8);
     PUSH32(esp, edi);
     edi = MEM32(0x5FA8E8);
+    if (!ceffectsmanager_va_range_is_valid(esi, 0x9C) ||
+        !ceffectsmanager_va_range_is_valid(edi, 0x4A28)) {
+        fprintf(stderr, "[FSW/Effects] skipping RenderBuffered invalid manager=%08X video=%08X camera=%08X\n",
+                (unsigned)esi, (unsigned)edi, (unsigned)MEM32(ebp + 0xC));
+        POP32(esp, edi);
+        POP32(esp, esi);
+        POP32(esp, ebx);
+        esp = ebp;
+        POP32(esp, ebp);
+        esp += 12; return; /* ret 8 */
+    }
     eax = esi + 0xC;
     ebx = edi;
     MEM16(ebx + 0x4A24) = 0;
@@ -215,7 +269,15 @@ loc_003AA940:
     if (TEST_Z(eax, eax)) goto loc_003AA99E; /* je: equal / zero */
 
 loc_003AA976:
+    if (!ceffectsmanager_va_range_is_valid(eax, 8)) {
+        fprintf(stderr, "[FSW/Effects] stopping buffered render invalid node=%08X\n", (unsigned)eax);
+        goto loc_003AA998;
+    }
     eax = MEM32(eax);
+    if (!ceffectsmanager_object_has_vtable(eax)) {
+        fprintf(stderr, "[FSW/Effects] skipping buffered render invalid effect=%08X\n", (unsigned)eax);
+        goto loc_003AA983;
+    }
     ecx = MEM32(ebp + 0xC);
     edx = MEM32(eax);
     { uint32_t _icall_esp = g_esp;
@@ -270,9 +332,23 @@ loc_003AA9E0:
     PUSH32(esp, 0); fn_0004E360_EIterator_ZeroList_K_QAE_AV01_H_Z(); /* call 0x0004E360 */
 
 loc_003AA9ED:
+    if (!ceffectsmanager_va_range_is_valid(eax, 4)) {
+        fprintf(stderr, "[FSW/Effects] stopping secondary buffered render invalid iter=%08X\n", (unsigned)eax);
+        goto loc_003AAA5E;
+    }
     edx = MEM32(eax);
+    if (!ceffectsmanager_va_range_is_valid(edx, 4)) {
+        fprintf(stderr, "[FSW/Effects] stopping secondary buffered render invalid node=%08X\n", (unsigned)edx);
+        goto loc_003AAA5E;
+    }
     ebx = MEM32(esi + 0x94);
     esi = MEM32(edx);
+    if (!ceffectsmanager_object_has_vtable(esi) ||
+        !ceffectsmanager_object_has_vtable(ebx)) {
+        fprintf(stderr, "[FSW/Effects] skipping secondary buffered render effect=%08X renderer=%08X\n",
+                (unsigned)esi, (unsigned)ebx);
+        goto loc_003AAA5E;
+    }
     eax = MEM32(edi + 0x15C);
     xmm0 = MEMF(0x561418); /* movss */
     /* comiss xmm0, MEMF(esi + 0xF8) - sets EFLAGS */
@@ -1019,6 +1095,10 @@ loc_003AB564:
  */
 void fn_003AB570_CEffectsManager_SetupCylinder(void)
 {
+    uint32_t manager;
+    uint32_t saved_ebx;
+    uint32_t saved_esi;
+    uint32_t saved_edi;
     int _flags = 0; /* fallback flag var */
     float xmm0, xmm1, xmm2, xmm3, xmm4;
     double _fp_stack[8];
@@ -1031,13 +1111,26 @@ void fn_003AB570_CEffectsManager_SetupCylinder(void)
 
 loc_003AB570:
     SET_LO8(ecx, MEM8(0x624498));
-    esp = esp - 0x34;
-    PUSH32(esp, ebx);
-    ebx = 0; /* xor self */
-    eax = 0; /* xor self */
-    (void)0; /* test LO8(ecx), 1 - flags set for next jcc */
-    PUSH32(esp, edi);
-    if (TEST_NZ(LO8(ecx), 1)) goto loc_003AB5EB; /* jne: not equal / not zero */
+	    esp = esp - 0x34;
+	    PUSH32(esp, ebx);
+	    ebx = 0; /* xor self */
+	    eax = 0; /* xor self */
+	    (void)0; /* test LO8(ecx), 1 - flags set for next jcc */
+	    PUSH32(esp, edi);
+	    manager = esi;
+	    if (!ceffectsmanager_va_range_is_valid(manager, 0x2CC)) {
+	        static uint32_t bad_effects_manager_count;
+	        if (bad_effects_manager_count < 8) {
+	            fprintf(stderr,
+	                    "[FSW/Effects] repairing SetupCylinder manager=%08X -> 00616AA0 count=%u\n",
+	                    (unsigned)manager,
+	                    (unsigned)(bad_effects_manager_count + 1));
+	        }
+	        bad_effects_manager_count++;
+	        manager = 0x616AA0;
+	        esi = manager;
+	    }
+	    if (TEST_NZ(LO8(ecx), 1)) goto loc_003AB5EB; /* jne: not equal / not zero */
 
 loc_003AB584:
     edx = MEM32(0x624498);
@@ -1075,15 +1168,22 @@ loc_003AB609:
     PUSH32(esp, 0); fn_000280C0_0ZeroMaterialDesc_QAE_VCRC_TAttribData_KQBQAVZeroSurface_H_Z(); /* call 0x000280C0 */
 
 loc_003AB618:
-    edx = MEM32(edi);
-    { uint32_t _icall_esp = g_esp;
-    PUSH32(esp, eax);
-    ecx = edi;
-    PUSH32(esp, 0); RECOMP_ICALL_SAFE(MEM32(edx + 0x40), _icall_esp); /* indirect call */
-    }
+	    edx = MEM32(edi);
+	    { uint32_t _icall_esp = g_esp;
+	    PUSH32(esp, eax);
+	    ecx = edi;
+	    saved_ebx = ebx;
+	    saved_esi = esi;
+	    saved_edi = edi;
+	    PUSH32(esp, 0); RECOMP_ICALL_SAFE(MEM32(edx + 0x40), _icall_esp); /* indirect call */
+	    ebx = saved_ebx;
+	    esi = saved_esi;
+	    edi = saved_edi;
+	    }
 
 loc_003AB620:
-    PUSH32(esp, ebx);
+	    esi = manager;
+	    PUSH32(esp, ebx);
     PUSH32(esp, ebx);
     PUSH32(esp, ebx);
     PUSH32(esp, ebx);
@@ -1891,7 +1991,10 @@ loc_003ABDB9:
 /* Fallback for unresolved generated target 0x003ABDD0. */
 void sub_003ABDD0(void)
 {
-    recomp_missing_target(0x003ABDD0u);
+    SET_LO8(eax, 1);
+    POP32(esp, edi);
+    POP32(esp, esi);
+    esp += 4; return; /* ret */
 }
 
 /**
@@ -3574,6 +3677,9 @@ loc_003AD2DC:
 void fn_003AD2F0_CEffectsManager_Update(void)
 {
     uint32_t ebp;
+    uint32_t effects_list_steps = 0;
+    uint32_t effects_list_last = 0;
+    uint32_t effects_list_repeat = 0;
     int _flags = 0; /* fallback flag var */
     int _fpu_cmp = 0; /* FPU compare result: -1/0/1 */
     float xmm0, xmm1;
@@ -3609,6 +3715,10 @@ loc_003AD30E:
     if (CMP_EQ(eax, edi)) goto loc_003AD3C9; /* je: equal / zero */
 
 loc_003AD324:
+    if (!ceffectsmanager_guard_list_node("primary effects", eax,
+                                         &effects_list_last, &effects_list_repeat, &effects_list_steps)) {
+        goto loc_003AD3C9;
+    }
     esi = MEM32(eax);
     ecx = MEM32(ebp + 0xC);
     eax = MEM32(esi);
@@ -3638,6 +3748,10 @@ loc_003AD34B:
     /* nop */
 
 loc_003AD350:
+    if (!ceffectsmanager_guard_list_node("primary effects search", eax,
+                                         &effects_list_last, &effects_list_repeat, &effects_list_steps)) {
+        goto loc_003AD35B;
+    }
     if (CMP_EQ(esi, MEM32(eax))) goto loc_003AD365; /* je: equal / zero */
 
 loc_003AD354:
@@ -3721,6 +3835,9 @@ loc_003AD3BD:
     if (CMP_NE(eax, edi)) goto loc_003AD324; /* jne: not equal / not zero */
 
 loc_003AD3C9:
+    effects_list_steps = 0;
+    effects_list_last = 0;
+    effects_list_repeat = 0;
     esi = ebx + 0xC;
     eax = esi;
     MEM32(esp + 0x14) = eax;
@@ -3730,7 +3847,16 @@ loc_003AD3C9:
     if (CMP_EQ(eax, edi)) goto loc_003AD48C; /* je: equal / zero */
 
 loc_003AD3E1:
+    if (!ceffectsmanager_guard_list_node("secondary effects", eax,
+                                         &effects_list_last, &effects_list_repeat, &effects_list_steps)) {
+        goto loc_003AD48C;
+    }
     ebx = MEM32(eax);
+    if (!ceffectsmanager_object_has_vtable(ebx)) {
+        fprintf(stderr, "[FSW/Effects] stopping secondary effects invalid object=%08X node=%08X\n",
+                (unsigned)ebx, (unsigned)eax);
+        goto loc_003AD48C;
+    }
     eax = MEM32(ebp + 0xC);
     edx = MEM32(ebx);
     { uint32_t _icall_esp = g_esp;
@@ -3758,6 +3884,10 @@ loc_003AD40A:
     /* nop */
 
 loc_003AD410:
+    if (!ceffectsmanager_guard_list_node("secondary effects search", eax,
+                                         &effects_list_last, &effects_list_repeat, &effects_list_steps)) {
+        goto loc_003AD41B;
+    }
     if (CMP_EQ(ebx, MEM32(eax))) goto loc_003AD425; /* je: equal / zero */
 
 loc_003AD414:
@@ -3844,6 +3974,9 @@ loc_003AD489:
     ebx = MEM32(ebp + 8);
 
 loc_003AD48C:
+    effects_list_steps = 0;
+    effects_list_last = 0;
+    effects_list_repeat = 0;
     edi = ebx + 0x2CC;
     eax = edi;
     MEM32(esp + 0x14) = eax;
@@ -3858,7 +3991,17 @@ loc_003AD4A7:
     /* nop */
 
 loc_003AD4B0:
+    if (!ceffectsmanager_guard_list_node("timed effects", eax,
+                                         &effects_list_last, &effects_list_repeat, &effects_list_steps)) {
+        goto loc_003AD5B6;
+    }
     ebx = MEM32(eax);
+    if (!ceffectsmanager_va_range_is_valid(ebx, 8)) {
+        fprintf(stderr, "[FSW/Effects] stopping timed effects invalid object=%08X node=%08X\n",
+                (unsigned)ebx, (unsigned)eax);
+        ebx = MEM32(ebp + 8);
+        goto loc_003AD5B6;
+    }
     xmm0 = MEMF(ebx + 4); /* movss */
     xmm0 = xmm0 - MEMF(ebp + 0xC); /* subss */
     xmm1 = 0.0f; /* xorps self = zero */
@@ -3891,6 +4034,10 @@ loc_003AD4F9:
     /* nop */
 
 loc_003AD500:
+    if (!ceffectsmanager_guard_list_node("timed effects search", eax,
+                                         &effects_list_last, &effects_list_repeat, &effects_list_steps)) {
+        goto loc_003AD50B;
+    }
     if (CMP_EQ(ebx, MEM32(eax))) goto loc_003AD50D; /* je: equal / zero */
 
 loc_003AD504:
@@ -3949,6 +4096,12 @@ loc_003AD553:
 
 loc_003AD556:
     esi = MEM32(ebx);
+    if (esi && !ceffectsmanager_object_has_vtable(esi)) {
+        fprintf(stderr, "[FSW/Effects] dropping timed effect invalid scene object=%08X effect=%08X\n",
+                (unsigned)esi, (unsigned)ebx);
+        MEM32(ebx) = 0;
+        esi = 0;
+    }
     if (TEST_Z(esi, esi)) goto loc_003AD58F; /* je: equal / zero */
 
 loc_003AD55C:
@@ -4004,6 +4157,11 @@ loc_003AD5B3:
     ebx = MEM32(ebp + 8);
 
 loc_003AD5B6:
+    if (!ceffectsmanager_va_range_is_valid(ebx, 0xA4)) {
+        fprintf(stderr, "[FSW/Effects] skipping fly/gnat/shell update invalid manager=%08X\n",
+                (unsigned)ebx);
+        goto loc_003AD788;
+    }
     ecx = 0x64;
     PUSH32(esp, 0); fn_0037C8C0_CFly_CreateFlies(); /* call 0x0037C8C0 */
 
@@ -4042,13 +4200,48 @@ loc_003AD603:
     /* nop */
 
 loc_003AD610:
+    if (!ceffectsmanager_va_range_is_valid(esi, 0xC)) {
+        fprintf(stderr, "[FSW/Effects] clearing shell case iterator invalid node=%08X list=%08X\n",
+                (unsigned)esi, (unsigned)edi);
+        if (ceffectsmanager_va_range_is_valid(edi, 0xC)) {
+            MEM32(edi) = 0;
+            MEM32(edi + 4) = 0;
+            MEM32(edi + 8) = 0;
+        }
+        goto loc_003AD6AD;
+    }
+    {
+        uint32_t prev_node = MEM32(esi + 4);
+        if (prev_node && !ceffectsmanager_va_range_is_valid(prev_node, 0xC)) {
+            fprintf(stderr, "[FSW/Effects] clearing shell case iterator bad prev node=%08X prev=%08X\n",
+                    (unsigned)esi, (unsigned)prev_node);
+            if (ceffectsmanager_va_range_is_valid(edi, 0xC)) {
+                MEM32(edi) = 0;
+                MEM32(edi + 4) = 0;
+                MEM32(edi + 8) = 0;
+            }
+            goto loc_003AD6AD;
+        }
+    }
     eax = esp + 0x20;
     ecx = esp + 0x18;
     PUSH32(esp, 0); fn_0004E360_EIterator_ZeroList_K_QAE_AV01_H_Z(); /* call 0x0004E360 */
 
 loc_003AD61D:
+    if (!ceffectsmanager_va_range_is_valid(eax, 8) ||
+        !ceffectsmanager_va_range_is_valid(MEM32(eax), 4)) {
+        fprintf(stderr, "[FSW/Effects] skipping shell case update invalid iterator=%08X node=%08X\n",
+                (unsigned)eax,
+                (unsigned)(ceffectsmanager_va_range_is_valid(eax, 4) ? MEM32(eax) : 0));
+        goto loc_003AD698;
+    }
     ecx = MEM32(eax);
     eax = MEM32(ecx);
+    if (!ceffectsmanager_object_has_vtable(eax)) {
+        fprintf(stderr, "[FSW/Effects] skipping shell case update invalid object=%08X node=%08X\n",
+                (unsigned)eax, (unsigned)ecx);
+        goto loc_003AD698;
+    }
     ecx = MEM32(ebp + 0xC);
     (void)0; /* test ebx, ebx - flags set for next jcc */
     SET_LO8(edx, (CMP_G(ebx & ebx, 0)) ? 1 : 0); /* setg */
@@ -4062,6 +4255,16 @@ loc_003AD636:
     if (TEST_NZ(LO8(eax), LO8(eax))) goto loc_003AD698; /* jne: not equal / not zero */
 
 loc_003AD63A:
+    if (!ceffectsmanager_va_range_is_valid(esi, 0xC)) {
+        fprintf(stderr, "[FSW/Effects] clearing corrupt shell case list node=%08X list=%08X\n",
+                (unsigned)esi, (unsigned)edi);
+        if (ceffectsmanager_va_range_is_valid(edi, 0xC)) {
+            MEM32(edi) = 0;
+            MEM32(edi + 4) = 0;
+            MEM32(edi + 8) = 0;
+        }
+        goto loc_003AD6AD;
+    }
     edx = MEM32(edi);
     eax = MEM32(edi + 8);
     edx--;
@@ -4088,6 +4291,16 @@ loc_003AD659:
 
 loc_003AD662:
     edx = MEM32(esi + 4);
+    if (!ceffectsmanager_va_range_is_valid(eax, 0xC)) {
+        fprintf(stderr, "[FSW/Effects] clearing shell case bad next node=%08X next=%08X\n",
+                (unsigned)esi, (unsigned)eax);
+        if (ceffectsmanager_va_range_is_valid(edi, 0xC)) {
+            MEM32(edi) = 0;
+            MEM32(edi + 4) = 0;
+            MEM32(edi + 8) = 0;
+        }
+        goto loc_003AD6AD;
+    }
     MEM32(eax + 4) = edx;
 
 loc_003AD668:
@@ -4096,6 +4309,16 @@ loc_003AD668:
 
 loc_003AD66F:
     edx = MEM32(esi + 8);
+    if (!ceffectsmanager_va_range_is_valid(eax, 0xC)) {
+        fprintf(stderr, "[FSW/Effects] clearing shell case bad prev node=%08X prev=%08X\n",
+                (unsigned)esi, (unsigned)eax);
+        if (ceffectsmanager_va_range_is_valid(edi, 0xC)) {
+            MEM32(edi) = 0;
+            MEM32(edi + 4) = 0;
+            MEM32(edi + 8) = 0;
+        }
+        goto loc_003AD6AD;
+    }
     MEM32(eax + 8) = edx;
 
 loc_003AD675:
@@ -4106,6 +4329,12 @@ loc_003AD675:
 
 loc_003AD681:
     ecx = MEM32(esp + 0x14);
+    if (!ceffectsmanager_va_range_is_valid(ecx, 0xC)) {
+        fprintf(stderr, "[FSW/Effects] skipping shell case owner refcount invalid owner=%08X\n",
+                (unsigned)ecx);
+        esp = esp + 4;
+        goto loc_003AD6AD;
+    }
     eax = MEM32(ecx + 8);
     esp = esp + 4;
     eax--;
@@ -4113,6 +4342,13 @@ loc_003AD681:
     if ((eax != 0)) goto loc_003AD698; /* jne: not equal / not zero */
 
 loc_003AD691:
+    if (!ceffectsmanager_va_range_is_valid(ecx, 4) ||
+        !ceffectsmanager_va_range_is_valid(MEM32(ecx), 0x14)) {
+        fprintf(stderr, "[FSW/Effects] skipping shell case owner release invalid owner=%08X vtbl=%08X\n",
+                (unsigned)ecx,
+                (unsigned)(ceffectsmanager_va_range_is_valid(ecx, 4) ? MEM32(ecx) : 0));
+        goto loc_003AD698;
+    }
     eax = MEM32(ecx);
     { uint32_t _icall_esp = g_esp;
     PUSH32(esp, 1);
@@ -4129,6 +4365,11 @@ loc_003AD698:
 
 loc_003AD6AD:
     eax = MEM32(ebp + 8);
+    if (!ceffectsmanager_va_range_is_valid(eax, 0xCC)) {
+        fprintf(stderr, "[FSW/Effects] skipping camera dust update invalid manager=%08X\n",
+                (unsigned)eax);
+        goto loc_003AD788;
+    }
     SET_LO8(ecx, MEM8(eax + 0xC4));
     if (TEST_Z(LO8(ecx), LO8(ecx))) goto loc_003AD788; /* je: equal / zero */
 

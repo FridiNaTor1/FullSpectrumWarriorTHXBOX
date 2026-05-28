@@ -7,6 +7,12 @@
 #define RECOMP_GENERATED_CODE
 #include "recomp_funcs.h"
 #include <math.h>
+#include <stdio.h>
+
+static int hudradial_va_range_is_valid(uint32_t va, uint32_t size)
+{
+    return va >= 0x00010000u && va < 0x04000000u && size <= 0x04000000u - va;
+}
 
 /**
  * fn_0002B7B0_HUDRadialMenu_SetDirOpts
@@ -9350,6 +9356,14 @@ void sub_002D4865(void)
 loc_002D4865:
     esi = MEM32(esp + 0x38);
     if (TEST_Z(esi, esi)) { sub_002D4888(); return; } /* je: equal / zero */
+    if (!hudradial_va_range_is_valid(esi, 4) ||
+        !hudradial_va_range_is_valid(MEM32(esi), 0x10)) {
+        fprintf(stderr, "[FSW/HUD] skipping radial prototype setup stream=%08X fd=%08X aux=%08X\n",
+                esi, MEM32(esp + 0x18), MEM32(esp + 0x20));
+        esi = 0;
+        eax = 1;
+        g_seh_ebp = ebp; sub_002D50A8(); return;
+    }
 
 loc_002D486D:
     eax = MEM32(esi);

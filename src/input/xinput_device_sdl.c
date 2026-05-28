@@ -25,6 +25,7 @@ static SDLInputSlot g_slots[XBOX_MAX_CONTROLLERS];
 static BOOL g_sdl_ready = FALSE;
 static BOOL g_input_debug = FALSE;
 static BOOL g_input_debug_checked = FALSE;
+static BOOL g_keyboard_controller = TRUE;
 
 static BYTE axis_trigger_to_byte(Sint16 value)
 {
@@ -108,13 +109,56 @@ static void pump_events(void)
     SDL_GameControllerUpdate();
 }
 
+static void fill_keyboard_state(XBOX_INPUT_STATE *state)
+{
+    const Uint8 *keys = SDL_GetKeyboardState(NULL);
+    if (!keys) return;
+
+    if (keys[SDL_SCANCODE_UP] || keys[SDL_SCANCODE_W])       state->Gamepad.wButtons |= XBOX_GAMEPAD_DPAD_UP;
+    if (keys[SDL_SCANCODE_DOWN] || keys[SDL_SCANCODE_S])     state->Gamepad.wButtons |= XBOX_GAMEPAD_DPAD_DOWN;
+    if (keys[SDL_SCANCODE_LEFT] || keys[SDL_SCANCODE_A])     state->Gamepad.wButtons |= XBOX_GAMEPAD_DPAD_LEFT;
+    if (keys[SDL_SCANCODE_RIGHT] || keys[SDL_SCANCODE_D])    state->Gamepad.wButtons |= XBOX_GAMEPAD_DPAD_RIGHT;
+    if (keys[SDL_SCANCODE_RETURN])                           state->Gamepad.wButtons |= XBOX_GAMEPAD_START;
+    if (keys[SDL_SCANCODE_BACKSPACE])                        state->Gamepad.wButtons |= XBOX_GAMEPAD_BACK;
+
+    state->Gamepad.bAnalogButtons[XBOX_BUTTON_A] =
+        (keys[SDL_SCANCODE_SPACE] || keys[SDL_SCANCODE_RETURN]) ? 255 : 0;
+    state->Gamepad.bAnalogButtons[XBOX_BUTTON_B] =
+        (keys[SDL_SCANCODE_ESCAPE] || keys[SDL_SCANCODE_RSHIFT]) ? 255 : 0;
+    state->Gamepad.bAnalogButtons[XBOX_BUTTON_X] =
+        keys[SDL_SCANCODE_X] ? 255 : 0;
+    state->Gamepad.bAnalogButtons[XBOX_BUTTON_Y] =
+        keys[SDL_SCANCODE_Y] ? 255 : 0;
+    state->Gamepad.bAnalogButtons[XBOX_BUTTON_WHITE] =
+        keys[SDL_SCANCODE_Q] ? 255 : 0;
+    state->Gamepad.bAnalogButtons[XBOX_BUTTON_BLACK] =
+        keys[SDL_SCANCODE_E] ? 255 : 0;
+    state->Gamepad.bAnalogButtons[XBOX_BUTTON_LTRIGGER] =
+        keys[SDL_SCANCODE_Z] ? 255 : 0;
+    state->Gamepad.bAnalogButtons[XBOX_BUTTON_RTRIGGER] =
+        keys[SDL_SCANCODE_C] ? 255 : 0;
+
+    if (keys[SDL_SCANCODE_A] || keys[SDL_SCANCODE_LEFT]) {
+        state->Gamepad.sThumbLX = -32768;
+    } else if (keys[SDL_SCANCODE_D] || keys[SDL_SCANCODE_RIGHT]) {
+        state->Gamepad.sThumbLX = 32767;
+    }
+    if (keys[SDL_SCANCODE_W] || keys[SDL_SCANCODE_UP]) {
+        state->Gamepad.sThumbLY = 32767;
+    } else if (keys[SDL_SCANCODE_S] || keys[SDL_SCANCODE_DOWN]) {
+        state->Gamepad.sThumbLY = -32768;
+    }
+}
+
 void xbox_InputInit(void)
 {
     if (g_sdl_ready) return;
 
     if (!g_input_debug_checked) {
         const char *debug = getenv("XBOXRECOMP_INPUT_DEBUG");
+        const char *keyboard = getenv("XBOXRECOMP_KEYBOARD_CONTROLLER");
         g_input_debug = (debug && debug[0] && strcmp(debug, "0") != 0);
+        g_keyboard_controller = !(keyboard && keyboard[0] && strcmp(keyboard, "0") == 0);
         g_input_debug_checked = TRUE;
     }
 
@@ -147,6 +191,29 @@ DWORD xbox_InputGetState(DWORD dwPort, XBOX_INPUT_STATE *pState)
 
     SDLInputSlot *slot = &g_slots[dwPort];
     if (!slot->connected || !slot->controller) {
+        if (g_keyboard_controller && dwPort == 0) {
+            XBOX_INPUT_STATE state;
+            memset(&state, 0, sizeof(state));
+            fill_keyboard_state(&state);
+            if (memcmp(&state.Gamepad, &slot->last_state.Gamepad, sizeof(state.Gamepad)) != 0) {
+                slot->packet++;
+                if (g_input_debug) {
+                    fprintf(stderr,
+                            "[INPUT] keyboard port 0 buttons=0x%04X A=%u B=%u X=%u Y=%u LX=%d LY=%d\n",
+                            state.Gamepad.wButtons,
+                            state.Gamepad.bAnalogButtons[XBOX_BUTTON_A],
+                            state.Gamepad.bAnalogButtons[XBOX_BUTTON_B],
+                            state.Gamepad.bAnalogButtons[XBOX_BUTTON_X],
+                            state.Gamepad.bAnalogButtons[XBOX_BUTTON_Y],
+                            state.Gamepad.sThumbLX,
+                            state.Gamepad.sThumbLY);
+                }
+            }
+            state.dwPacketNumber = slot->packet;
+            slot->last_state = state;
+            *pState = state;
+            return ERROR_SUCCESS;
+        }
         memset(pState, 0, sizeof(*pState));
         return ERROR_DEVICE_NOT_CONNECTED;
     }
@@ -243,6 +310,7 @@ BOOL xbox_InputIsConnected(DWORD dwPort)
     if (dwPort >= XBOX_MAX_CONTROLLERS) return FALSE;
     if (!g_sdl_ready) xbox_InputInit();
     pump_events();
+    if (g_keyboard_controller && dwPort == 0) return TRUE;
     return g_slots[dwPort].connected;
 }
 

@@ -37,6 +37,15 @@ static int fsw_input_table_is_valid(uint32_t manager_va)
            fsw_input_rescale_slot_is_valid(table, 0xAC);
 }
 
+static int fsw_input_capture_is_valid(uint32_t capture_va)
+{
+    return fsw_input_va_is_valid(capture_va) &&
+           fsw_input_va_is_valid(capture_va + 0x38) &&
+           fsw_input_va_is_valid(MEM32(capture_va + 0xC)) &&
+           MEM32(capture_va + 0x14) <= 0x400u &&
+           MEM32(capture_va + 0x20) <= 0x400u;
+}
+
 static void fsw_input_ensure_devices(uint32_t manager_va)
 {
     if (!fsw_input_va_is_valid(manager_va) || fsw_input_table_is_valid(manager_va)) {
@@ -1236,6 +1245,8 @@ void fn_002BB2B0_InputSysManager_Update(void)
 {
     int _flags = 0; /* fallback flag var */
     uint32_t _saved_esi, _saved_edi;
+    static uint32_t update_logs = 0;
+    uint32_t do_log = 0;
     float xmm2, xmm4;
     double _fp_stack[8];
     int _fp_top = 0;
@@ -1247,6 +1258,19 @@ void fn_002BB2B0_InputSysManager_Update(void)
 
 loc_002BB2B0:
     fsw_input_ensure_devices(esi);
+    update_logs++;
+    do_log = (update_logs <= 16 || (update_logs % 120) == 0);
+    if (do_log) {
+        fprintf(stderr,
+                "[FSW/Input] Update #%u manager=%08X table=%08X delta=%08X flags=%02X/%02X esp=%08X\n",
+                (unsigned)update_logs,
+                (unsigned)esi,
+                (unsigned)(fsw_input_va_is_valid(esi + 0xC) ? MEM32(esi + 0xC) : 0),
+                (unsigned)edi,
+                (unsigned)(fsw_input_va_is_valid(esi + 0xEB4) ? ZX8(MEM8(esi + 0xEB4)) : 0),
+                (unsigned)(fsw_input_va_is_valid(esi + 0xEB5) ? ZX8(MEM8(esi + 0xEB5)) : 0),
+                (unsigned)esp);
+    }
     PUSH32(esp, ecx);
     SET_LO8(ecx, MEM8(esi + 0xEB5));
     SET_LO8(eax, MEM8(0x613E8C));
@@ -1302,13 +1326,31 @@ loc_002BB32E:
     esp = esp + 4;
 
 loc_002BB331:
+    if (do_log) {
+        fprintf(stderr, "[FSW/Input] Update #%u before physical conversions ebx=%08X count=%u esp=%08X\n",
+                (unsigned)update_logs,
+                (unsigned)ebx,
+                (unsigned)(fsw_input_va_is_valid(ebx + 8) ? MEM32(ebx + 8) : 0),
+                (unsigned)esp);
+    }
     PUSH32(esp, 0); fn_00137430_Input_PhysicalConversions(); /* call 0x00137430 */
 
 loc_002BB336:
+    if (do_log) {
+        fprintf(stderr, "[FSW/Input] Update #%u after physical conversions esp=%08X\n",
+                (unsigned)update_logs, (unsigned)esp);
+    }
     eax = esi;
     PUSH32(esp, 0); fn_002BAAD0_InputSysManager_RescaleAnalogs(); /* call 0x002BAAD0 */
 
 loc_002BB33D:
+    if (do_log) {
+        fprintf(stderr, "[FSW/Input] Update #%u after rescale esp=%08X focus=%08X debug=%08X\n",
+                (unsigned)update_logs,
+                (unsigned)esp,
+                (unsigned)(fsw_input_va_is_valid(esi + 0x5C) ? MEM32(esi + 0x5C) : 0),
+                (unsigned)(fsw_input_va_is_valid(esi + 0x50) ? MEM32(esi + 0x50) : 0));
+    }
     ecx = MEM32(esi + 0x5C);
     eax = esi + 0x54;
     if (CMP_EQ(ecx, eax)) goto loc_002BB358; /* je: equal / zero */
@@ -1317,8 +1359,22 @@ loc_002BB33D:
 loc_002BB347:
     eax = MEM32(ecx);
     if (TEST_Z(eax, eax)) goto loc_002BB358; /* je: equal / zero */
+    if (!fsw_input_capture_is_valid(eax)) {
+        static uint32_t logged_bad_focus_capture;
+        if (logged_bad_focus_capture < 8) {
+            fprintf(stderr,
+                    "[FSW/Input] skipping invalid focus capture node=%08X capture=%08X manager=%08X\n",
+                    (unsigned)ecx, (unsigned)eax, (unsigned)esi);
+            logged_bad_focus_capture++;
+        }
+        goto loc_002BB358;
+    }
 
 loc_002BB34D:
+    if (do_log) {
+        fprintf(stderr, "[FSW/Input] Update #%u before focus remap capture=%08X esp=%08X\n",
+                (unsigned)update_logs, (unsigned)eax, (unsigned)esp);
+    }
     PUSH32(esp, edi);
     ebx = esi;
     _saved_esi = esi; _saved_edi = edi;
@@ -1327,6 +1383,10 @@ loc_002BB34D:
 
 loc_002BB355:
     esp = esp + 4;
+    if (do_log) {
+        fprintf(stderr, "[FSW/Input] Update #%u after focus remap esp=%08X\n",
+                (unsigned)update_logs, (unsigned)esp);
+    }
 
 loc_002BB358:
     SET_LO8(eax, MEM8(esi + 0xEB4));
@@ -1341,8 +1401,22 @@ loc_002BB362:
 loc_002BB36C:
     eax = MEM32(ecx);
     if (TEST_Z(eax, eax)) goto loc_002BB37D; /* je: equal / zero */
+    if (!fsw_input_capture_is_valid(eax)) {
+        static uint32_t logged_bad_debug_capture;
+        if (logged_bad_debug_capture < 8) {
+            fprintf(stderr,
+                    "[FSW/Input] skipping invalid debug capture node=%08X capture=%08X manager=%08X\n",
+                    (unsigned)ecx, (unsigned)eax, (unsigned)esi);
+            logged_bad_debug_capture++;
+        }
+        goto loc_002BB37D;
+    }
 
 loc_002BB372:
+    if (do_log) {
+        fprintf(stderr, "[FSW/Input] Update #%u before debug remap capture=%08X esp=%08X\n",
+                (unsigned)update_logs, (unsigned)eax, (unsigned)esp);
+    }
     PUSH32(esp, edi);
     ebx = esi;
     _saved_esi = esi; _saved_edi = edi;
@@ -1351,8 +1425,16 @@ loc_002BB372:
 
 loc_002BB37A:
     esp = esp + 4;
+    if (do_log) {
+        fprintf(stderr, "[FSW/Input] Update #%u after debug remap esp=%08X\n",
+                (unsigned)update_logs, (unsigned)esp);
+    }
 
 loc_002BB37D:
+    if (do_log) {
+        fprintf(stderr, "[FSW/Input] Update #%u complete esp=%08X\n",
+                (unsigned)update_logs, (unsigned)esp);
+    }
     POP32(esp, ebx);
     POP32(esp, ecx);
     esp += 4; return; /* ret */

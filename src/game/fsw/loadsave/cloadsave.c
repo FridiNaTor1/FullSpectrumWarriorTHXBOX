@@ -7,6 +7,12 @@
 #define RECOMP_GENERATED_CODE
 #include "recomp_funcs.h"
 #include <math.h>
+#include <stdio.h>
+
+static int cloadsave_va_range_is_valid(uint32_t va, uint32_t size)
+{
+    return va >= 0x00010000u && va < 0x04000000u && size <= 0x04000000u - va;
+}
 
 /**
  * fn_0002D4C0_GCLoadSave_MAEPAXI_Z
@@ -474,6 +480,15 @@ void fn_002B6A90_CLoadSave_UnregisterSaveID(void)
     int _flags = 0; /* fallback flag var */
 
 loc_002B6A90:
+    if (!cloadsave_va_range_is_valid(ecx, 0x10)) {
+        static uint32_t invalid_unregister_logs = 0;
+        if (invalid_unregister_logs < 8 || (invalid_unregister_logs % 120) == 0) {
+            fprintf(stderr, "[FSW/LoadSave] skipping UnregisterSaveID invalid object=%08X\n",
+                    (unsigned)ecx);
+        }
+        invalid_unregister_logs++;
+        esp += 4; return; /* ret */
+    }
     eax = MEM32(ecx + 4);
     if (CMP_EQ(eax, 0xFFFFFFFFu)) goto loc_002B6B05; /* je: equal / zero */
 
@@ -505,6 +520,21 @@ loc_002B6ACA:
     MEM32(0x57F1F0) = edx;
 
 loc_002B6AD3:
+    if (!cloadsave_va_range_is_valid(MEM32(ecx + 0xC), 4)) {
+        static uint32_t invalid_link_logs = 0;
+        if (invalid_link_logs < 8 || (invalid_link_logs % 120) == 0) {
+            fprintf(stderr,
+                    "[FSW/LoadSave] skipping UnregisterSaveID bad links object=%08X id=%08X next=%08X prev=%08X\n",
+                    (unsigned)ecx,
+                    (unsigned)MEM32(ecx + 4),
+                    (unsigned)MEM32(eax),
+                    (unsigned)MEM32(ecx + 0xC));
+        }
+        invalid_link_logs++;
+        MEM32(ecx + 4) = 0xFFFFFFFFu;
+        POP32(esp, esi);
+        esp += 4; return; /* ret */
+    }
     esi = MEM32(eax);
     edx = MEM32(ecx + 0xC);
     MEM32(edx) = esi;
@@ -512,6 +542,19 @@ loc_002B6AD3:
     (void)0; /* test eax, eax - flags set for next jcc */
     POP32(esp, esi);
     if (TEST_Z(eax, eax)) goto loc_002B6AE7; /* je: equal / zero */
+    if (!cloadsave_va_range_is_valid(eax, 0x10)) {
+        static uint32_t invalid_next_link_logs = 0;
+        if (invalid_next_link_logs < 8 || (invalid_next_link_logs % 120) == 0) {
+            fprintf(stderr,
+                    "[FSW/LoadSave] skipping UnregisterSaveID bad next object=%08X id=%08X next=%08X prev=%08X\n",
+                    (unsigned)ecx,
+                    (unsigned)MEM32(ecx + 4),
+                    (unsigned)eax,
+                    (unsigned)MEM32(ecx + 0xC));
+        }
+        invalid_next_link_logs++;
+        goto loc_002B6AE7;
+    }
 
 loc_002B6AE1:
     edx = MEM32(ecx + 0xC);

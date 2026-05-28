@@ -2,63 +2,80 @@
 
 > **A native Linux bring-up of the original Xbox build using the xboxrecompforlinux runtime.**
 
-This project recompiles the original Xbox executable for **Full Spectrum Warrior: Ten Hammers** into a native PC binary. The current work is built from a **review copy build dated Dec 5 2005** because it is unusually symbol rich: it includes PDB and MAP data that let us recover a source-like tree and meaningful function names. Game files are not included in this repository.
+This project recompiles the original Xbox executable for **Full Spectrum Warrior: Ten Hammers** into a native Linux binary. Game files are not included in this repository.
 
-![Shell PAK loader progress](docs/screenshots/shell-pak-loader.svg)
-![Menu resource loading progress](docs/screenshots/menu-resource-loading.svg)
-![Linux shell loop progress](docs/screenshots/shell-loop.svg)
+The current bring-up target is a **review copy build dated Dec 5 2005** because it is symbol rich. Its PDB and MAP data let us recover meaningful function names and a source-like tree. If the port reaches a useful playable state, the plan is to evaluate moving to a retail `default.xbe` without throwing away the recovered source layout, runtime work, or game-specific fixes.
 
-## Why This Is Interesting
+## Current Runtime Screenshots
 
-The review build gives this project a strong reverse-engineering base. PDB source-file records and MAP object names let the generated code be split into a readable tree instead of one anonymous recomp dump. That means game code can live under paths like `src/game/fsw/ui/menusystem/` and `src/game/fsw/main/`, while third-party or SDK-style fallback modules stay under `src/game/external/`.
+These captures come from the Linux Vulkan renderer, not mockups.
 
-The current goal is not to preserve the review build forever. It is the best bring-up target because it has symbols. Once the Linux runtime reaches a useful playable state, we may migrate the project to a retail `default.xbe`. The important part is that the recovered source layout, manual runtime fixes, Vulkan work, SDL input, kernel bridges, and game-specific patches can carry forward without throwing away the work done here.
+| Real shell/menu render | Direct first-level runtime |
+|---|---|
+| ![Current Linux shell menu render](docs/screenshots/linux-shell-menu-actual.png) | ![Current direct first-level runtime frame](docs/screenshots/first-level-runtime-actual.png) |
+
+The shell/menu screenshot shows real `Shell.pak` assets, the real start-menu logo, the shell background/splash texture, and font draws. The text is still visibly wrong, and animation/placement is not yet retail-correct.
+
+The first-level screenshot is black because the direct mission path is now presenting frames from the gameplay loop with `vertices=0`. That is progress over crashing during setup, but it is not visible gameplay yet.
 
 ## Current Status
 
-**Linux bring-up: shell runtime reached.** The project builds as `bin/fsw_th_recomp`, initializes the Linux Vulkan presentation host, maps SDL input for a DualSense-style controller, loads `Shell.pak`, resolves PAK-contained shell resources through the game's `ZeroFile` memory-file system, and enters the shell update/render loop.
+**The Linux port now reaches two important real paths: the shell/menu renderer and the first-level mission loop.**
 
-The renderer is still early. Vulkan initializes and the host loop runs, but the game is not yet drawing a complete visible shell/menu. The menu loader now opens `menu.ui` from the Shell PAK and reaches the controls loader, but menu population currently stops at a missing generated target.
+The normal shell path initializes the Vulkan presentation host, loads `Shell.pak`, resolves PAK-contained resources through the game's `ZeroFile` memory-file system, loads `menu.ui`, selects the shell menu, decodes real shell textures, decodes font atlas data, and submits real RHW UI draws through Vulkan. A 20 second shell run reached Vulkan present frame 120 with 4,950 native RHW draws and 29,700 vertices.
 
-### What's Working
+The direct first-level path now loads `BD_startbusdepot.pak`, registers texture tables, object tables, ABKs, Havok descriptors, fonts, meshes, INI/CSV data, and then enters `ProcessGame`. A 30 second run reached more than 2,000 presented frames in the mission loop without crashing.
 
-- **Linux build** — CMake builds the native executable with the copied xboxrecompforlinux runtime sources.
-- **Source-like generated tree** — PDB source-file records drive the `src/game/fsw/...` layout, with MAP/object fallback for modules without source-file records.
-- **Xbox memory/runtime model** — the recompiled code runs against the Xbox-style flat memory layout, kernel thunk bridge, heap allocator, and XAPI shims.
-- **Linux file/path handling** — Xbox paths such as `D:\Chapters\Shell.pak` and mixed-case game-file lookups resolve on a case-sensitive Linux filesystem.
-- **Chunked async file reads** — the Shell PAK direct loader reads large virtual/physical sections through the Linux kernel bridge and async completion path.
-- **Shell PAK loading** — `Shell.pak` header, virtual section, physical section, relocation table, and memory-file tables are loaded and relocated.
-- **PAK resource lookup** — `English.ui`, `English.mov`, `Shell.mbk`, and `menu.ui` now resolve through the in-memory PAK file tables.
-- **Vulkan host initialization** — the Linux D3D8/Vulkan presentation host starts at 640x480.
-- **SDL input path** — SDL-backed XInput compatibility detects and maps a DualSense-style controller to Xbox port 0.
-- **Audio bring-up bypasses** — temporary XACT/wave-bank/cue-list bypasses keep shell UI bring-up moving until the real audio backend is ready.
+This is not playable yet. The mission path currently has no populated render scene: `SceneManager` stays at `count=0`, `SceneManager_RenderAll` runs, and the Vulkan host presents native frames, but the draw counters remain at `vertices=0`. The next real gameplay blocker is scene/world population, not presentation.
 
-### What's Left
+## Since Last Push
 
-- [ ] Fix the `menu.ui` control parser path; current blocker is missing target `0x00132909`.
-- [ ] Replace temporary XACT/audio bypasses with a real Xbox audio path.
-- [ ] Connect more of the game's D3D8/NV2A draw submission to the Vulkan backend.
-- [ ] Restore intro video playback instead of only resolving video metadata.
-- [ ] Reach the first no-profile flow and profile creation menu.
-- [ ] Make the shell menu visible and navigable with SDL controller input.
-- [ ] Remove or gate noisy bring-up diagnostics before a public release.
-- [ ] Evaluate migration from the Dec 5 2005 review XBE to a retail XBE once the port reaches a useful playable state.
+- Added and hardened Linux Vulkan D3D8 presentation paths for native RHW UI draws, frame presentation, and runtime frame dumping.
+- Advanced the real shell/menu path: `Shell.pak`, `menu.ui`, UI texture lookup, image controls, line controls, static text, font atlas decode, and location-string fallback all run far enough to render the real shell screen.
+- Improved Linux input through SDL/XInput mapping so controller and keyboard fallback paths can drive bring-up.
+- Added PAK/memfs/CRC work so resources resolve through the game's real CRC/path flow instead of hardcoded texture substitution.
+- Located shell-contained video resources and connected more Bink/video surface plumbing, though the full intro video sequence still needs integration and timing work.
+- Moved first-level direct mode past earlier setup crashes in PAK loading, object construction, Havok descriptor registration, AI setup, camera update, mission update, and render dispatch.
+- Stabilized generated render-cookie construction around clobbered `this`, `ebx`, and ESP state so render setup no longer dies during `XBRenderCookie` construction.
+- Added targeted guards and diagnostics across AI, Havok, scene, prop, HUD, particles, sky, sound, script, and manager code so bad generated state is logged and isolated instead of immediately crashing.
+- Added actual runtime screenshots under `docs/screenshots/`
+
+## What's Working
+
+- **Linux build** - CMake builds `bin/fsw_th_recomp` from the copied xboxrecompforlinux runtime and generated game tree.
+- **Source-like generated tree** - PDB source-file records and MAP object names drive the `src/game/fsw/...` layout, with fallback modules under `src/game/external/`.
+- **Xbox runtime model** - the recomp runs against an Xbox-style flat memory layout, kernel thunk bridge, heap allocator, XAPI shims, and guest file descriptor table.
+- **Linux path handling** - Xbox paths such as `D:\Chapters\Shell.pak` resolve on a case-sensitive Linux filesystem.
+- **PAK/memfs loading** - shell and level PAK resources resolve through in-memory PAK tables with relocated data offsets.
+- **Real shell drawing** - the current renderer draws real shell textures and real font geometry through Vulkan.
+- **SDL input bridge** - SDL-backed XInput compatibility detects and maps modern controllers, with keyboard fallback for bring-up.
+- **Direct level loop** - `FSW_TH_FORCE_DIRECT=1 FSW_TH_LEVEL=1` reaches `ProcessGame` and continues presenting frames.
+
+## Current Blockers
+
+- [ ] Fix shell font decoding/character mapping; the menu uses real font draws, but rendered text is garbled.
+- [ ] Finish shell/menu transforms and animation timing so the logo, splash strip, loading screen, Press Start, profile flow, and menu options match the Xbox presentation.
+- [ ] Finish Bink intro playback from PAK-contained assets and route it into the real shell timeline.
+- [ ] Replace temporary XACT/audio bypasses with a real Xbox audio path after gameplay rendering is further along.
+- [ ] Fix first-level world/scene population. The direct path reaches `InitLevel`, `ConstructObjects`, and `ProcessGame`, but `SceneManager` still has zero scene objects and the renderer receives no gameplay vertices.
+- [ ] Route or repair the real `LoadWLD`/`CGameWorld_LoadWLD`/static-prop setup path; current logs do not show the expected WLD/static prop population in direct mode.
+- [ ] Reduce noisy bring-up diagnostics once each subsystem is stable enough for public testing.
 
 ## Current Findings
 
 | Area | Finding |
 |------|---------|
-| **Build provenance** | Current bring-up uses the Dec 5 2005 review copy because its PDB/MAP data is symbol rich. |
-| **Source layout** | PDB DBI source-file records are good enough to reconstruct a source-like tree for many game modules. |
-| **PAK loader** | `Shell.pak` stores virtual and physical sections plus relocation data; the relocation-table pointer is at `0x60825C`, with count at `0x608260`. |
-| **PAK memfs** | PAK memory-file entries need their data offsets relocated to the loaded virtual base before `ZeroFile` can read them. |
-| **Menu resources** | `menu.ui` is inside the Shell PAK and now opens from memfs, but parsed controls are not yet being added to the menu manager. |
-| **Generated CRT issue** | The generated `strchr` stub was incomplete and caused relative resource paths to be treated as external paths. |
-| **Audio issue** | XACT paths currently attempt large wave-bank allocations and sentinel-pointer cue registration; these are bypassed for UI bring-up. |
+| **Build provenance** | The Dec 5 2005 review copy remains the best bring-up target because the PDB/MAP data gives useful source paths and function names. |
+| **Source layout** | PDB DBI source-file records are good enough to reconstruct most game modules under a readable `src/game/fsw/...` tree. |
+| **PAK resources** | `Shell.pak` contains shell UI resources and video assets; level PAKs contain object, texture, Havok, mesh, and script-side data. |
+| **CRC/resource lookup** | CRCs are calculated by the game path at runtime; the current work uses those calculated CRCs to resolve loaded PAK resources rather than mapping "CRC X means texture Y" by hand. |
+| **Menu rendering** | Real textures and fonts are reaching Vulkan, but font decode/character mapping and animation transforms still need correction. |
+| **Bink/video** | The host-side Bink decode path and video-surface plumbing are partly in place, but the intro sequence is not yet a verified end-to-end shell flow. |
+| **Render-cookie bug** | Generated code around `XBRenderCookie` construction could clobber `this`, `ebx`, and ESP; targeted repair keeps render-cookie setup alive for now. |
+| **First-level blocker** | Direct mode reaches the mission loop, but WLD/static prop setup does not appear to populate `SceneManager`, leaving gameplay presentation at `vertices=0`. |
+| **Audio** | XACT wave/sound-bank work is intentionally not the current priority; some paths are bypassed so rendering and gameplay bring-up can continue. |
 
 ## How It Works
-
-### The Recompilation Pipeline
 
 ```text
 default.xbe + symbols
@@ -76,22 +93,12 @@ CMake + native compiler
 Runtime: Xbox memory + kernel bridge + D3D8/Vulkan + SDL input
 ```
 
-### Source Layout
-
-The generated recomp source is grouped by original PDB source path where the PDB has DBI source-file data, with MAP linker objects as fallback. For example, `CActivateReport.obj` is emitted as:
-
-```text
-src/game/fsw/script/behaviors/scriptbehaviors/cactivatereport.c
-```
-
-Modules without PDB source-file records are grouped under `src/game/external`.
-
 ## Target Build
 
 | Field | Value |
 |-------|-------|
 | **Title** | Full Spectrum Warrior: Ten Hammers |
-| **Platform** | Xbox (Original) |
+| **Platform** | Xbox |
 | **Current bring-up build** | Review copy |
 | **Build date** | Dec 5 2005 |
 | **Why this build** | Symbol-rich PDB and MAP data |
@@ -105,27 +112,27 @@ Modules without PDB source-file records are grouped under `src/game/external`.
 
 ```text
 FullSpectrumWarriorTHXBOX/
-├── README.md
-├── CMakeLists.txt
-├── docs/
-│   ├── screenshots/
-│   └── source-layout.md
-├── include/
-├── src/
-│   ├── apu/
-│   ├── audio/
-│   ├── d3d/
-│   ├── game/
-│   │   ├── fsw/
-│   │   ├── external/
-│   │   └── recomp/
-│   ├── input/
-│   ├── kernel/
-│   ├── nv2a/
-│   └── platform/
-├── templates/
-├── tools/        # local/private helper tools, gitignored
-└── game_files/   # local game files, gitignored
+|-- README.md
+|-- CMakeLists.txt
+|-- docs/
+|   |-- screenshots/
+|   `-- source-layout.md
+|-- include/
+|-- src/
+|   |-- apu/
+|   |-- audio/
+|   |-- d3d/
+|   |-- game/
+|   |   |-- fsw/
+|   |   |-- external/
+|   |   `-- recomp/
+|   |-- input/
+|   |-- kernel/
+|   |-- nv2a/
+|   `-- platform/
+|-- templates/
+|-- tools/        # local/private helper tools, gitignored
+`-- game_files/   # local game files, gitignored
 ```
 
 ## Building
@@ -151,6 +158,15 @@ Run from the repo root:
 bin/fsw_th_recomp game_files/default.xbe game_files
 ```
 
-## Development Notes
+Useful bring-up commands:
 
-The current screenshots are progress cards rather than final rendered gameplay captures. They will be replaced with real runtime screenshots once the renderer produces useful intro/menu frames.
+```bash
+# Real shell/menu path
+FSW_TH_DISABLE_MENU_FALLBACK=1 tools/run_host.sh
+
+# Direct Chapter 1 path
+FSW_TH_FORCE_DIRECT=1 FSW_TH_LEVEL=1 FSW_TH_DISABLE_MENU_FALLBACK=1 tools/run_host.sh
+
+# Dump a Vulkan frame to /tmp/xboxrecomp_vulkan_frame.ppm
+XBOXRECOMP_DUMP_VULKAN_FRAME=120 FSW_TH_DISABLE_MENU_FALLBACK=1 tools/run_host.sh
+```

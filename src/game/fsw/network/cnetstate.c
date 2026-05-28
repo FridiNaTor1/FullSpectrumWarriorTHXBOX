@@ -33,6 +33,26 @@ static void cnetstate_ensure_singleton(void)
     MEM32(0x6971E8) = 0x6971F0;
     MEM32(0x6971F0) = 0x542A40;
     MEM32(0x698708) = MEM32(0x698708) | 3;
+
+    {
+        static uint32_t dumped_state_table = 0;
+        if (!dumped_state_table) {
+            dumped_state_table = 1;
+            for (uint32_t state = 0; state < 0xC8; state++) {
+                uint32_t init_slot = 0x6971F0 + state * 8 + 8;
+                uint32_t update_slot = 0x6971F0 + state * 8 + 0x648;
+                uint32_t menu_crc = MEM32(0x6971F0 + state * 4 + 0xC88);
+                uint32_t init_fn = cnetstate_va_is_valid(init_slot) ? MEM32(init_slot + 4) : 0;
+                uint32_t update_fn = cnetstate_va_is_valid(update_slot) ? MEM32(update_slot + 4) : 0;
+                if (menu_crc != 0 || init_fn != 0x26EC20u || update_fn != 0x26EBF0u) {
+                    fprintf(stderr,
+                            "[FSW/Net] table state=0x%02X init=%08X update=%08X menu_crc=%08X\n",
+                            (unsigned)state, (unsigned)init_fn, (unsigned)update_fn, (unsigned)menu_crc);
+                }
+            }
+        }
+    }
+
 }
 
 /**
@@ -5653,6 +5673,21 @@ loc_00272530:
     eax = MEM32(edi + 0xFA8);
     eax = edi + eax * 8 + 8;
     MEM32(edi + 0xFAC) = 4;
+    {
+        static uint32_t init_log_count = 0;
+        uint32_t state = MEM32(edi + 0xFA8);
+        uint32_t init_fn = cnetstate_va_is_valid(eax) ? MEM32(eax + 4) : 0;
+        uint32_t update_slot = edi + state * 8 + 0x648;
+        uint32_t update_fn = cnetstate_va_is_valid(update_slot) ? MEM32(update_slot + 4) : 0;
+        uint32_t menu_crc = MEM32(edi + state * 4 + 0xC88);
+        if (init_log_count < 64) {
+            fprintf(stderr,
+                    "[FSW/Net] Init state=0x%08X init=%08X update=%08X menu_crc=%08X pending=%08X\n",
+                    (unsigned)state, (unsigned)init_fn, (unsigned)update_fn,
+                    (unsigned)menu_crc, (unsigned)MEM32(edi + 0xFAC));
+        }
+        init_log_count++;
+    }
     ecx = MEM32(eax);
     { uint32_t _icall_esp = g_esp;
     PUSH32(esp, esi);

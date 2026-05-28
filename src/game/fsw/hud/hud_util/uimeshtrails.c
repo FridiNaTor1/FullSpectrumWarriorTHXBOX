@@ -7,6 +7,12 @@
 #define RECOMP_GENERATED_CODE
 #include "recomp_funcs.h"
 #include <math.h>
+#include <stdio.h>
+
+static int uimeshtrails_va_range_is_valid(uint32_t va, uint32_t size)
+{
+    return va >= 0x00010000u && va < 0x04000000u && size <= 0x04000000u - va;
+}
 
 /**
  * fn_003AE530_CUIMeshTrails_Update
@@ -17,10 +23,25 @@
  */
 void fn_003AE530_CUIMeshTrails_Update(void)
 {
+    uint32_t trail_count;
+    uint32_t trail_capacity;
     int _flags = 0; /* fallback flag var */
     float xmm0, xmm1, xmm2, xmm3, xmm4, xmm5;
 
 loc_003AE530:
+    if (!uimeshtrails_va_range_is_valid(ecx, 0x28C)) {
+        fprintf(stderr, "[FSW/HUD] skipping CUIMeshTrails_Update invalid object=%08X\n", ecx);
+        esp += 4; return; /* ret */
+    }
+    trail_count = MEM32(ecx + 0x284);
+    trail_capacity = MEM32(ecx + 0x288);
+    if ((int32_t)trail_count < 0 || (int32_t)trail_capacity < 0 ||
+        trail_capacity > 8 || trail_count > trail_capacity) {
+        fprintf(stderr, "[FSW/HUD] clearing invalid CUIMeshTrails state object=%08X count=%08X capacity=%08X\n",
+                ecx, trail_count, trail_capacity);
+        MEM32(ecx + 0x284) = 0;
+        esp += 4; return; /* ret */
+    }
     eax = MEM32(ecx + 0x284);
     xmm1 = MEMF(0x561418); /* movss */
     xmm3 = 0.0f; /* xorps self = zero */

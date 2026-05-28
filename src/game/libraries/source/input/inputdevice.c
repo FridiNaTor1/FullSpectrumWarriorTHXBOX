@@ -91,8 +91,8 @@ loc_00136A80:
     if (!inputdevice_va_is_valid(ecx) ||
         !inputdevice_va_is_valid(MEM32(ecx + 4)) ||
         !inputdevice_va_is_valid(MEM32(ecx + 0x10)) ||
-        !inputdevice_va_is_valid(MEM32(ecx + 0x28)) ||
-        MEM32(ecx + 0x30) > 0x80u) {
+        MEM32(ecx + 0x30) > 0x80u ||
+        (MEM32(ecx + 0x30) != 0 && !inputdevice_va_is_valid(MEM32(ecx + 0x28)))) {
         static uint32_t invalid_dtoa_count = 0;
         if (invalid_dtoa_count < 16) {
             fprintf(stderr, "[FSW/Input] skipping invalid DtoA device=%08X\n", (unsigned)ecx);
@@ -161,8 +161,8 @@ loc_00136AD0:
     if (!inputdevice_va_is_valid(edi) ||
         !inputdevice_va_is_valid(MEM32(edi + 4)) ||
         !inputdevice_va_is_valid(MEM32(edi + 0x10)) ||
-        !inputdevice_va_is_valid(MEM32(edi + 0x1C)) ||
-        MEM32(edi + 0x24) > 0x80u) {
+        MEM32(edi + 0x24) > 0x80u ||
+        (MEM32(edi + 0x24) != 0 && !inputdevice_va_is_valid(MEM32(edi + 0x1C)))) {
         static uint32_t invalid_atod_count = 0;
         if (invalid_atod_count < 16) {
             fprintf(stderr, "[FSW/Input] skipping invalid AtoD device=%08X\n", (unsigned)edi);

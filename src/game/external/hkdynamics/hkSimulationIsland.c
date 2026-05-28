@@ -7,6 +7,12 @@
 #define RECOMP_GENERATED_CODE
 #include "recomp_funcs.h"
 #include <math.h>
+#include <stdio.h>
+
+static int hk_sim_island_va_range_is_valid(uint32_t va, uint32_t size)
+{
+    return va >= 0x00010000u && va < 0x04000000u && size <= 0x04000000u - va;
+}
 
 /**
  * fn_000BBFE0_hkSimulationIsland_removeConstraint
@@ -162,6 +168,23 @@ void fn_000BC0A0_hkSimulationIsland_internalRemoveEntity(void)
 
 loc_000BC0A0:
     eax = MEM32(esp + 4);
+    if (!hk_sim_island_va_range_is_valid(ecx, 0x3C) ||
+        !hk_sim_island_va_range_is_valid(eax, 0x90) ||
+        MEM32(ecx + 0x38) == 0 || MEM32(ecx + 0x38) > 4096 ||
+        !hk_sim_island_va_range_is_valid(MEM32(ecx + 0x34), MEM32(ecx + 0x38) * 4) ||
+        ZX16(MEM16(eax + 0x8C)) >= MEM32(ecx + 0x38)) {
+        fprintf(stderr,
+                "[FSW/Havok] skipping invalid island remove island=%08X entity=%08X entities=%08X count=%u index=%u\n",
+                ecx, eax,
+                hk_sim_island_va_range_is_valid(ecx, 0x3C) ? MEM32(ecx + 0x34) : 0,
+                hk_sim_island_va_range_is_valid(ecx, 0x3C) ? MEM32(ecx + 0x38) : 0,
+                hk_sim_island_va_range_is_valid(eax, 0x90) ? ZX16(MEM16(eax + 0x8C)) : 0xFFFFu);
+        if (hk_sim_island_va_range_is_valid(eax, 0x90)) {
+            MEM32(eax + 0x54) = 0;
+            MEM16(eax + 0x8C) = 0xFFFF;
+        }
+        esp += 8; return; /* ret 4 */
+    }
     { uint32_t _icall_esp = g_esp;
     PUSH32(esp, esi);
     esi = ecx;

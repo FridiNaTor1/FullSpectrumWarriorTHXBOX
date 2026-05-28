@@ -9,49 +9,330 @@
 #ifdef XBOXRECOMP_VULKAN_GRAPHICS
 #include "d3d8_vulkan_host.h"
 #endif
+#ifndef _WIN32
+#include <dirent.h>
+#endif
 #include <math.h>
 #include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 
 #define FSW_BINK_MAGIC 0x42494E4Bu
+extern uint32_t g_fsw_last_bink_handle;
+extern uint32_t g_fsw_last_bink_path;
 
 #ifdef XBOXRECOMP_VULKAN_GRAPHICS
-static void fsw_bink_draw_synthetic(uint32_t bink_va)
-{
-    static uint32_t log_count;
-    uint32_t frame = MEM32(bink_va + 0x0C);
-    float t = (float)(frame % 120u) / 120.0f;
-    float shade = 0.10f + 0.10f * t;
-    D3D8VulkanRhwVertex bg[6] = {
-        {   0,   0, 0.05f, 1.0f, 0.02f, 0.025f, 0.025f, 1.0f, 0, 0 },
-        { 640,   0, 0.05f, 1.0f, 0.06f, 0.065f, 0.060f, 1.0f, 1, 0 },
-        { 640, 480, 0.05f, 1.0f, 0.01f, 0.015f, 0.018f, 1.0f, 1, 1 },
-        {   0,   0, 0.05f, 1.0f, 0.02f, 0.025f, 0.025f, 1.0f, 0, 0 },
-        { 640, 480, 0.05f, 1.0f, 0.01f, 0.015f, 0.018f, 1.0f, 1, 1 },
-        {   0, 480, 0.05f, 1.0f, 0.05f, 0.060f, 0.055f, 1.0f, 0, 1 },
-    };
-    D3D8VulkanRhwVertex letterbox[12] = {
-        { 0, 0, 0.02f, 1.0f, 0, 0, 0, 1, 0, 0 }, { 640, 0, 0.02f, 1.0f, 0, 0, 0, 1, 1, 0 }, { 640, 60, 0.02f, 1.0f, 0, 0, 0, 1, 1, 1 },
-        { 0, 0, 0.02f, 1.0f, 0, 0, 0, 1, 0, 0 }, { 640, 60, 0.02f, 1.0f, 0, 0, 0, 1, 1, 1 }, { 0, 60, 0.02f, 1.0f, 0, 0, 0, 1, 0, 1 },
-        { 0, 420, 0.02f, 1.0f, 0, 0, 0, 1, 0, 0 }, { 640, 420, 0.02f, 1.0f, 0, 0, 0, 1, 1, 0 }, { 640, 480, 0.02f, 1.0f, 0, 0, 0, 1, 1, 1 },
-        { 0, 420, 0.02f, 1.0f, 0, 0, 0, 1, 0, 0 }, { 640, 480, 0.02f, 1.0f, 0, 0, 0, 1, 1, 1 }, { 0, 480, 0.02f, 1.0f, 0, 0, 0, 1, 0, 1 },
-    };
-    D3D8VulkanRhwVertex mark[6] = {
-        { 150, 216, 0.01f, 1.0f, 0.72f, 0.72f, 0.66f, 1.0f, 0, 0 },
-        { 490, 216, 0.01f, 1.0f, 0.72f, 0.72f, 0.66f, 1.0f, 1, 0 },
-        { 490, 226, 0.01f, 1.0f, shade + 0.30f, shade + 0.34f, shade + 0.32f, 1.0f, 1, 1 },
-        { 150, 216, 0.01f, 1.0f, 0.72f, 0.72f, 0.66f, 1.0f, 0, 0 },
-        { 490, 226, 0.01f, 1.0f, shade + 0.30f, shade + 0.34f, shade + 0.32f, 1.0f, 1, 1 },
-        { 150, 226, 0.01f, 1.0f, shade + 0.30f, shade + 0.34f, shade + 0.32f, 1.0f, 0, 1 },
-    };
+typedef struct FswHostBinkMovie {
+    uint32_t bink_va;
+    uint32_t width;
+    uint32_t height;
+    uint32_t frame_count;
+    uint32_t *bgra;
+    uint8_t attempted;
+} FswHostBinkMovie;
 
-    d3d8_vulkan_host_draw_rhw(bg, 6, NULL, 0, 0, 0, 0);
-    d3d8_vulkan_host_draw_rhw(letterbox, 12, NULL, 0, 0, 0, 0);
-    d3d8_vulkan_host_draw_rhw(mark, 6, NULL, 0, 0, 0, 0);
-    if (log_count < 4) {
-        fprintf(stderr, "[FSW/Bink] drew synthetic intro frame bink=%08X frame=%u\n",
-                (unsigned)bink_va, (unsigned)frame);
-        log_count++;
+static FswHostBinkMovie g_fsw_host_binks[8];
+
+static int fsw_bink_va_is_valid(uint32_t va)
+{
+    return va >= 0x00010000u && va < 0x04000000u;
+}
+
+static int fsw_bink_va_range_is_valid(uint32_t va, uint32_t size)
+{
+    if (!fsw_bink_va_is_valid(va) || size == 0 || size > 0x04000000u) {
+        return 0;
     }
+    return va <= 0x04000000u - size;
+}
+
+static const char *fsw_bink_basename(const char *path)
+{
+    const char *base = path;
+    for (const char *p = path; *p; p++) {
+        if (*p == '\\' || *p == '/' || *p == ':') {
+            base = p + 1;
+        }
+    }
+    return base;
+}
+
+static int fsw_bink_file_exists(const char *path)
+{
+    FILE *f = fopen(path, "rb");
+    if (!f) {
+        return 0;
+    }
+    fclose(f);
+    return 1;
+}
+
+static int fsw_bink_ascii_ieq(const char *a, const char *b)
+{
+    while (*a && *b) {
+        unsigned char ca = (unsigned char)*a++;
+        unsigned char cb = (unsigned char)*b++;
+        if (ca >= 'A' && ca <= 'Z') {
+            ca = (unsigned char)(ca + ('a' - 'A'));
+        }
+        if (cb >= 'A' && cb <= 'Z') {
+            cb = (unsigned char)(cb + ('a' - 'A'));
+        }
+        if (ca != cb) {
+            return 0;
+        }
+    }
+    return *a == 0 && *b == 0;
+}
+
+static uint32_t fsw_bink_crc32_table_value(uint8_t index)
+{
+    uint32_t crc = (uint32_t)index << 24;
+    for (uint32_t bit = 0; bit < 8; bit++) {
+        if ((crc & 0x80000000u) != 0) {
+            crc = (crc << 1) ^ 0x04C11DB7u;
+        } else {
+            crc <<= 1;
+        }
+    }
+    return crc;
+}
+
+static uint32_t fsw_bink_calc_lower_crc_host(const char *text)
+{
+    uint32_t crc = 0xFFFFFFFFu;
+    for (const unsigned char *p = (const unsigned char *)text; *p; p++) {
+        uint8_t value = *p;
+        if (value >= 'A' && value <= 'Z') {
+            value = (uint8_t)(value + ('a' - 'A'));
+        }
+        crc = (crc << 8) ^ fsw_bink_crc32_table_value((uint8_t)((crc >> 24) ^ value));
+    }
+    return ~crc;
+}
+
+static int fsw_bink_resolve_in_dir(const char *dir, const char *base, char *out, size_t out_size)
+{
+    snprintf(out, out_size, "%s/%s", dir, base);
+    if (fsw_bink_file_exists(out)) {
+        return 1;
+    }
+#ifndef _WIN32
+    DIR *d = opendir(dir);
+    if (d) {
+        struct dirent *ent;
+        while ((ent = readdir(d)) != NULL) {
+            if (fsw_bink_ascii_ieq(ent->d_name, base)) {
+                snprintf(out, out_size, "%s/%s", dir, ent->d_name);
+                closedir(d);
+                return fsw_bink_file_exists(out);
+            }
+        }
+        closedir(d);
+    }
+#endif
+    return 0;
+}
+
+static int fsw_bink_dump_memfs_entry(uint32_t entry, const char *base, char *out, size_t out_size)
+{
+    uint32_t size;
+    uint32_t data;
+    FILE *f;
+
+    if (!fsw_bink_va_range_is_valid(entry, 0xCu) || out_size == 0) {
+        return 0;
+    }
+    size = MEM32(entry + 4);
+    data = MEM32(entry + 8);
+    if (size < 0x20 || size > 64u * 1024u * 1024u || !fsw_bink_va_range_is_valid(data, size)) {
+        return 0;
+    }
+
+    snprintf(out, out_size, "/tmp/fsw_shellpak_%08X_%s", MEM32(entry), base);
+    f = fopen(out, "wb");
+    if (!f) {
+        return 0;
+    }
+    if (fwrite((const void *)XBOX_PTR(data), 1, size, f) != size) {
+        fclose(f);
+        return 0;
+    }
+    fclose(f);
+    fprintf(stderr, "[FSW/Bink] extracted embedded Shell PAK movie %s size=%u crc=%08X\n",
+            out, (unsigned)size, (unsigned)MEM32(entry));
+    return 1;
+}
+
+static int fsw_bink_resolve_in_memfs(const char *base, char *out, size_t out_size)
+{
+    uint32_t crc = fsw_bink_calc_lower_crc_host(base);
+    uint32_t node = fsw_bink_va_is_valid(0x613AC8u) ? MEM32(0x613AC8u) : 0;
+    uint32_t scanned = 0;
+
+    while (fsw_bink_va_is_valid(node) && scanned++ < 64) {
+        uint32_t memfs = MEM32(node);
+        if (fsw_bink_va_is_valid(memfs + 4)) {
+            uint32_t count = MEM32(memfs);
+            if (count <= 0x10000u) {
+                for (uint32_t i = 0; i < count; i++) {
+                    uint32_t entry = memfs + 4 + i * 0xC;
+                    if (!fsw_bink_va_range_is_valid(entry, 0xCu)) {
+                        break;
+                    }
+                    if (MEM32(entry) == crc) {
+                        return fsw_bink_dump_memfs_entry(entry, base, out, out_size);
+                    }
+                }
+            }
+        }
+        node = MEM32(node + 4);
+    }
+    return 0;
+}
+
+static int fsw_bink_resolve_host_path(uint32_t path_va, char *out, size_t out_size)
+{
+    const char *xbox_path;
+    const char *base;
+
+    if (!fsw_bink_va_is_valid(path_va) || out_size == 0) {
+        return 0;
+    }
+    xbox_path = (const char *)XBOX_PTR(path_va);
+    base = fsw_bink_basename(xbox_path);
+    if (fsw_bink_resolve_in_dir("game_files/video", base, out, out_size)) {
+        return 1;
+    }
+    if (fsw_bink_resolve_in_dir("game_files/Video", base, out, out_size)) {
+        return 1;
+    }
+    if (fsw_bink_resolve_in_dir("game_files", base, out, out_size)) {
+        return 1;
+    }
+    return fsw_bink_resolve_in_memfs(base, out, out_size);
+}
+
+static void fsw_bink_shell_quote(char *out, size_t out_size, const char *in)
+{
+    size_t pos = 0;
+    if (out_size == 0) {
+        return;
+    }
+    out[pos++] = '\'';
+    for (const char *p = in; *p && pos + 5 < out_size; p++) {
+        if (*p == '\'') {
+            memcpy(out + pos, "'\\''", 4);
+            pos += 4;
+        } else {
+            out[pos++] = *p;
+        }
+    }
+    if (pos + 1 < out_size) {
+        out[pos++] = '\'';
+    }
+    out[pos < out_size ? pos : out_size - 1] = 0;
+}
+
+static FswHostBinkMovie *fsw_bink_get_movie(uint32_t bink_va)
+{
+    FswHostBinkMovie *slot = NULL;
+    char host_path[512];
+    char raw_path[128];
+    char quoted_host[1024];
+    char quoted_raw[256];
+    char command[1600];
+    FILE *f;
+    long size;
+    size_t frame_size;
+
+    for (uint32_t i = 0; i < (uint32_t)(sizeof(g_fsw_host_binks) / sizeof(g_fsw_host_binks[0])); i++) {
+        if (g_fsw_host_binks[i].bink_va == bink_va) {
+            return &g_fsw_host_binks[i];
+        }
+        if (!slot && g_fsw_host_binks[i].bink_va == 0) {
+            slot = &g_fsw_host_binks[i];
+        }
+    }
+    if (!slot) {
+        return NULL;
+    }
+
+    memset(slot, 0, sizeof(*slot));
+    slot->bink_va = bink_va;
+    slot->width = 640;
+    slot->height = 480;
+    slot->attempted = 1;
+
+    if (!fsw_bink_resolve_host_path(MEM32(bink_va + 0x14), host_path, sizeof(host_path))) {
+        fprintf(stderr, "[FSW/Bink] host movie missing path_va=%08X\n", MEM32(bink_va + 0x14));
+        return slot;
+    }
+
+    snprintf(raw_path, sizeof(raw_path), "/tmp/fsw_bink_%08X.bgra", bink_va);
+    fsw_bink_shell_quote(quoted_host, sizeof(quoted_host), host_path);
+    fsw_bink_shell_quote(quoted_raw, sizeof(quoted_raw), raw_path);
+    snprintf(command, sizeof(command),
+             "ffmpeg -y -loglevel error -i %s -vf fps=15,scale=640:480 -frames:v 90 -f rawvideo -pix_fmt bgra %s",
+             quoted_host, quoted_raw);
+    if (system(command) != 0) {
+        fprintf(stderr, "[FSW/Bink] ffmpeg decode failed %s\n", host_path);
+        return slot;
+    }
+
+    f = fopen(raw_path, "rb");
+    if (!f) {
+        return slot;
+    }
+    fseek(f, 0, SEEK_END);
+    size = ftell(f);
+    fseek(f, 0, SEEK_SET);
+    frame_size = (size_t)slot->width * slot->height * sizeof(uint32_t);
+    if (size <= 0 || (size_t)size < frame_size) {
+        fclose(f);
+        return slot;
+    }
+    slot->frame_count = (uint32_t)((size_t)size / frame_size);
+    slot->bgra = (uint32_t *)malloc((size_t)slot->frame_count * frame_size);
+    if (!slot->bgra) {
+        slot->frame_count = 0;
+        fclose(f);
+        return slot;
+    }
+    if (fread(slot->bgra, frame_size, slot->frame_count, f) != slot->frame_count) {
+        free(slot->bgra);
+        slot->bgra = NULL;
+        slot->frame_count = 0;
+    }
+    fclose(f);
+    if (slot->frame_count != 0) {
+        MEM32(bink_va + 0x00) = slot->width;
+        MEM32(bink_va + 0x04) = slot->height;
+        MEM32(bink_va + 0x08) = slot->frame_count;
+        fprintf(stderr, "[FSW/Bink] decoded real movie %s frames=%u\n", host_path, slot->frame_count);
+    }
+    return slot;
+}
+
+static void fsw_bink_draw_host(uint32_t bink_va)
+{
+    FswHostBinkMovie *movie = fsw_bink_get_movie(bink_va);
+    uint32_t frame = MEM32(bink_va + 0x0C);
+    const uint32_t *bgra;
+
+    if (!movie || !movie->bgra || movie->frame_count == 0) {
+        return;
+    }
+    bgra = movie->bgra + ((frame % movie->frame_count) * movie->width * movie->height);
+    D3D8VulkanRhwVertex rect[6] = {
+        {   0,   0, 0.09f, 1.0f, 1, 1, 1, 1, 0, 0 },
+        { 640,   0, 0.09f, 1.0f, 1, 1, 1, 1, 1, 0 },
+        { 640, 480, 0.09f, 1.0f, 1, 1, 1, 1, 1, 1 },
+        {   0,   0, 0.09f, 1.0f, 1, 1, 1, 1, 0, 0 },
+        { 640, 480, 0.09f, 1.0f, 1, 1, 1, 1, 1, 1 },
+        {   0, 480, 0.09f, 1.0f, 1, 1, 1, 1, 0, 1 },
+    };
+    d3d8_vulkan_host_draw_rhw(rect, 6, bgra, movie->width, movie->height, 0, 0);
 }
 #endif
 
@@ -1128,7 +1409,7 @@ loc_001BBF5F:
 
 loc_001BBF75:
     esp = esp + 8;
-    if (TEST_NZ(eax, eax)) { sub_001BC01F(); return; } /* jne: not equal / not zero */
+    if (TEST_NZ(eax, eax)) { g_seh_ebp = ebp; sub_001BC01F(); return; } /* jne: not equal / not zero */
 
 loc_001BBF80:
     ecx = 0x55A368;
@@ -1231,6 +1512,10 @@ loc_001BC019:
  */
 void sub_001BC01F(void)
 {
+    uint32_t saved_ebp = g_seh_ebp;
+    uint32_t saved_ebx = ebx;
+    uint32_t saved_esi = esi;
+    uint32_t saved_edi = edi;
     int _flags = 0; /* fallback flag var */
 
 loc_001BC01F:
@@ -1248,6 +1533,13 @@ loc_001BC034:
     SET_LO8(ecx, 1);
     PUSH32(esp, 0); fn_0011BCA0_ZeroDirectStream_Pause(); /* call 0x0011BCA0 */
 
+loc_001BC03A:
+    g_seh_ebp = saved_ebp;
+    ebx = saved_ebx;
+    esi = saved_esi;
+    edi = saved_edi;
+    sub_001BC03B(); return; /* original fallthrough */
+
 }
 
 /**
@@ -1259,6 +1551,8 @@ loc_001BC034:
 void sub_001BC03B(void)
 {
     uint32_t ebp;
+    uint32_t saved_path = edi;
+    uint32_t saved_flags = esi;
     int _flags = 0; /* fallback flag var */
     ebp = g_seh_ebp; /* fpo_leaf: inherit caller's frame */
 
@@ -1306,6 +1600,8 @@ loc_001BC0B0:
     PUSH32(esp, 0); fn_004E6370_BinkSetSoundTrack_8(); /* call 0x004E6370 */
 
 loc_001BC0BE:
+    edi = saved_path;
+    esi = saved_flags;
     esi = esi | 0x4400;
     PUSH32(esp, esi);
     PUSH32(esp, edi);
@@ -1409,6 +1705,7 @@ loc_001BC179:
  */
 void fn_001BC190_0CBinkDecoder_QAE_ABV_ZeroStrT_0EA_N_Z(void)
 {
+    uint32_t cbink_self = 0;
     int _cf = 0; /* carry flag */
     float xmm0;
 
@@ -1422,12 +1719,14 @@ loc_001BC190:
     PUSH32(esp, ebx);
     PUSH32(esp, esi);
     esi = MEM32(esp + 0x18);
+    cbink_self = esi;
     PUSH32(esp, edi);
     PUSH32(esp, eax);
     PUSH32(esp, esi);
     PUSH32(esp, 0); fn_001BB410_0CDecoder_QAE_ABV_ZeroStrT_0EA_N_Z(); /* call 0x001BB410 */
 
 loc_001BC1B7:
+    esi = cbink_self;
     PUSH32(esp, 0x1BC4F0);
     PUSH32(esp, 0x1BC440);
     PUSH32(esp, 2);
@@ -1460,10 +1759,15 @@ loc_001BC1DD:
     PUSH32(esp, 0); fn_001BBF30_CBinkDecoder_LoadFile(); /* call 0x001BBF30 */
 
 loc_001BC22A:
+    esi = cbink_self;
+    if (g_fsw_last_bink_handle != 0 && g_fsw_last_bink_path == esi + 6) {
+        MEM32(esi) = 0x55A340;
+        MEM32(esi + 0x64) = MEM32(g_fsw_last_bink_handle + 0x00);
+        MEM32(esi + 0x68) = MEM32(g_fsw_last_bink_handle + 0x04);
+        MEM32(esi + 0x7C) = g_fsw_last_bink_handle;
+    }
     ecx = MEM32(esp + 0xC);
-    SET_LO8(eax, (uint32_t)(-(int32_t)LO8(eax)));
-    SET_LO8(eax, _cf ? 0xFFFFFFFF : 0); /* sbb self (CF extend) */
-    SET_LO8(eax, LO8(eax) + 1);
+    SET_LO8(eax, MEM32(esi + 0x7C) == 0 ? 1 : 0);
     MEM8(esi + 0x4C) = LO8(eax);
     POP32(esp, edi);
     eax = esi;
@@ -1503,7 +1807,7 @@ loc_001BC250:
     if (eax >= 0x00010000u && eax < 0x04000000u && MEM32(eax + 0x20) == FSW_BINK_MAGIC) {
         uint32_t frame = MEM32(eax + 0x0C);
         uint32_t total = MEM32(eax + 0x08);
-        fsw_bink_draw_synthetic(eax);
+        fsw_bink_draw_host(eax);
         if (frame < total) {
             MEM32(eax + 0x0C) = frame + 1;
         } else {

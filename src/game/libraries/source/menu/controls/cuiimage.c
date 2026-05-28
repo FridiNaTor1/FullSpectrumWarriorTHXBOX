@@ -682,6 +682,7 @@ loc_0012B8E5:
 void fn_0012B8F0_CUIImage_Load(void)
 {
     int _flags = 0; /* fallback flag var */
+    uint32_t fsw_image = esi;
 
 loc_0012B8F0:
     eax = MEM32(esi + 4);
@@ -712,6 +713,7 @@ loc_0012B918:
 loc_0012B922:
     esp = esp + 4;
     (void)0; /* test eax, eax - flags set for next jcc */
+    esi = fsw_image;
     MEM32(esi + 4) = eax;
     if (TEST_NZ(eax, eax)) { sub_0012B932(); return; } /* jne: not equal / not zero */
 

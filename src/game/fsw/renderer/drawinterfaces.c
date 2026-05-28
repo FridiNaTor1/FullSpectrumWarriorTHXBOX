@@ -7,6 +7,18 @@
 #define RECOMP_GENERATED_CODE
 #include "recomp_funcs.h"
 #include <math.h>
+#include <stdio.h>
+
+static int drawinterfaces_va_range_is_valid(uint32_t va, uint32_t size)
+{
+    if (va < 0x00010000u || va >= 0x04000000u) {
+        return 0;
+    }
+    if (size > 0x04000000u || va > 0x04000000u - size) {
+        return 0;
+    }
+    return 1;
+}
 
 /**
  * fn_00215100_DrawMenuInterfaces
@@ -546,6 +558,17 @@ loc_00215650:
     ebp = esp;
     esp = esp & 0xFFFFFFF0u;
     esp = esp - 0xE0;
+    if (!drawinterfaces_va_range_is_valid(esi, 0x40) ||
+        !drawinterfaces_va_range_is_valid(MEM32(esi), 0x44)) {
+        static int submit_camera_relative_logs;
+        if (submit_camera_relative_logs < 16) {
+            fprintf(stderr, "[FSW/Interfaces] skipping camera-relative meshes invalid camera=%08X vtbl=%08X\n",
+                    (unsigned)esi,
+                    (unsigned)(drawinterfaces_va_range_is_valid(esi, 4) ? MEM32(esi) : 0));
+            submit_camera_relative_logs++;
+        }
+        goto loc_002156D0;
+    }
     PUSH32(esp, 0);
     PUSH32(esp, esi);
     eax = esp + 0x18;

@@ -7,6 +7,28 @@
 #define RECOMP_GENERATED_CODE
 #include "recomp_funcs.h"
 #include <math.h>
+#include <stdio.h>
+
+static int hudcasevac_va_range_is_valid(uint32_t va, uint32_t size)
+{
+    if (size == 0) {
+        return va >= 0x00010000u && va < 0x04000000u;
+    }
+    if (va < 0x00010000u || va >= 0x04000000u || va + size < va) {
+        return 0;
+    }
+    return va + size <= 0x04000000u;
+}
+
+static int hudcasevac_vtable_is_valid(uint32_t object, uint32_t min_size)
+{
+    uint32_t vtbl;
+    if (!hudcasevac_va_range_is_valid(object, 4)) {
+        return 0;
+    }
+    vtbl = MEM32(object);
+    return vtbl < 0x00800000u && hudcasevac_va_range_is_valid(vtbl, min_size);
+}
 
 /**
  * fn_0002BEE0_CCASEVACManager_GetID
@@ -3312,6 +3334,18 @@ loc_002CEF10:
     PUSH32(esp, esi);
     PUSH32(esp, edi);
     esi = eax;
+    if (!hudcasevac_va_range_is_valid(esi, 0x220)) {
+        static uint32_t invalid_find_count = 0;
+        if (invalid_find_count < 8 || (invalid_find_count % 120) == 0) {
+            fprintf(stderr, "[FSW/HUD] CASEVAC Find invalid team=%08X count=%u\n",
+                    (unsigned)esi, (unsigned)(invalid_find_count + 1));
+        }
+        invalid_find_count++;
+        eax = 0;
+        POP32(esp, edi);
+        POP32(esp, esi);
+        esp += 12; return; /* ret 8 */
+    }
     PUSH32(esp, 0); fn_0029F2C0_CFactionManager_Get(); /* call 0x0029F2C0 */
 
 loc_002CEF19:
@@ -3321,10 +3355,20 @@ loc_002CEF19:
 
 loc_002CEF1F:
     eax = MEM32(esi + 0x21C);
+    if (!hudcasevac_va_range_is_valid(eax, 0xF4)) {
+        fprintf(stderr, "[FSW/HUD] CASEVAC Find invalid team actor team=%08X actor=%08X\n",
+                (unsigned)esi, (unsigned)eax);
+        goto loc_002CEF58;
+    }
     if (TEST_Z(eax, eax)) goto loc_002CEF58; /* je: equal / zero */
 
 loc_002CEF29:
     ecx = MEM32(eax + 0xF0);
+    if (ecx != 0 && !hudcasevac_vtable_is_valid(ecx, 0x84)) {
+        fprintf(stderr, "[FSW/HUD] CASEVAC Find invalid actor owner actor=%08X owner=%08X\n",
+                (unsigned)eax, (unsigned)ecx);
+        goto loc_002CEF58;
+    }
     if (TEST_Z(ecx, ecx)) goto loc_002CEF58; /* je: equal / zero */
 
 loc_002CEF33:
@@ -3390,24 +3434,33 @@ loc_002CEF70:
 void fn_002CEF80_CCASEVACManager_Update(void)
 {
     uint32_t ebp;
+    uint32_t casevac_manager = 0;
+    uint32_t casevac_update_steps = 0;
     int _flags = 0; /* fallback flag var */
     float xmm0, xmm1;
 
 loc_002CEF80:
-    { uint32_t _icall_esp = g_esp;
     PUSH32(esp, ebp);
     ebp = esp;
     esp = esp & 0xFFFFFFF8u;
     esp = esp - 0x20;
     PUSH32(esp, esi);
     esi = eax;
-    eax = MEM32(esi + 0x40);
     PUSH32(esp, edi);
+    if (!hudcasevac_va_range_is_valid(esi, 0x368)) {
+        fprintf(stderr, "[FSW/HUD] skipping CCASEVACManager_Update invalid manager=%08X\n", esi);
+        goto loc_002CF0DF;
+    }
+    casevac_manager = esi;
+    eax = MEM32(esi + 0x40);
     edi = MEM32(ebp + 8);
     ecx = esi + 0x40;
+    { uint32_t _icall_esp = g_esp;
     PUSH32(esp, edi);
     PUSH32(esp, 0); RECOMP_ICALL_SAFE(MEM32(eax + 0xC), _icall_esp); /* indirect call */
     }
+    esi = casevac_manager;
+    edi = MEM32(ebp + 8);
 
 loc_002CEF9A:
     edx = MEM32(esi + 0x150);
@@ -3416,6 +3469,8 @@ loc_002CEF9A:
     PUSH32(esp, edi);
     PUSH32(esp, 0); RECOMP_ICALL_SAFE(MEM32(edx + 0xC), _icall_esp); /* indirect call */
     }
+    esi = casevac_manager;
+    edi = MEM32(ebp + 8);
 
 loc_002CEFAA:
     eax = MEM32(esi + 0x260);
@@ -3424,6 +3479,8 @@ loc_002CEFAA:
     PUSH32(esp, edi);
     PUSH32(esp, 0); RECOMP_ICALL_SAFE(MEM32(eax + 0xC), _icall_esp); /* indirect call */
     }
+    esi = casevac_manager;
+    edi = MEM32(ebp + 8);
 
 loc_002CEFBA:
     xmm0 = MEMF(ebp + 8); /* movss */
@@ -3443,6 +3500,15 @@ loc_002CEFFA:
     if (TEST_Z(eax, eax)) goto loc_002CF0DF; /* je: equal / zero */
 
 loc_002CF006:
+    if (++casevac_update_steps > 1024 ||
+        !hudcasevac_va_range_is_valid(eax, 8) ||
+        !hudcasevac_va_range_is_valid(MEM32(eax), 0x68)) {
+        fprintf(stderr, "[FSW/HUD] stopping CCASEVACManager_Update list node=%08X data=%08X steps=%u\n",
+                eax,
+                hudcasevac_va_range_is_valid(eax, 4) ? MEM32(eax) : 0,
+                casevac_update_steps);
+        goto loc_002CF0DF;
+    }
     esi = MEM32(eax);
     SET_LO8(eax, MEM8(esi + 0x24));
     if (TEST_Z(LO8(eax), LO8(eax))) goto loc_002CF046; /* je: equal / zero */
@@ -3488,6 +3554,10 @@ loc_002CF04D:
     if (TEST_Z(ecx, ecx)) goto loc_002CF06D; /* je: equal / zero */
 
 loc_002CF057:
+    if (!hudcasevac_vtable_is_valid(ecx, 0x44)) {
+        fprintf(stderr, "[FSW/HUD] skipping CCASEVAC camera target invalid object=%08X dead=%08X\n", ecx, esi);
+        goto loc_002CF06D;
+    }
     edx = MEM32(ecx);
     eax = esp + 0x1C;
     { uint32_t _icall_esp = g_esp;
@@ -3507,6 +3577,7 @@ loc_002CF06D:
     if (TEST_Z(eax, eax)) goto loc_002CF08C; /* je: equal / zero */
 
 loc_002CF074:
+    if (!hudcasevac_va_range_is_valid(eax, 0xBC)) goto loc_002CF08C;
     eax = eax + 0xB0;
     edx = MEM32(eax);
     ecx = esi + 0xC;

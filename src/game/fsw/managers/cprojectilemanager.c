@@ -7,6 +7,12 @@
 #define RECOMP_GENERATED_CODE
 #include "recomp_funcs.h"
 #include <math.h>
+#include <stdio.h>
+
+static int cprojectile_va_range_is_valid(uint32_t va, uint32_t size)
+{
+    return va > 0x00010000u && va < 0x04000000u && size <= 0x04000000u - va;
+}
 
 /**
  * fn_0002E7D0_hkMemory_getInstance
@@ -7684,9 +7690,17 @@ loc_0029E52E:
 void fn_0029E550_CProjectileManager_Update(void)
 {
     uint32_t ebp;
+    uint32_t projectile_steps;
+    uint32_t iter_out;
+    uint32_t list_node;
+    uint32_t projectile;
     int _flags = 0; /* fallback flag var */
 
 loc_0029E550:
+    if (!cprojectile_va_range_is_valid(esi, 0xC)) {
+        fprintf(stderr, "[FSW/Projectile] skipping update invalid manager=%08X\n", (unsigned)esi);
+        esp += 8; return; /* ret 4 */
+    }
     PUSH32(esp, ebp);
     ebp = esp;
     esp = esp & 0xFFFFFFF8u;
@@ -7699,16 +7713,50 @@ loc_0029E550:
     MEM32(esp + 0xC) = esi;
     MEM32(esp + 8) = eax;
     if (CMP_EQ(eax, edi)) goto loc_0029E605; /* je: equal / zero */
+    if (!cprojectile_va_range_is_valid(eax, 8)) {
+        fprintf(stderr, "[FSW/Projectile] skipping update invalid head=%08X manager=%08X\n",
+                (unsigned)eax, (unsigned)esi);
+        goto loc_0029E605;
+    }
+    projectile_steps = 0;
 
 loc_0029E570:
+    list_node = MEM32(esp + 8);
+    if (!cprojectile_va_range_is_valid(list_node, 8) || ++projectile_steps > 4096) {
+        fprintf(stderr, "[FSW/Projectile] stopping update invalid node=%08X steps=%u\n",
+                (unsigned)list_node, (unsigned)projectile_steps);
+        MEM32(esp + 8) = 0;
+        goto loc_0029E605;
+    }
     eax = esp + 0x10;
     ecx = esp + 8;
     PUSH32(esp, 0); fn_0004E360_EIterator_ZeroList_K_QAE_AV01_H_Z(); /* call 0x0004E360 */
 
 loc_0029E57D:
+    iter_out = eax;
+    if (!cprojectile_va_range_is_valid(iter_out, 4)) {
+        fprintf(stderr, "[FSW/Projectile] stopping update invalid iterator out=%08X\n",
+                (unsigned)iter_out);
+        MEM32(esp + 8) = 0;
+        goto loc_0029E605;
+    }
     eax = MEM32(eax);
+    list_node = eax;
+    if (!cprojectile_va_range_is_valid(list_node, 4)) {
+        fprintf(stderr, "[FSW/Projectile] skipping update invalid iterator node=%08X\n",
+                (unsigned)list_node);
+        goto loc_0029E5FB;
+    }
     ecx = MEM32(ebp + 8);
     ebx = MEM32(eax);
+    projectile = ebx;
+    if (!cprojectile_va_range_is_valid(projectile, 0xC) ||
+        !cprojectile_va_range_is_valid(MEM32(projectile), 0x14)) {
+        fprintf(stderr, "[FSW/Projectile] skipping update invalid projectile node=%08X projectile=%08X vtbl=%08X\n",
+                (unsigned)list_node, (unsigned)projectile,
+                (unsigned)(cprojectile_va_range_is_valid(projectile, 4) ? MEM32(projectile) : 0));
+        goto loc_0029E5FB;
+    }
     PUSH32(esp, ecx);
     PUSH32(esp, 0); fn_0029CF70_CProjectile_Update(); /* call 0x0029CF70 */
 

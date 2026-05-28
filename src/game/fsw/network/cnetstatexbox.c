@@ -7,6 +7,7 @@
 #define RECOMP_GENERATED_CODE
 #include "recomp_funcs.h"
 #include <math.h>
+#include <stdlib.h>
 
 /**
  * fn_00033020_GCNetStateXbox_UAEPAXI_Z
@@ -14764,14 +14765,72 @@ void fn_0026E630_CNetStateXbox_Update(void)
     ebp = g_seh_ebp; /* fpo_leaf: inherit caller's frame */
 
 loc_0026E630:
+#ifdef XBOXRECOMP_VULKAN_GRAPHICS
     {
-        static uint32_t net_state_skip_log_count = 0;
-        if (net_state_skip_log_count < 4) {
-            fprintf(stderr, "[FSW/Net] CNetStateXbox update skipped for shell bring-up\n");
-            net_state_skip_log_count++;
+        static uint32_t net_state_passthrough_log_count = 0;
+        static uint32_t forced_state_applied = 0;
+        static uint32_t linux_bootstrap_applied = 0;
+        uint32_t net_obj = ecx;
+        uint32_t event = MEM32(esp + 4);
+        uint32_t next_state = MEM32(esp + 8);
+        uint32_t data = MEM32(esp + 0xC);
+        const char *forced_state = getenv("FSW_TH_NET_STATE");
+        if (!forced_state_applied && forced_state != NULL && forced_state[0] != 0) {
+            uint32_t state = (uint32_t)strtoul(forced_state, NULL, 0);
+            fprintf(stderr, "[FSW/Net] forcing update state=0x%08X\n", (unsigned)state);
+            eax = state;
+            ecx = net_obj;
+            esi = 0;
+            PUSH32(esp, 0); fn_00272580_CNetState_SetState(); /* call 0x00272580 */
+            ecx = net_obj;
+            forced_state_applied = 1;
         }
+        if (!linux_bootstrap_applied && (forced_state == NULL || forced_state[0] == 0) &&
+            getenv("FSW_TH_DISABLE_BOOTSTRAP") == NULL &&
+            MEM32(net_obj + 0xFA8) == 0 && MEM32(net_obj + 0xFAC) <= 4) {
+            uint32_t state = 0xAA;
+            fprintf(stderr, "[FSW/Net] bootstrapping Linux shell state=0x%08X\n", (unsigned)state);
+            eax = state;
+            ecx = net_obj;
+            esi = 0;
+            PUSH32(esp, 0); fn_00272580_CNetState_SetState(); /* call 0x00272580 */
+            ecx = net_obj;
+            linux_bootstrap_applied = 1;
+        }
+        if (event > 4 || next_state >= 0x100) {
+            static uint32_t clamped_net_event_count = 0;
+            if (clamped_net_event_count < 8) {
+                fprintf(stderr,
+                        "[FSW/Net] clamping impossible host event=%08X next=%08X data=%08X\n",
+                        (unsigned)event, (unsigned)next_state, (unsigned)data);
+            }
+            clamped_net_event_count++;
+            event = 0;
+            next_state = 0;
+            data = 0;
+        }
+        if (net_state_passthrough_log_count < 16) {
+            fprintf(stderr,
+                    "[FSW/Net] CNetStateXbox host passthrough event=%u next=%u data=%08X state=%08X pending=%08X\n",
+                    (unsigned)event, (unsigned)next_state, (unsigned)data,
+                    (unsigned)MEM32(ecx + 0xFA8), (unsigned)MEM32(ecx + 0xFAC));
+            net_state_passthrough_log_count++;
+        }
+        if (getenv("FSW_TH_LEVEL") != NULL && getenv("FSW_TH_NET_PASSTHROUGH") == NULL) {
+            static uint32_t net_state_skip_log_count = 0;
+            if (net_state_skip_log_count < 8) {
+                fprintf(stderr, "[FSW/Net] skipping base net update for forced level bring-up\n");
+            }
+            net_state_skip_log_count++;
+            esp += 16; return; /* ret 12 */
+        }
+        PUSH32(esp, data);
+        PUSH32(esp, next_state);
+        PUSH32(esp, event);
+        PUSH32(esp, 0); fn_00272C20_CNetState_Update(); /* call base CNetState::Update */
         esp += 16; return; /* ret 12 */
     }
+#endif
     eax = MEM32(0x5FA410);
     esp = esp - 0xC;
     (void)0; /* test eax, eax - flags set for next jcc */

@@ -7,6 +7,38 @@
 #define RECOMP_GENERATED_CODE
 #include "recomp_funcs.h"
 #include <math.h>
+#include <stdio.h>
+
+static int csavepoint_va_range_is_valid(uint32_t va, uint32_t size)
+{
+    if (size == 0) {
+        return va >= 0x00010000u && va < 0x04000000u;
+    }
+    if (va < 0x00010000u || va >= 0x04000000u || va + size < va) {
+        return 0;
+    }
+    return va + size <= 0x04000000u;
+}
+
+static int csavepoint_vtable_is_valid(uint32_t object, uint32_t min_size)
+{
+    uint32_t vtbl;
+    if (!csavepoint_va_range_is_valid(object, 4)) {
+        return 0;
+    }
+    vtbl = MEM32(object);
+    return vtbl < 0x00800000u && csavepoint_va_range_is_valid(vtbl, min_size);
+}
+
+static void csavepoint_clear_list(uint32_t manager)
+{
+    if (!csavepoint_va_range_is_valid(manager, 0x20)) {
+        return;
+    }
+    MEM32(manager + 0x14) = 0;
+    MEM32(manager + 0x18) = 0;
+    MEM32(manager + 0x1C) = 0;
+}
 
 /**
  * fn_00038E50_0CTrigger_QAE_PAVCExpression_Z
@@ -1506,11 +1538,11 @@ loc_002070ED:
 void fn_00207110_CSavePointManager_Update(void)
 {
     uint32_t ebp;
+    uint32_t savepoint_manager = 0;
     int _flags = 0; /* fallback flag var */
     float xmm0, xmm1, xmm2;
 
 loc_00207110:
-    { uint32_t _icall_esp = g_esp;
     PUSH32(esp, ebp);
     ebp = esp;
     esp = esp & 0xFFFFFFF8u;
@@ -1524,11 +1556,21 @@ loc_00207110:
     PUSH32(esp, ebx);
     PUSH32(esp, esi);
     esi = ecx;
-    eax = MEM32(esi + 0x30);
     PUSH32(esp, edi);
+    if (!csavepoint_va_range_is_valid(esi, 0x134)) {
+        fprintf(stderr, "[fsw] invalid CSavePointManager in Update: %08X\n", esi);
+        goto loc_002072C3;
+    }
+    savepoint_manager = esi;
+    eax = MEM32(esi + 0x30);
     ecx = esi + 0x30;
+    if (csavepoint_vtable_is_valid(ecx, 0x10)) {
+    uint32_t _icall_esp = g_esp;
     PUSH32(esp, edx);
     PUSH32(esp, 0); RECOMP_ICALL_SAFE(MEM32(eax + 0xC), _icall_esp); /* indirect call */
+    esi = savepoint_manager;
+    } else {
+        fprintf(stderr, "[fsw] skipping invalid savepoint anim mesh update vtbl=%08X\n", eax);
     }
 
 loc_00207140:
@@ -1537,6 +1579,12 @@ loc_00207140:
     eax = esi + 0x14;
     MEMF(esi + 0x28) = xmm0; /* movss */
     esi = MEM32(eax + 8);
+    if (esi != 0 && !csavepoint_va_range_is_valid(esi, 8)) {
+        fprintf(stderr, "[fsw] clearing corrupt savepoint list head=%08X manager=%08X count=%u\n",
+                esi, ecx - 0x14, MEM32(eax));
+        csavepoint_clear_list(ecx - 0x14);
+        goto loc_002072C3;
+    }
     (void)0; /* test esi, esi - flags set for next jcc */
     MEM32(esp + 0x18) = eax;
     MEM32(esp + 0x14) = esi;
@@ -1552,12 +1600,26 @@ loc_00207167:
     /* nop */
 
 loc_00207170:
+    if (!csavepoint_va_range_is_valid(esi, 8)) {
+        fprintf(stderr, "[fsw] skipping invalid savepoint node=%08X\n", esi);
+        csavepoint_clear_list(MEM32(esp + 0x18) - 0x14);
+        goto loc_002072C3;
+    }
     eax = MEM32(esi);
+    if (!csavepoint_va_range_is_valid(eax, 0x1C)) {
+        fprintf(stderr, "[fsw] clearing savepoint list with invalid object=%08X node=%08X\n", eax, esi);
+        csavepoint_clear_list(MEM32(esp + 0x18) - 0x14);
+        goto loc_002072C3;
+    }
     SET_LO8(ecx, MEM8(eax + 0xC));
     if (TEST_Z(LO8(ecx), LO8(ecx))) goto loc_002072AA; /* je: equal / zero */
 
 loc_0020717D:
     ecx = MEM32(eax + 8);
+    if (!csavepoint_vtable_is_valid(ecx, 0x18)) {
+        fprintf(stderr, "[fsw] skipping savepoint with invalid trigger=%08X savepoint=%08X\n", ecx, eax);
+        goto loc_002072AA;
+    }
     edx = MEM32(ecx + 0x10);
     edx = edx >> 0x1D;
     if (TEST_Z(LO8(edx), 1)) goto loc_002072AA; /* je: equal / zero */
@@ -1568,6 +1630,7 @@ loc_0020718F:
     MEMF(eax + 0x18) = xmm0; /* movss */
     eax = MEM32(esi);
     ecx = MEM32(eax + 8);
+    if (!csavepoint_vtable_is_valid(ecx, 0x18)) goto loc_002072AA;
     edx = MEM32(ecx);
     { uint32_t _icall_esp = g_esp;
     PUSH32(esp, 0); RECOMP_ICALL_SAFE(MEM32(edx + 0x14), _icall_esp); /* indirect call */
@@ -1578,6 +1641,10 @@ loc_002071A8:
 
 loc_002071B0:
     eax = MEM32(esi);
+    if (!csavepoint_va_range_is_valid(eax, 0x1C) ||
+        !csavepoint_vtable_is_valid(MEM32(eax + 8), 0x64)) {
+        goto loc_002072AA;
+    }
     edi = MEM32(eax + 8);
     ecx = esp + 0x2C;
     PUSH32(esp, ecx);
@@ -1586,12 +1653,14 @@ loc_002071B0:
 loc_002071BF:
     MEM32(esp + 0x4C) = 0;
     ecx = MEM32(esp + 0x3C);
+    if (!csavepoint_vtable_is_valid(ecx, 0x64)) goto loc_0020722F;
     edx = MEM32(ecx);
     { uint32_t _icall_esp = g_esp;
     PUSH32(esp, 0); RECOMP_ICALL_SAFE(MEM32(edx + 0x60), _icall_esp); /* indirect call */
     }
 
 loc_002071D0:
+    if (!csavepoint_va_range_is_valid(eax, 0xC)) goto loc_0020722F;
     MEM32(esp + 0x20) = eax;
     eax = MEM32(eax + 8);
     (void)0; /* test eax, eax - flags set for next jcc */
@@ -1602,11 +1671,14 @@ loc_002071DF:
     /* nop */
 
 loc_002071E0:
+    if (!csavepoint_va_range_is_valid(eax, 4)) goto loc_0020722F;
     eax = MEM32(eax);
+    if (!csavepoint_va_range_is_valid(eax, 0xF4)) goto loc_0020721A;
     ecx = MEM32(eax + 0xF0);
     if (TEST_Z(ecx, ecx)) goto loc_0020721A; /* je: equal / zero */
 
 loc_002071EC:
+    if (!csavepoint_vtable_is_valid(ecx, 0x84)) goto loc_0020721A;
     eax = MEM32(ecx);
     { uint32_t _icall_esp = g_esp;
     PUSH32(esp, 0); RECOMP_ICALL_SAFE(MEM32(eax + 0x80), _icall_esp); /* indirect call */
@@ -1616,6 +1688,7 @@ loc_002071F4:
     if (TEST_Z(eax, eax)) goto loc_0020721A; /* je: equal / zero */
 
 loc_002071F8:
+    if (!csavepoint_vtable_is_valid(eax, 0xD0)) goto loc_0020721A;
     edx = MEM32(eax);
     ecx = eax;
     { uint32_t _icall_esp = g_esp;
@@ -1652,6 +1725,7 @@ loc_0020722F:
     if (TEST_Z(ecx, ecx)) goto loc_0020724C; /* je: equal / zero */
 
 loc_00207247:
+    if (!csavepoint_vtable_is_valid(ecx, 0x3C)) goto loc_0020724C;
     eax = MEM32(ecx);
     { uint32_t _icall_esp = g_esp;
     PUSH32(esp, 0); RECOMP_ICALL_SAFE(MEM32(eax + 0x38), _icall_esp); /* indirect call */
@@ -1664,7 +1738,9 @@ loc_0020724C:
     PUSH32(esp, 0); fn_002B6A90_CLoadSave_UnregisterSaveID(); /* call 0x002B6A90 */
 
 loc_00207265:
+    if (!csavepoint_va_range_is_valid(esi, 8)) goto loc_002072AA;
     eax = MEM32(esi);
+    if (!csavepoint_va_range_is_valid(eax, 0x1C)) goto loc_002072AA;
     xmm1 = MEMF(0x561418); /* movss */
     xmm0 = MEMF(eax + 0x14); /* movss */
     /* comiss xmm1, xmm0 - sets EFLAGS */

@@ -7,6 +7,7 @@
 #define RECOMP_GENERATED_CODE
 #include "recomp_funcs.h"
 #include <math.h>
+#include <stdio.h>
 
 /**
  * fn_0004F2C0_CPaperEmitter_SetupParticle
@@ -940,6 +941,9 @@ loc_0016ECF9:
 void fn_0016ED10_CPaperEmitter_SetupParticle(void)
 {
     uint32_t ebp;
+    uint32_t emitter;
+    uint32_t particle;
+    uint32_t mesh_count;
     int _flags = 0; /* fallback flag var */
     int _fpu_cmp = 0; /* FPU compare result: -1/0/1 */
     float xmm0, xmm1, xmm2;
@@ -950,10 +954,13 @@ void fn_0016ED10_CPaperEmitter_SetupParticle(void)
     #define fp_popp() (fp_pop())
     #define fp_top() _fp_stack[_fp_top & 7]
     #define fp_st1() _fp_stack[(_fp_top + 1) & 7]
+#define FSW_RESTORE_PAPER_REGS() do { edi = emitter; esi = particle; } while (0)
     ebp = g_seh_ebp; /* fpo_leaf: inherit caller's frame */
 
 loc_0016ED10:
     esp = esp - 0x18;
+    emitter = edi;
+    particle = esi;
     (void)0; /* test LO8(eax), LO8(eax) - flags set for next jcc */
     PUSH32(esp, ebx);
     PUSH32(esp, ebp);
@@ -975,6 +982,7 @@ loc_0016ED45:
     PUSH32(esp, 0); fn_00299110_CRandomManager_Get(); /* call 0x00299110 */
 
 loc_0016ED4A:
+    FSW_RESTORE_PAPER_REGS();
     ecx = eax;
     eax = MEM32(ecx + 0x1C);
     ecx = ecx + 0x1C;
@@ -1001,6 +1009,7 @@ loc_0016ED82:
     PUSH32(esp, 0); fn_00299110_CRandomManager_Get(); /* call 0x00299110 */
 
 loc_0016ED91:
+    FSW_RESTORE_PAPER_REGS();
     ecx = eax;
     edx = MEM32(ecx + 0x1C);
     ecx = ecx + 0x1C;
@@ -1040,15 +1049,18 @@ loc_0016EE03:
     PUSH32(esp, 0); fn_00299110_CRandomManager_Get(); /* call 0x00299110 */
 
 loc_0016EE08:
+    FSW_RESTORE_PAPER_REGS();
     ebx = eax;
     PUSH32(esp, 0); fn_00299110_CRandomManager_Get(); /* call 0x00299110 */
 
 loc_0016EE0F:
+    FSW_RESTORE_PAPER_REGS();
     ecx = ebx + 0x1C;
     ebp = eax;
     PUSH32(esp, 0); fn_00123D30_ZeroRandom_GetRandFloat(); /* call 0x00123D30 */
 
 loc_0016EE19:
+    FSW_RESTORE_PAPER_REGS();
     fp_st1() *= fp_top(); fp_pop(); /* fmul */
     eax = MEM32(edi + 0xD8);
     ecx = ebp + 0x1C;
@@ -1057,6 +1069,7 @@ loc_0016EE19:
     PUSH32(esp, 0); fn_00123D30_ZeroRandom_GetRandFloat(); /* call 0x00123D30 */
 
 loc_0016EE35:
+    FSW_RESTORE_PAPER_REGS();
     fp_st1() *= fp_top(); fp_pop(); /* fmul */
     ecx = MEM32(esp + 0xC);
     xmm0 = 0.0f; /* xorps self = zero */
@@ -1077,15 +1090,18 @@ loc_0016EE6D:
     PUSH32(esp, 0); fn_00299110_CRandomManager_Get(); /* call 0x00299110 */
 
 loc_0016EE72:
+    FSW_RESTORE_PAPER_REGS();
     ebx = eax;
     PUSH32(esp, 0); fn_00299110_CRandomManager_Get(); /* call 0x00299110 */
 
 loc_0016EE79:
+    FSW_RESTORE_PAPER_REGS();
     ecx = ebx + 0x1C;
     ebp = eax;
     PUSH32(esp, 0); fn_00123D30_ZeroRandom_GetRandFloat(); /* call 0x00123D30 */
 
 loc_0016EE83:
+    FSW_RESTORE_PAPER_REGS();
     fp_st1() *= fp_top(); fp_pop(); /* fmul */
     ecx = ebp + 0x1C;
     fp_st1() *= fp_top(); fp_pop(); /* fmul */
@@ -1093,6 +1109,7 @@ loc_0016EE83:
     PUSH32(esp, 0); fn_00123D30_ZeroRandom_GetRandFloat(); /* call 0x00123D30 */
 
 loc_0016EE9B:
+    FSW_RESTORE_PAPER_REGS();
     fp_st1() *= fp_top(); fp_pop(); /* fmul */
     edx = MEM32(esp + 0xC);
     xmm0 = 0.0f; /* xorps self = zero */
@@ -1110,15 +1127,18 @@ loc_0016EEC9:
     PUSH32(esp, 0); fn_00299110_CRandomManager_Get(); /* call 0x00299110 */
 
 loc_0016EECE:
+    FSW_RESTORE_PAPER_REGS();
     ebx = eax;
     PUSH32(esp, 0); fn_00299110_CRandomManager_Get(); /* call 0x00299110 */
 
 loc_0016EED5:
+    FSW_RESTORE_PAPER_REGS();
     ecx = ebx + 0x1C;
     ebp = eax;
     PUSH32(esp, 0); fn_00123D30_ZeroRandom_GetRandFloat(); /* call 0x00123D30 */
 
 loc_0016EEDF:
+    FSW_RESTORE_PAPER_REGS();
     fp_st1() *= fp_top(); fp_pop(); /* fmul */
     ecx = ebp + 0x1C;
     fp_st1() *= fp_top(); fp_pop(); /* fmul */
@@ -1127,6 +1147,7 @@ loc_0016EEDF:
     PUSH32(esp, 0); fn_00123D30_ZeroRandom_GetRandFloat(); /* call 0x00123D30 */
 
 loc_0016EEFD:
+    FSW_RESTORE_PAPER_REGS();
     fp_st1() *= fp_top(); fp_pop(); /* fmul */
     eax = MEM32(esp + 0xC);
     xmm0 = 0.0f; /* xorps self = zero */
@@ -1139,6 +1160,7 @@ loc_0016EF1A:
     PUSH32(esp, 0); fn_00299110_CRandomManager_Get(); /* call 0x00299110 */
 
 loc_0016EF1F:
+    FSW_RESTORE_PAPER_REGS();
     ecx = eax;
     edx = MEM32(ecx + 0x1C);
     ecx = ecx + 0x1C;
@@ -1165,6 +1187,7 @@ loc_0016EF57:
     PUSH32(esp, 0); fn_00299110_CRandomManager_Get(); /* call 0x00299110 */
 
 loc_0016EF66:
+    FSW_RESTORE_PAPER_REGS();
     ecx = eax;
     eax = MEM32(ecx + 0x1C);
     ecx = ecx + 0x1C;
@@ -1205,6 +1228,7 @@ loc_0016EFE4:
     PUSH32(esp, 0); fn_00299110_CRandomManager_Get(); /* call 0x00299110 */
 
 loc_0016EFE9:
+    FSW_RESTORE_PAPER_REGS();
     ecx = eax;
     edx = MEM32(ecx + 0x1C);
     ecx = ecx + 0x1C;
@@ -1218,10 +1242,21 @@ loc_0016EFE9:
     eax = MEM32(esp + 8);
     MEM32(ecx) = eax;
     edx = 0; /* xor self */
-    { uint64_t _dividend = ((uint64_t)edx << 32) | eax;
-      eax = (uint32_t)(_dividend / (uint32_t)MEM32(edi + 0x2C));
-      edx = (uint32_t)(_dividend % (uint32_t)MEM32(edi + 0x2C)); }
-    eax = MEM32(edi + edx * 4 + 4);
+    mesh_count = MEM32(emitter + 0x2C);
+    if (mesh_count == 0) {
+        static uint32_t warned_empty_meshes;
+        if (warned_empty_meshes < 8) {
+            fprintf(stderr, "[FSW/Emitter] paper emitter has no mesh refs emitter=%08X particle=%08X\n",
+                    (unsigned)emitter, (unsigned)particle);
+            warned_empty_meshes++;
+        }
+        eax = 0;
+    } else {
+        uint64_t _dividend = ((uint64_t)edx << 32) | eax;
+        eax = (uint32_t)(_dividend / mesh_count);
+        edx = (uint32_t)(_dividend % mesh_count);
+        eax = MEM32(emitter + edx * 4 + 4);
+    }
     MEM32(esi) = eax;
     xmm0 = MEMF(edi + 0xC0); /* movss */
     xmm0 = xmm0 + MEMF(esi + 4); /* addss */
@@ -1235,6 +1270,7 @@ loc_0016EFE9:
     PUSH32(esp, 0); fn_00299110_CRandomManager_Get(); /* call 0x00299110 */
 
 loc_0016F055:
+    FSW_RESTORE_PAPER_REGS();
     ecx = eax;
     edx = MEM32(ecx + 0x1C);
     ecx = ecx + 0x1C;
@@ -1281,6 +1317,7 @@ loc_0016F08D:
     PUSH32(esp, 0); fn_00299110_CRandomManager_Get(); /* call 0x00299110 */
 
 loc_0016F0EE:
+    FSW_RESTORE_PAPER_REGS();
     ecx = eax;
     eax = MEM32(ecx + 0x1C);
     ecx = ecx + 0x1C;
@@ -1309,6 +1346,7 @@ loc_0016F126:
     PUSH32(esp, 0); fn_00299110_CRandomManager_Get(); /* call 0x00299110 */
 
 loc_0016F140:
+    FSW_RESTORE_PAPER_REGS();
     ecx = eax;
     edx = MEM32(ecx + 0x1C);
     ecx = ecx + 0x1C;
@@ -1337,6 +1375,7 @@ loc_0016F178:
     PUSH32(esp, 0); fn_00299110_CRandomManager_Get(); /* call 0x00299110 */
 
 loc_0016F192:
+    FSW_RESTORE_PAPER_REGS();
     ecx = eax;
     eax = MEM32(ecx + 0x1C);
     ecx = ecx + 0x1C;
@@ -1372,6 +1411,7 @@ loc_0016F1CA:
     PUSH32(esp, 0); fn_00299110_CRandomManager_Get(); /* call 0x00299110 */
 
 loc_0016F208:
+    FSW_RESTORE_PAPER_REGS();
     ecx = eax;
     edx = MEM32(ecx + 0x1C);
     ecx = ecx + 0x1C;
@@ -1414,6 +1454,7 @@ loc_0016F240:
     #undef fp_popp
     #undef fp_top
     #undef fp_st1
+#undef FSW_RESTORE_PAPER_REGS
 }
 
 /**

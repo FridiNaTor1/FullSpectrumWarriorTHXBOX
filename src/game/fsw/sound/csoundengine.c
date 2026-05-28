@@ -1455,6 +1455,9 @@ loc_001CE182:
 loc_001CE18A:
     if (CMP_G(eax, 5)) { sub_001CE215(); return; } /* jg: greater (signed >) */
 
+loc_001CE190:
+    sub_001CE193(); return; /* fallthrough 0x001CE193 */
+
 }
 
 /**
@@ -1500,6 +1503,7 @@ loc_001CE1A6:
 
 loc_001CE1B3:
     xmm0 = xmm2; /* movaps */
+    sub_001CE1B6(); return; /* fallthrough 0x001CE1B6 */
 
 }
 
@@ -1515,6 +1519,7 @@ void sub_001CE1B6(void)
 
 loc_001CE1B6:
     MEMF(esp + 8) = xmm0; /* movss */
+    sub_001CE1BC(); return; /* fallthrough 0x001CE1BC */
 
 }
 
@@ -1585,6 +1590,7 @@ loc_001CE1F4:
     edx = edx << 4;
     edx = edx + ecx;
     MEMF(edx + 0x68) = xmm0; /* movss */
+    sub_001CE200(); return; /* fallthrough 0x001CE200 */
 
 }
 

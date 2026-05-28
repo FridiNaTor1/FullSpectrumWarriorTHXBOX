@@ -7,6 +7,18 @@
 #define RECOMP_GENERATED_CODE
 #include "recomp_funcs.h"
 #include <math.h>
+#include <stdio.h>
+
+static int creplacementtracker_va_range_is_valid(uint32_t va, uint32_t size)
+{
+    if (size == 0) {
+        return va >= 0x00010000u && va < 0x04000000u;
+    }
+    if (va < 0x00010000u || va >= 0x04000000u || va + size < va) {
+        return 0;
+    }
+    return va + size <= 0x04000000u;
+}
 
 /**
  * fn_0002F970_1_ZeroList_VCNodeOwnerPreset_CSpawnManager_QAE_XZ
@@ -478,6 +490,7 @@ void fn_0037DC00_CReplacementTracker_LoadData(void)
     ebp = g_seh_ebp; /* fpo_leaf: inherit caller's frame */
 
 loc_0037DC00:
+    fprintf(stderr, "[FSW/Replacement] LoadData enter esp=%08X arg=%08X\n", esp, MEM32(esp + 4));
     PUSH32(esp, 0xFFFFFFFFu);
     PUSH32(esp, 0x40332B);
     eax = MEM32(0);
@@ -501,6 +514,7 @@ loc_0037DC2D:
 loc_0037DC35:
     eax = MEM32(0x5FA38C);
     edi = MEM32(0x5FA338);
+    fprintf(stderr, "[FSW/Replacement] LoadData scan tracker=%08X shell=%08X campaign=%08X\n", ebp, eax, edi);
     MEM8(ebp + 0x20) = LO8(ebx);
     esi = MEM32(eax + 0xD4);
     eax = MEM32(eax + 0xD8);
@@ -618,6 +632,7 @@ loc_0037DCE4:
     MEM32(esp + 0x50) = eax;
     (void)0; /* cmp eax, ebx - flags set for next jcc */
     MEM32(esp + 0x48) = ebx;
+    fprintf(stderr, "[FSW/Replacement] LoadData bitstream alloc=%08X tracker=%08X\n", eax, ebp);
     if (CMP_EQ(eax, ebx)) { sub_0037DD04(); return; } /* je: equal / zero */
 
 loc_0037DCF0:
@@ -662,15 +677,22 @@ void sub_0037DD0A(void)
 loc_0037DD0A:
     MEM32(esp + 0x48) = 0xFFFFFFFFu;
     eax = MEM32(0x5FA358);
+    fprintf(stderr, "[FSW/Replacement] LoadData before profile replacement save profile=%08X stream=%08X\n", eax, esi);
     PUSH32(esp, esi);
     PUSH32(esp, eax);
     PUSH32(esp, 0); fn_002B2780_CProfileManager_GetReplacementSave(); /* call 0x002B2780 */
 
 loc_0037DD1E:
+    fprintf(stderr, "[FSW/Replacement] LoadData profile replacement save result=%08X stream=%08X\n", eax, esi);
     (void)0; /* cmp LO8(eax), LO8(ebx) - flags set for next jcc */
     MEM8(ebp + 0x30) = LO8(ebx);
     MEM8(esp + 0x50) = LO8(ebx);
     if (CMP_EQ(LO8(eax), LO8(ebx))) { sub_0037DE4D(); return; } /* je: equal / zero */
+
+    if (!creplacementtracker_va_range_is_valid(esi, 4)) {
+        fprintf(stderr, "[FSW/Replacement] skipping replacement save parse invalid stream=%08X result=%08X\n", esi, eax);
+        sub_0037DE4D(); return;
+    }
 
 loc_0037DD2D:
     PUSH32(esp, 0x20);
@@ -682,6 +704,10 @@ loc_0037DD34:
 
 loc_0037DD3B:
     edi = eax;
+    if ((int32_t)edi > 1024) {
+        fprintf(stderr, "[FSW/Replacement] capping invalid replacement save count=%08X stream=%08X\n", edi, esi);
+        edi = 0;
+    }
     MEM32(esp + 0x1C) = edi;
     MEM32(esp + 0x24) = ebx;
     MEM32(esp + 0x28) = ebx;
@@ -2546,6 +2572,7 @@ loc_0037EA20:
     if (TEST_Z(esi, esi)) goto loc_0037EAA7; /* je: equal / zero */
 
 loc_0037EA48:
+    if (!creplacementtracker_va_range_is_valid(esi, 0xC)) goto loc_0037EAA7;
     if (CMP_GE(ebx, 0xA)) goto loc_0037EAA7; /* jge: greater or equal (signed >=) */
 
 loc_0037EA4D:
@@ -2600,6 +2627,7 @@ loc_0037EAA0:
 
 loc_0037EAA7:
     edx = MEM32(esp + 0x18);
+    if (!creplacementtracker_va_range_is_valid(edx, 0x20)) goto loc_0037EAF0;
     edi = MEM32(edx + 0x1C);
     ebp = 0; /* xor self */
     if (TEST_Z(edi, edi)) goto loc_0037EAF0; /* je: equal / zero */
@@ -2612,6 +2640,7 @@ loc_0037EAB4:
     /* nop */
 
 loc_0037EAC0:
+    if (!creplacementtracker_va_range_is_valid(edi, 8)) goto loc_0037EAF0;
     if (CMP_GE(ebp, 0x1A)) goto loc_0037EAF0; /* jge: greater or equal (signed >=) */
 
 loc_0037EAC5:

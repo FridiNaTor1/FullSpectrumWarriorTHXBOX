@@ -7,6 +7,80 @@
 #define RECOMP_GENERATED_CODE
 #include "recomp_funcs.h"
 #include <math.h>
+#include <stdio.h>
+
+extern uint32_t xbox_HeapAlloc(uint32_t size, uint32_t alignment);
+extern uint32_t fsw_xbvideo_find_surface(uint32_t crc);
+
+static const char *fsw_cuitexture_crc_name(uint32_t crc)
+{
+    switch (crc) {
+    case 0x9C7F2F31u: return "SHL_STARTMENU_LOGO";
+    case 0x08DF3B9Eu: return "SHL_LISTBOX_BACKGROUND";
+    case 0x7858C80Bu: return "SHL_LISTBOX_SCROLLBAR";
+    case 0x4F79DCE9u: return "SHL_LISTBOX_TriangleUp";
+    case 0xF670A259u: return "SHL_LISTBOX_TriangleDown";
+    case 0x99D7384Au: return "SHL_BACKGROUND";
+    case 0x022C9C62u: return "SHL_BLACK";
+    case 0x2FE54457u: return "loadingbg";
+    case 0xFB9B25BDu: return "loadingscan";
+    default: return NULL;
+    }
+}
+
+static uint32_t g_fsw_cuitexture_ctor_this;
+
+typedef struct FswCUITextureSurfaceEntry {
+    uint32_t crc;
+    uint32_t surface;
+} FswCUITextureSurfaceEntry;
+
+static FswCUITextureSurfaceEntry g_fsw_cuitexture_surfaces[256];
+static uint32_t g_fsw_cuitexture_surface_count;
+
+static int fsw_cuitexture_va_is_valid(uint32_t va)
+{
+    return va >= 0x00010000u && va < 0x04000000u;
+}
+
+static int fsw_cuitexture_va_range_is_valid(uint32_t va, uint32_t size)
+{
+    if (size == 0) {
+        return fsw_cuitexture_va_is_valid(va);
+    }
+    if (!fsw_cuitexture_va_is_valid(va) || va + size < va) {
+        return 0;
+    }
+    return va + size <= 0x04000000u;
+}
+
+static void fsw_cuitexture_register_surface(uint32_t crc, uint32_t surface)
+{
+    if (crc == 0 || !fsw_cuitexture_va_is_valid(surface)) {
+        return;
+    }
+    for (uint32_t i = 0; i < g_fsw_cuitexture_surface_count; i++) {
+        if (g_fsw_cuitexture_surfaces[i].crc == crc) {
+            g_fsw_cuitexture_surfaces[i].surface = surface;
+            return;
+        }
+    }
+    if (g_fsw_cuitexture_surface_count < (uint32_t)(sizeof(g_fsw_cuitexture_surfaces) / sizeof(g_fsw_cuitexture_surfaces[0]))) {
+        g_fsw_cuitexture_surfaces[g_fsw_cuitexture_surface_count].crc = crc;
+        g_fsw_cuitexture_surfaces[g_fsw_cuitexture_surface_count].surface = surface;
+        g_fsw_cuitexture_surface_count++;
+    }
+}
+
+uint32_t fsw_cuitexture_find_surface(uint32_t crc)
+{
+    for (uint32_t i = 0; i < g_fsw_cuitexture_surface_count; i++) {
+        if (g_fsw_cuitexture_surfaces[i].crc == crc) {
+            return g_fsw_cuitexture_surfaces[i].surface;
+        }
+    }
+    return fsw_xbvideo_find_surface(crc);
+}
 
 /**
  * fn_00052960_GCUITexture_UAEPAXI_Z
@@ -162,8 +236,30 @@ loc_0012F530:
  */
 void fn_0012F560_CUITexture_SetTileType(void)
 {
+    static uint32_t invalid_tile_state_logs = 0;
 
 loc_0012F560:
+    if (!fsw_cuitexture_va_range_is_valid(esi, 0x40) ||
+        !fsw_cuitexture_va_range_is_valid(MEM32(esi + 0x14), 0x50) ||
+        !fsw_cuitexture_va_range_is_valid(MEM32(esi + 0x18), 0x50) ||
+        !fsw_cuitexture_va_range_is_valid(MEM32(esi + 0x1C), 4) ||
+        !fsw_cuitexture_va_range_is_valid(MEM32(esi + 0x2C), 4)) {
+        if (invalid_tile_state_logs < 8) {
+            uint32_t crc = fsw_cuitexture_va_range_is_valid(esi, 0x14) ? MEM32(esi + 0x10) : 0;
+            fprintf(stderr,
+                    "[FSW/CUITexture] skip SetTileType invalid texture=%08X crc=%08X mat0=%08X mat1=%08X state=%08X texgroup=%08X\n",
+                    esi, crc,
+                    fsw_cuitexture_va_range_is_valid(esi, 0x1C) ? MEM32(esi + 0x14) : 0,
+                    fsw_cuitexture_va_range_is_valid(esi, 0x1C) ? MEM32(esi + 0x18) : 0,
+                    fsw_cuitexture_va_range_is_valid(esi, 0x20) ? MEM32(esi + 0x1C) : 0,
+                    fsw_cuitexture_va_range_is_valid(esi, 0x30) ? MEM32(esi + 0x2C) : 0);
+        }
+        invalid_tile_state_logs++;
+        if (fsw_cuitexture_va_range_is_valid(esi, 0x39)) {
+            MEM8(esi + 0x38) = 0;
+        }
+        esp += 4; return; /* ret */
+    }
     eax = MEM32(esi + 0x1C);
     ecx = MEM32(esi + 0x14);
     MEM32(ecx + 0x10) = eax;
@@ -206,6 +302,16 @@ loc_0012F560:
     MEM32(ecx + 0x4C) = eax;
     ecx = MEM32(esi + 0x14);
     eax = MEM32(ecx);
+    if (!fsw_cuitexture_va_range_is_valid(eax, 0x3C) ||
+        !fsw_cuitexture_va_is_valid(MEM32(eax + 0x38))) {
+        if (invalid_tile_state_logs < 8) {
+            fprintf(stderr, "[FSW/CUITexture] skip SetTileType invalid mat0 vtable texture=%08X mat=%08X vtable=%08X\n",
+                    esi, ecx, eax);
+        }
+        invalid_tile_state_logs++;
+        MEM8(esi + 0x38) = 0;
+        esp += 4; return; /* ret */
+    }
     { uint32_t _icall_esp = g_esp;
     PUSH32(esp, 0xF);
     PUSH32(esp, 9);
@@ -215,6 +321,16 @@ loc_0012F560:
 loc_0012F5E4:
     ecx = MEM32(esi + 0x18);
     edx = MEM32(ecx);
+    if (!fsw_cuitexture_va_range_is_valid(edx, 0x3C) ||
+        !fsw_cuitexture_va_is_valid(MEM32(edx + 0x38))) {
+        if (invalid_tile_state_logs < 8) {
+            fprintf(stderr, "[FSW/CUITexture] skip SetTileType invalid mat1 vtable texture=%08X mat=%08X vtable=%08X\n",
+                    esi, ecx, edx);
+        }
+        invalid_tile_state_logs++;
+        MEM8(esi + 0x38) = 0;
+        esp += 4; return; /* ret */
+    }
     { uint32_t _icall_esp = g_esp;
     PUSH32(esp, 0xF);
     PUSH32(esp, 0x20);
@@ -392,6 +508,8 @@ void fn_0012F6F0_0CUITexture_QAE_VCRC_Z(void)
 {
     uint32_t ebp;
     int _flags = 0; /* fallback flag var */
+    uint32_t fsw_requested_crc = MEM32(esp + 8);
+    const char *fsw_requested_name = fsw_cuitexture_crc_name(fsw_requested_crc);
     ebp = g_seh_ebp; /* fpo_leaf: inherit caller's frame */
 
 loc_0012F6F0:
@@ -406,6 +524,7 @@ loc_0012F6F0:
     PUSH32(esp, esi);
     PUSH32(esp, edi);
     edi = MEM32(esp + 0xC0);
+    g_fsw_cuitexture_ctor_this = edi;
     esi = 0; /* xor self */
     edx = 1;
     MEM32(edi + 0xC) = esi;
@@ -461,6 +580,15 @@ loc_0012F7A0:
 
 loc_0012F7B6:
     ebx = eax;
+    fsw_cuitexture_register_surface(fsw_requested_crc, ebx);
+    if (fsw_requested_name) {
+        uint32_t fsw_video = MEM32(0x5FA8E8);
+        uint32_t fsw_vtable = fsw_video ? MEM32(fsw_video) : 0;
+        uint32_t fsw_use_surface = fsw_vtable ? MEM32(fsw_vtable + 0x34) : 0;
+        fprintf(stderr, "[FSW/CUITexture] ctor crc=%08X %s video=%08X vtable=%08X use_surface=%08X surface=%08X valid=%u\n",
+                fsw_requested_crc, fsw_requested_name, fsw_video, fsw_vtable,
+                fsw_use_surface, ebx, ebx != 0);
+    }
     (void)0; /* cmp ebx, esi - flags set for next jcc */
     MEM8(esp + 0x14) = 0xF8;
     MEM8(esp + 0x15) = 0x12;
@@ -600,6 +728,14 @@ loc_0012F8DA:
     }
 
 loc_0012F8E3:
+    if (!fsw_cuitexture_va_is_valid(esi + 0x4C) ||
+        !fsw_cuitexture_va_is_valid(eax + 0x4C) ||
+        !fsw_cuitexture_va_is_valid(edi + 0x38) ||
+        !fsw_cuitexture_va_is_valid(MEM32(edi + 0x1C) + 0x2C) ||
+        !fsw_cuitexture_va_is_valid(MEM32(edi + 0x2C))) {
+        MEM8(edi + 0x38) = 0;
+        sub_0012F99C(); return;
+    }
     ebp = eax;
     eax = MEM32(edi + 0x1C);
     MEM32(esi + 0x10) = eax;
@@ -670,10 +806,22 @@ loc_0012F973:
 
 loc_0012F97C:
     ecx = MEM32(edi + 0x14);
+    if (!fsw_cuitexture_va_is_valid(ecx + 0x10)) {
+        MEM8(edi + 0x38) = 0;
+        sub_0012F99C(); return;
+    }
     edx = MEM32(ecx + 0x10);
+    if (!fsw_cuitexture_va_is_valid(edx + 8)) {
+        MEM8(edi + 0x38) = 0;
+        sub_0012F99C(); return;
+    }
     xmm0 = 0.0f; /* xorps self = zero */
     eax = MEM32(edx + 8);
     ecx = MEM32(0x5CDCE4);
+    if (!fsw_cuitexture_va_is_valid(eax + ecx * 8 + 4)) {
+        MEM8(edi + 0x38) = 0;
+        sub_0012F99C(); return;
+    }
     MEMF(esp + 0x10) = xmm0; /* movss */
     edx = MEM32(esp + 0x10);
     MEM32(eax + ecx * 8 + 4) = edx;
@@ -693,7 +841,7 @@ void sub_0012F99C(void)
 
 loc_0012F99C:
     ecx = MEM32(esp + 0xB0);
-    eax = edi;
+    eax = g_fsw_cuitexture_ctor_this ? g_fsw_cuitexture_ctor_this : edi;
     POP32(esp, edi);
     POP32(esp, esi);
     POP32(esp, ebp);
@@ -737,6 +885,8 @@ loc_0012F9ED:
 
 loc_0012F9EF:
     eax = MEM32(eax + 0xC);
+    if (TEST_NZ(eax, eax)) goto loc_0012F9E6;
+    sub_0012F9F6(); return;
 
 }
 
@@ -757,7 +907,14 @@ void sub_0012F9F2(void)
     int _flags = 0; /* fallback flag var */
 
 loc_0012F9F2:
-    if (TEST_NZ(eax, eax)) { sub_0012F9E6(); return; } /* jne: not equal / not zero */
+    if (TEST_NZ(eax, eax)) {
+        ecx = MEM32(eax + 0x14);
+        if (CMP_A(ecx, esi)) { sub_0012FA68(); return; }
+        if (CMP_AE(ecx, esi)) { sub_0012FA6D(); return; }
+        eax = MEM32(eax + 0xC);
+        sub_0012F9F2(); return;
+    } /* jne: not equal / not zero */
+    sub_0012F9F6(); return;
 
 }
 
@@ -784,6 +941,10 @@ loc_0012F9F6:
 
 loc_0012FA12:
     ecx = MEM32(esp + 4);
+    if (!fsw_cuitexture_va_is_valid(ecx) && fsw_cuitexture_va_is_valid(eax)) {
+        ecx = eax;
+        MEM32(esp + 4) = ecx;
+    }
     MEM32(eax + 4) = ecx;
     MEM32(esp + 8) = eax;
     PUSH32(esp, ecx);
@@ -796,6 +957,24 @@ loc_0012FA12:
 
 loc_0012FA34:
     esi = eax;
+    if (esi == 0 && g_fsw_cuitexture_ctor_this != 0) {
+        esi = g_fsw_cuitexture_ctor_this;
+        eax = esi;
+    }
+    if (esi != 0 && MEM32(esi + 0x30) != 0 && MEM32(esi + 0x34) != 0) {
+        MEM8(esi + 0x38) = 1;
+    }
+    {
+        const char *fsw_name = fsw_cuitexture_crc_name(MEM32(esp + 0x20));
+        if (fsw_name) {
+            fprintf(stderr, "[FSW/CUITexture] create crc=%08X %s texture=%08X valid_flag=%u w=%u h=%u texgroup=%08X\n",
+                    MEM32(esp + 0x20), fsw_name, esi,
+                    esi ? MEM8(esi + 0x38) : 0,
+                    esi ? MEM32(esi + 0x30) : 0,
+                    esi ? MEM32(esi + 0x34) : 0,
+                    esi ? MEM32(esi + 0x2C) : 0);
+        }
+    }
     (void)0; /* test esi, esi - flags set for next jcc */
     MEM32(esp + 0x18) = 0xFFFFFFFFu;
     MEM32(esp + 8) = esi;
@@ -855,6 +1034,9 @@ loc_0012FA6D:
 
 loc_0012FA71:
     eax = MEM32(eax + 0x18);
+    if (!fsw_cuitexture_va_is_valid(eax) || MEM32(eax + 0x10) != esi) {
+        sub_0012F9F6(); return;
+    }
     ecx = MEM32(esp + 0x10);
     MEM32(0) = ecx;
     POP32(esp, esi);

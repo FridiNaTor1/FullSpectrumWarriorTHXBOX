@@ -7,6 +7,7 @@
 #define RECOMP_GENERATED_CODE
 #include "recomp_funcs.h"
 #include <math.h>
+#include <stdio.h>
 
 /**
  * fn_00027170_Debug_Line2DSet_Draw
@@ -3139,6 +3140,14 @@ void fn_002FC8E0_Debug_Setup(void)
     int _flags = 0; /* fallback flag var */
 
 loc_002FC8E0:
+    {
+        static uint32_t debug_setup_logs;
+        if (debug_setup_logs < 4) {
+            fprintf(stderr, "[FSW/Debug] bypass Debug::Setup draw-state allocation\n");
+            debug_setup_logs++;
+        }
+        esp += 4; return; /* ret */
+    }
     esp = esp - 0x88;
     PUSH32(esp, ebx);
     ebx = 0; /* xor self */

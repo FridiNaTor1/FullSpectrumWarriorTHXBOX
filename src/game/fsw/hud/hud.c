@@ -3229,7 +3229,7 @@ loc_003D5CFF:
     }
 
 loc_003D5D04:
-    if (CMP_NE(MEM32(ebp + 0x44), 2)) { sub_003D5D11(); return; } /* jne: not equal / not zero */
+    if (CMP_NE(MEM32(ebp + 0x44), 2)) { g_seh_ebp = ebp; sub_003D5D11(); return; } /* jne: not equal / not zero */
 
 }
 
@@ -3267,7 +3267,7 @@ loc_003D5D11:
 
 loc_003D5D16:
     ecx = MEM32(eax + 0xD8);
-    if (TEST_Z(ecx, ecx)) { sub_003D5D51(); return; } /* je: equal / zero */
+    if (TEST_Z(ecx, ecx)) { g_seh_ebp = ebp; sub_003D5D51(); return; } /* je: equal / zero */
 
 loc_003D5D20:
     SET_LO8(ecx, MEM8(ebp + 0x40));
@@ -3334,11 +3334,11 @@ loc_003D5D71:
 
 loc_003D5D75:
     SET_LO8(ecx, MEM8(eax + 0x14));
-    if (TEST_NZ(LO8(ecx), LO8(ecx))) { sub_003D5DA1(); return; } /* jne: not equal / not zero */
+    if (TEST_NZ(LO8(ecx), LO8(ecx))) { g_seh_ebp = ebp; sub_003D5DA1(); return; } /* jne: not equal / not zero */
 
 loc_003D5D7C:
     eax = MEM32(ebp + 0x44);
-    if (TEST_NZ(eax, eax)) { sub_003D5DA1(); return; } /* jne: not equal / not zero */
+    if (TEST_NZ(eax, eax)) { g_seh_ebp = ebp; sub_003D5DA1(); return; } /* jne: not equal / not zero */
 
 loc_003D5D83:
     PUSH32(esp, 0);
@@ -3346,13 +3346,13 @@ loc_003D5D83:
 
 loc_003D5D8A:
     esp = esp + 4;
-    if (TEST_NZ(LO8(eax), LO8(eax))) { sub_003D5DA1(); return; } /* jne: not equal / not zero */
+    if (TEST_NZ(LO8(eax), LO8(eax))) { g_seh_ebp = ebp; sub_003D5DA1(); return; } /* jne: not equal / not zero */
 
 loc_003D5D91:
     PUSH32(esp, 0); fn_003D4DC0_HasReinforcements(); /* call 0x003D4DC0 */
 
 loc_003D5D96:
-    if (TEST_Z(LO8(eax), LO8(eax))) { sub_003D5DA1(); return; } /* je: equal / zero */
+    if (TEST_Z(LO8(eax), LO8(eax))) { g_seh_ebp = ebp; sub_003D5DA1(); return; } /* je: equal / zero */
 
 loc_003D5D9A:
     ecx = 4;
@@ -3374,7 +3374,7 @@ void sub_003D5DA1(void)
     ebp = g_seh_ebp; /* fpo_leaf: inherit caller's frame */
 
 loc_003D5DA1:
-    if (CMP_NE(MEM32(ebp + 0x44), 1)) { sub_003D5DC1(); return; } /* jne: not equal / not zero */
+    if (CMP_NE(MEM32(ebp + 0x44), 1)) { g_seh_ebp = ebp; sub_003D5DC1(); return; } /* jne: not equal / not zero */
 
 loc_003D5DA7:
     PUSH32(esp, 1);
@@ -3386,6 +3386,7 @@ loc_003D5DAE:
     eax = _cf ? 0xFFFFFFFF : 0; /* sbb self (CF extend) */
     eax = eax + 3;
     ecx = eax;
+    g_seh_ebp = ebp; sub_003D5DBA(); return; /* fallthrough 0x003D5DBA */
 
 }
 
@@ -3403,6 +3404,7 @@ void sub_003D5DBA(void)
 loc_003D5DBA:
     eax = ebp;
     PUSH32(esp, 0); fn_003D4CE0_HUD_ShowTeamDestroyedMessage(); /* call 0x003D4CE0 */
+    g_seh_ebp = ebp; sub_003D5DC1(); return; /* fallthrough 0x003D5DC1 */
 
 }
 

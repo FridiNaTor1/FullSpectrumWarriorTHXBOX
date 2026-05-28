@@ -7,10 +7,363 @@
 #define RECOMP_GENERATED_CODE
 #include "recomp_funcs.h"
 #include <math.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+extern uint32_t xbox_HeapAlloc(uint32_t size, uint32_t alignment);
 
 static int fsw_location_table_va_is_valid(uint32_t va)
 {
     return va >= 0x00010000u && va < 0x04000000u;
+}
+
+static int fsw_location_va_range_is_valid(uint32_t va, uint32_t size)
+{
+    if (!fsw_location_table_va_is_valid(va)) {
+        return 0;
+    }
+    if (size > 0x04000000u || va > 0x04000000u - size) {
+        return 0;
+    }
+    return 1;
+}
+
+typedef struct FswLocationFallbackLine {
+    uint32_t crc;
+    uint32_t text_va;
+} FswLocationFallbackLine;
+
+static FswLocationFallbackLine *g_fsw_location_fallback_lines;
+static uint32_t g_fsw_location_fallback_count;
+static uint32_t g_fsw_location_fallback_ready;
+static uint32_t g_fsw_location_fallback_log_count;
+
+static uint32_t fsw_location_crc_table_value(uint8_t index)
+{
+    uint32_t crc = (uint32_t)index << 24;
+
+    for (uint32_t bit = 0; bit < 8; bit++) {
+        if ((crc & 0x80000000u) != 0) {
+            crc = (crc << 1) ^ 0x04C11DB7u;
+        } else {
+            crc <<= 1;
+        }
+    }
+    return crc;
+}
+
+static uint32_t fsw_location_crc_lower_ascii(const char *text)
+{
+    uint32_t crc = 0xFFFFFFFFu;
+
+    if (!text) {
+        return 0;
+    }
+    while (*text) {
+        uint8_t value = (uint8_t)*text++;
+        if (value >= 'A' && value <= 'Z') {
+            value = (uint8_t)(value + ('a' - 'A'));
+        }
+        crc = (crc << 8) ^ fsw_location_crc_table_value((uint8_t)((crc >> 24) ^ value));
+    }
+    return ~crc;
+}
+
+static int fsw_location_is_ascii_block_byte(uint8_t value)
+{
+    return value == 0 || (value >= 0x20 && value < 0x7F);
+}
+
+static uint16_t fsw_location_read_u16_file(const uint8_t *data, size_t size, size_t offset)
+{
+    if (offset + 1 >= size) {
+        return 0;
+    }
+    return (uint16_t)(data[offset] | ((uint16_t)data[offset + 1] << 8));
+}
+
+static uint32_t fsw_location_find_bytes(const uint8_t *data, size_t size, const uint8_t *needle, size_t needle_size)
+{
+    if (!data || !needle || needle_size == 0 || needle_size > size) {
+        return 0xFFFFFFFFu;
+    }
+    for (size_t i = 0; i <= size - needle_size; i++) {
+        if (memcmp(data + i, needle, needle_size) == 0) {
+            return (uint32_t)i;
+        }
+    }
+    return 0xFFFFFFFFu;
+}
+
+static int fsw_location_prev_utf16_string(const uint8_t *data, size_t size, uint32_t current, uint32_t *out_start)
+{
+    int64_t pos;
+
+    if (!data || !out_start || current < 4 || (current & 1) != 0) {
+        return 0;
+    }
+    pos = (int64_t)current - 4;
+    while (pos >= 0) {
+        uint16_t value = fsw_location_read_u16_file(data, size, (size_t)pos);
+        if (value == 0) {
+            *out_start = (uint32_t)(pos + 2);
+            return 1;
+        }
+        pos -= 2;
+    }
+    *out_start = 0;
+    return 1;
+}
+
+static int fsw_location_parse_fallback_file(const char *path)
+{
+    static const char anchor_key[] = "ui.shell.startmenu.pressstart";
+    static const uint8_t anchor_value[] = {
+        'P', 0, 'R', 0, 'E', 0, 'S', 0, 'S', 0, ' ', 0,
+        'S', 0, 'T', 0, 'A', 0, 'R', 0, 'T', 0, 0, 0
+    };
+    FILE *file;
+    uint8_t *data;
+    long file_size;
+    uint32_t key_anchor;
+    uint32_t key_start;
+    uint32_t key_end;
+    uint32_t value_anchor;
+    uint32_t value_start;
+    uint32_t key_index = 0;
+    uint32_t key_count = 0;
+    uint32_t value_offset;
+    uint32_t line_index;
+
+    file = fopen(path, "rb");
+    if (!file) {
+        return 0;
+    }
+    if (fseek(file, 0, SEEK_END) != 0) {
+        fclose(file);
+        return 0;
+    }
+    file_size = ftell(file);
+    if (file_size <= 0) {
+        fclose(file);
+        return 0;
+    }
+    rewind(file);
+
+    data = (uint8_t *)malloc((size_t)file_size);
+    if (!data) {
+        fclose(file);
+        return 0;
+    }
+    if (fread(data, 1, (size_t)file_size, file) != (size_t)file_size) {
+        free(data);
+        fclose(file);
+        return 0;
+    }
+    fclose(file);
+
+    key_anchor = fsw_location_find_bytes(data, (size_t)file_size,
+                                         (const uint8_t *)anchor_key, sizeof(anchor_key));
+    value_anchor = fsw_location_find_bytes(data, (size_t)file_size,
+                                           anchor_value, sizeof(anchor_value));
+    if (key_anchor == 0xFFFFFFFFu || value_anchor == 0xFFFFFFFFu) {
+        free(data);
+        return 0;
+    }
+
+    key_start = key_anchor;
+    while (key_start > 0 && fsw_location_is_ascii_block_byte(data[key_start - 1])) {
+        key_start--;
+    }
+    key_end = key_anchor;
+    while (key_end < (uint32_t)file_size && fsw_location_is_ascii_block_byte(data[key_end])) {
+        key_end++;
+    }
+
+    for (uint32_t offset = key_start; offset < key_end;) {
+        const char *key = (const char *)(data + offset);
+        size_t len = strlen(key);
+        if (len == 0) {
+            offset++;
+            continue;
+        }
+        if (offset == key_anchor) {
+            key_index = key_count;
+        }
+        key_count++;
+        offset += (uint32_t)len + 1;
+    }
+    if (key_count == 0 || key_index >= key_count) {
+        free(data);
+        return 0;
+    }
+
+    value_start = value_anchor;
+    for (uint32_t i = 0; i < key_index; i++) {
+        if (!fsw_location_prev_utf16_string(data, (size_t)file_size, value_start, &value_start)) {
+            free(data);
+            return 0;
+        }
+    }
+
+    g_fsw_location_fallback_lines = (FswLocationFallbackLine *)calloc(key_count, sizeof(*g_fsw_location_fallback_lines));
+    if (!g_fsw_location_fallback_lines) {
+        free(data);
+        return 0;
+    }
+
+    value_offset = value_start;
+    line_index = 0;
+    for (uint32_t offset = key_start; offset < key_end && line_index < key_count;) {
+        const char *key = (const char *)(data + offset);
+        size_t key_len = strlen(key);
+        uint32_t text_bytes = 0;
+        uint32_t text_va;
+
+        if (key_len == 0) {
+            offset++;
+            continue;
+        }
+
+        while (value_offset + text_bytes + 1 < (uint32_t)file_size) {
+            uint16_t value = fsw_location_read_u16_file(data, (size_t)file_size, value_offset + text_bytes);
+            text_bytes += 2;
+            if (value == 0) {
+                break;
+            }
+        }
+        if (text_bytes < 2 || fsw_location_read_u16_file(data, (size_t)file_size, value_offset + text_bytes - 2) != 0) {
+            break;
+        }
+
+        text_va = xbox_HeapAlloc(text_bytes, 2);
+        if (fsw_location_table_va_is_valid(text_va)) {
+            memcpy((void *)XBOX_PTR(text_va), data + value_offset, text_bytes);
+            g_fsw_location_fallback_lines[line_index].crc = fsw_location_crc_lower_ascii(key);
+            g_fsw_location_fallback_lines[line_index].text_va = text_va;
+            line_index++;
+        }
+
+        value_offset += text_bytes;
+        offset += (uint32_t)key_len + 1;
+    }
+
+    free(data);
+    g_fsw_location_fallback_count = line_index;
+    if (g_fsw_location_fallback_count == 0) {
+        free(g_fsw_location_fallback_lines);
+        g_fsw_location_fallback_lines = NULL;
+        return 0;
+    }
+
+    if (g_fsw_location_fallback_log_count < 1) {
+        fprintf(stderr, "[FSW/Location] loaded fallback strings from %s keys=%u values=%u anchor_index=%u\n",
+                path, key_count, g_fsw_location_fallback_count, key_index);
+        g_fsw_location_fallback_log_count++;
+    }
+    return 1;
+}
+
+static void fsw_location_init_fallback(void)
+{
+    if (g_fsw_location_fallback_ready) {
+        return;
+    }
+    g_fsw_location_fallback_ready = 1;
+    if (fsw_location_parse_fallback_file("game_files/chapters/shell.pak")) {
+        return;
+    }
+    fsw_location_parse_fallback_file("../game_files/chapters/shell.pak");
+}
+
+static int fsw_location_utf16_matches_ascii(uint32_t text_va, const char *ascii)
+{
+    uint32_t pos;
+
+    if (!fsw_location_table_va_is_valid(text_va) || !ascii) {
+        return 0;
+    }
+
+    pos = text_va;
+    while (*ascii != 0) {
+        uint16_t ch;
+
+        if (!fsw_location_table_va_is_valid(pos + 1)) {
+            return 0;
+        }
+        ch = MEM16(pos);
+        if (ch == 0) {
+            while (*ascii == ' ') {
+                ascii++;
+            }
+            return *ascii == 0;
+        }
+        if (ch != (uint8_t)*ascii) {
+            return 0;
+        }
+        pos += 2;
+        ascii++;
+    }
+
+    while (fsw_location_table_va_is_valid(pos + 1) && MEM16(pos) == ' ') {
+        pos += 2;
+    }
+    return fsw_location_table_va_is_valid(pos + 1) && MEM16(pos) == 0;
+}
+
+static uint32_t fsw_location_find_fallback_text(const char *ascii)
+{
+    for (uint32_t i = 0; i < g_fsw_location_fallback_count; i++) {
+        uint32_t text_va = g_fsw_location_fallback_lines[i].text_va;
+        if (fsw_location_utf16_matches_ascii(text_va, ascii)) {
+            return text_va;
+        }
+    }
+    return 0;
+}
+
+static uint32_t fsw_location_lookup_shell_bkgd_override(uint32_t crc)
+{
+    typedef struct FswShellBkgdText {
+        uint32_t crc;
+        const char *text;
+    } FswShellBkgdText;
+
+    static const FswShellBkgdText k_shell_bkgd_text[] = {
+        { 0xFEB9E092u, "Keep 'em pinned!" },
+        { 0xF3FAC64Bu, "Bravo team, move out." },
+        { 0xF73BDBFCu, "Take the damn bridge." },
+        { 0xE97C8BF9u, "We're flanked!" },
+        { 0xEDBD964Eu, "Heads up!" },
+        { 0xE0FEB097u, "What the hell was that?" },
+        { 0xE43FAD20u, "Over there!" },
+        { 0xDC70109Du, "He's on the roof." },
+    };
+
+    for (uint32_t i = 0; i < (uint32_t)(sizeof(k_shell_bkgd_text) / sizeof(k_shell_bkgd_text[0])); i++) {
+        if (k_shell_bkgd_text[i].crc == crc) {
+            return fsw_location_find_fallback_text(k_shell_bkgd_text[i].text);
+        }
+    }
+    return 0;
+}
+
+static uint32_t fsw_location_lookup_fallback(uint32_t crc)
+{
+    fsw_location_init_fallback();
+    {
+        uint32_t shell_bkgd = fsw_location_lookup_shell_bkgd_override(crc);
+        if (shell_bkgd != 0) {
+            return shell_bkgd;
+        }
+    }
+    for (uint32_t i = 0; i < g_fsw_location_fallback_count; i++) {
+        if (g_fsw_location_fallback_lines[i].crc == crc) {
+            return g_fsw_location_fallback_lines[i].text_va;
+        }
+    }
+    return 0;
 }
 
 /**
@@ -256,17 +609,16 @@ loc_00192700:
  */
 void fn_00192710_CmpUILines(void)
 {
-    int _flags = 0; /* fallback flag var */
+    uint32_t key = MEM32(MEM32(esp + 4));
+    uint32_t line = MEM32(MEM32(esp + 8));
 
-loc_00192710:
-    eax = MEM32(esp + 4);
-    ecx = MEM32(esp + 8);
-    eax = MEM32(eax);
-    ecx = MEM32(ecx);
-    if (CMP_BE(ecx, eax)) { sub_00192724(); return; } /* jbe: below or equal (unsigned <=) */
-
-loc_00192720:
-    eax = eax | 0xFFFFFFFFu;
+    if (key < line) {
+        eax = 0xFFFFFFFFu;
+    } else if (key > line) {
+        eax = 1;
+    } else {
+        eax = 0;
+    }
     esp += 4; return; /* ret */
 
 }
@@ -450,14 +802,30 @@ loc_00192812:
  */
 void fn_00192820_LocationStringExitsts(void)
 {
-    int _cf = 0; /* carry flag */
-
+    uint32_t lookup_crc;
+    uint32_t table_va;
+    uint32_t table_count;
 loc_00192820:
     esp = esp - 8;
     eax = MEM32(esp + 0xC);
+    lookup_crc = eax;
     MEM32(esp) = eax;
-    eax = MEM32(0x5F344C);
+    table_va = MEM32(0x5F344C);
+    if (!fsw_location_va_range_is_valid(table_va, 8)) {
+        eax = fsw_location_lookup_fallback(lookup_crc);
+        eax = (eax != 0) ? 1 : 0;
+        esp = esp + 8;
+        esp += 4; return;
+    }
+    eax = table_va;
     ecx = MEM32(eax);
+    table_count = ecx;
+    if (table_count > 0x10000u || !fsw_location_va_range_is_valid(eax + 8, table_count * 8u)) {
+        eax = fsw_location_lookup_fallback(lookup_crc);
+        eax = (eax != 0) ? 1 : 0;
+        esp = esp + 8;
+        esp += 4; return;
+    }
     PUSH32(esp, 0x192710);
     PUSH32(esp, 8);
     PUSH32(esp, ecx);
@@ -469,9 +837,13 @@ loc_00192820:
     PUSH32(esp, 0); fn_0009C024_bsearch(); /* call 0x0009C024 */
 
 loc_0019284F:
-    eax = (uint32_t)(-(int32_t)eax);
-    eax = _cf ? 0xFFFFFFFF : 0; /* sbb self (CF extend) */
-    eax = (uint32_t)(-(int32_t)eax);
+    if (!fsw_location_va_range_is_valid(eax, 8)) {
+        eax = 0;
+    }
+    if (TEST_Z(eax, eax)) {
+        eax = fsw_location_lookup_fallback(lookup_crc);
+    }
+    eax = (eax != 0) ? 1 : 0;
     esp = esp + 0x1C;
     esp += 4; return; /* ret */
 
@@ -486,14 +858,32 @@ loc_0019284F:
  */
 void fn_00192860_LocationGetString(void)
 {
+    uint32_t lookup_crc;
+    uint32_t table_va;
+    uint32_t table_count;
     int _flags = 0; /* fallback flag var */
 
 loc_00192860:
     esp = esp - 8;
     eax = MEM32(esp + 0xC);
+    lookup_crc = eax;
     MEM32(esp) = eax;
-    eax = MEM32(0x5F344C);
+    table_va = MEM32(0x5F344C);
+    if (!fsw_location_va_range_is_valid(table_va, 8)) {
+        eax = fsw_location_lookup_fallback(lookup_crc);
+        if (TEST_Z(eax, eax)) { sub_0019289D(); return; } /* je: equal / zero */
+        esp = esp + 8;
+        esp += 4; return; /* ret */
+    }
+    eax = table_va;
     ecx = MEM32(eax);
+    table_count = ecx;
+    if (table_count > 0x10000u || !fsw_location_va_range_is_valid(eax + 8, table_count * 8u)) {
+        eax = fsw_location_lookup_fallback(lookup_crc);
+        if (TEST_Z(eax, eax)) { sub_0019289D(); return; } /* je: equal / zero */
+        esp = esp + 8;
+        esp += 4; return; /* ret */
+    }
     PUSH32(esp, 0x192710);
     PUSH32(esp, 8);
     PUSH32(esp, ecx);
@@ -506,10 +896,24 @@ loc_00192860:
 
 loc_0019288F:
     esp = esp + 0x14;
-    if (TEST_Z(eax, eax)) { sub_0019289D(); return; } /* je: equal / zero */
+    if (!fsw_location_va_range_is_valid(eax, 8)) {
+        eax = 0;
+    }
+    if (TEST_Z(eax, eax)) {
+        eax = fsw_location_lookup_fallback(lookup_crc);
+        if (TEST_Z(eax, eax)) { sub_0019289D(); return; } /* je: equal / zero */
+        esp = esp + 8;
+        esp += 4; return; /* ret */
+    }
 
 loc_00192896:
     eax = MEM32(eax + 4);
+    if (eax == 0x53D360u || (fsw_location_table_va_is_valid(eax) && MEM16(eax) == 0 && MEM16(eax + 2) == 0)) {
+        uint32_t fallback = fsw_location_lookup_fallback(lookup_crc);
+        if (fallback != 0) {
+            eax = fallback;
+        }
+    }
     esp = esp + 8;
     esp += 4; return; /* ret */
 
@@ -934,17 +1338,16 @@ loc_00192BDC:
  */
 void fn_002B8770_CmpUILines(void)
 {
-    int _flags = 0; /* fallback flag var */
+    uint32_t key = MEM32(MEM32(esp + 4));
+    uint32_t line = MEM32(MEM32(esp + 8));
 
-loc_002B8770:
-    eax = MEM32(esp + 4);
-    ecx = MEM32(esp + 8);
-    eax = MEM32(eax);
-    ecx = MEM32(ecx);
-    if (CMP_BE(ecx, eax)) { sub_002B8784(); return; } /* jbe: below or equal (unsigned <=) */
-
-loc_002B8780:
-    eax = eax | 0xFFFFFFFFu;
+    if (key < line) {
+        eax = 0xFFFFFFFFu;
+    } else if (key > line) {
+        eax = 1;
+    } else {
+        eax = 0;
+    }
     esp += 4; return; /* ret */
 
 }

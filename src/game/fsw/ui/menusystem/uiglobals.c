@@ -7,6 +7,12 @@
 #define RECOMP_GENERATED_CODE
 #include "recomp_funcs.h"
 #include <math.h>
+#include <stdio.h>
+
+static int uiglobals_va_range_is_valid(uint32_t va, uint32_t size)
+{
+    return va >= 0x00010000u && va < 0x04000000u && size <= 0x04000000u - va;
+}
 
 /**
  * fn_0004C6E0_0CUIAudioSettings_QAE_XZ
@@ -9011,7 +9017,19 @@ void fn_001AE510_CUIGameSettings_SetupShellVariables(void)
     int _flags = 0; /* fallback flag var */
 
 loc_001AE510:
+    if (!uiglobals_va_range_is_valid(ebx, 0x84)) {
+        fprintf(stderr, "[FSW/UI] SetupShellVariables skipped invalid settings=%08X\n", ebx);
+        esp += 4; return; /* ret */
+    }
     eax = MEM32(ebx + 0x80);
+    fprintf(stderr, "[FSW/UI] SetupShellVariables begin settings=%08X count=%u esp=%08X\n",
+            ebx, (unsigned)eax, esp);
+    if (eax > 0x100u || !uiglobals_va_range_is_valid(ebx + 0x84, eax * 8u)) {
+        fprintf(stderr, "[FSW/UI] SetupShellVariables clamping corrupt count settings=%08X count=%u\n",
+                ebx, (unsigned)eax);
+        eax = 0;
+        MEM32(ebx + 0x80) = 0;
+    }
     PUSH32(esp, esi);
     PUSH32(esp, edi);
     edi = 0; /* xor self */
@@ -9021,6 +9039,13 @@ loc_001AE51E:
     esi = ebx + 0x84;
 
 loc_001AE524:
+    if (edi < 8 || (edi & 0x3F) == 0) {
+        fprintf(stderr, "[FSW/UI] SetupShellVariables item index=%d trigger=%08X active=%u esp=%08X\n",
+                edi,
+                uiglobals_va_range_is_valid(esi, 8) ? MEM32(esi) : 0,
+                uiglobals_va_range_is_valid(esi, 8) ? (unsigned)MEM8(esi + 4) : 0,
+                esp);
+    }
     PUSH32(esp, ecx);
     eax = esp;
     MEM32(eax) = 0;
@@ -9041,6 +9066,9 @@ loc_001AE53F:
     if (CMP_L(edi, eax)) goto loc_001AE524; /* jl: less (signed <) */
 
 loc_001AE550:
+    fprintf(stderr, "[FSW/UI] SetupShellVariables end count=%u esp=%08X\n",
+            uiglobals_va_range_is_valid(ebx + 0x80, 4) ? (unsigned)MEM32(ebx + 0x80) : 0,
+            esp);
     POP32(esp, edi);
     POP32(esp, esi);
     esp += 4; return; /* ret */

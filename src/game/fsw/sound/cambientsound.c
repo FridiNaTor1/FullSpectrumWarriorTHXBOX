@@ -7,6 +7,12 @@
 #define RECOMP_GENERATED_CODE
 #include "recomp_funcs.h"
 #include <math.h>
+#include <stdio.h>
+
+static int cambientsound_va_range_is_valid(uint32_t va, uint32_t size)
+{
+    return va >= 0x00010000u && va < 0x04000000u && size <= 0x04000000u - va;
+}
 
 /**
  * fn_0004C080_GCAmbientSound_MAEPAXI_Z
@@ -159,6 +165,18 @@ loc_001CB980:
     PUSH32(esp, edi);
     MEM32(esp + 0x14) = 0x60E390;
     MEM32(esp + 0x10) = esi;
+    if (esi != 0 && !cambientsound_va_range_is_valid(esi, 0xC)) {
+        static uint32_t invalid_ambient_head_count = 0;
+        if (invalid_ambient_head_count < 8) {
+            fprintf(stderr, "[FSW/Audio] clearing invalid ambient sound list head=%08X\n", esi);
+        }
+        invalid_ambient_head_count++;
+        MEM32(0x60E390) = 0;
+        MEM32(0x60E394) = 0;
+        MEM32(0x60E398) = 0;
+        esi = 0;
+        goto loc_001CBA3F;
+    }
     if (CMP_EQ(esi, ebx)) goto loc_001CBA3F; /* je: equal / zero */
 
 loc_001CB9A8:
@@ -174,6 +192,21 @@ loc_001CB9B0:
 loc_001CB9BD:
     eax = MEM32(eax);
     edi = MEM32(eax);
+    if (!cambientsound_va_range_is_valid(edi, 4) ||
+        !cambientsound_va_range_is_valid(MEM32(edi), 0xC)) {
+        static uint32_t invalid_ambient_entry_count = 0;
+        if (invalid_ambient_entry_count < 8) {
+            fprintf(stderr,
+                    "[FSW/Audio] clearing invalid ambient sound entry node=%08X sound=%08X vtbl=%08X\n",
+                    eax, edi, cambientsound_va_range_is_valid(edi, 4) ? MEM32(edi) : 0);
+        }
+        invalid_ambient_entry_count++;
+        MEM32(0x60E390) = 0;
+        MEM32(0x60E394) = 0;
+        MEM32(0x60E398) = 0;
+        esi = 0;
+        goto loc_001CBA3F;
+    }
     eax = MEM32(ebp + 8);
     edx = MEM32(edi);
     { uint32_t _icall_esp = g_esp;

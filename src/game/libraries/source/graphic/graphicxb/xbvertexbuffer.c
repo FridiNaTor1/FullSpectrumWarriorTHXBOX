@@ -7,6 +7,18 @@
 #define RECOMP_GENERATED_CODE
 #include "recomp_funcs.h"
 #include <math.h>
+#include <stdio.h>
+
+static int xbvertexbuffer_va_range_is_valid(uint32_t va, uint32_t size)
+{
+    if (va < 0x00010000u || va >= 0x04000000u) {
+        return 0;
+    }
+    if (size > 0x04000000u || va > 0x04000000u - size) {
+        return 0;
+    }
+    return 1;
+}
 
 /**
  * fn_00052130_GXBVertexBuffer_UAEPAXI_Z
@@ -820,6 +832,23 @@ loc_001392D0:
     esi = (uint32_t)((int32_t)esi * (int32_t)MEM32(esp + 0x34));
     (void)0; /* test LO8(eax), 1 - flags set for next jcc */
     PUSH32(esp, edi);
+    if (!xbvertexbuffer_va_range_is_valid(ebp, 0x30)) {
+        static int find_buffer_tree_logs;
+        if (find_buffer_tree_logs < 16) {
+            fprintf(stderr, "[FSW/XBVertexBuffer] FindBuffer skipped invalid tree=%08X stride=%u count=%u\n",
+                    (unsigned)ebp, (unsigned)ebx, (unsigned)MEM32(esp + 0x34));
+            find_buffer_tree_logs++;
+        }
+        POP32(esp, edi);
+        POP32(esp, esi);
+        POP32(esp, ebp);
+        eax = 0;
+        POP32(esp, ebx);
+        ecx = MEM32(esp + 0xC);
+        MEM32(0) = ecx;
+        esp = esp + 0x18;
+        esp += 20; return; /* ret 16 */
+    }
     if (TEST_Z(LO8(eax), 1)) { sub_00139467(); return; } /* je: equal / zero */
 
 loc_00139307:
@@ -828,6 +857,17 @@ loc_00139307:
     if (CMP_EQ(eax, edi)) goto loc_00139357; /* je: equal / zero */
 
 loc_00139310:
+    if (!xbvertexbuffer_va_range_is_valid(eax, 0x18)) {
+        static int find_buffer_node_logs;
+        if (find_buffer_node_logs < 16) {
+            fprintf(stderr, "[FSW/XBVertexBuffer] FindBuffer clearing invalid root/node tree=%08X node=%08X\n",
+                    (unsigned)ebp, (unsigned)eax);
+            find_buffer_node_logs++;
+        }
+        MEM32(ebp + 8) = edi;
+        eax = edi;
+        goto loc_00139357;
+    }
     ecx = MEM32(eax + 0x14);
     if (CMP_A(ecx, ebx)) goto loc_00139352; /* ja: above (unsigned >) */
 
@@ -1223,6 +1263,23 @@ void fn_00139590_XBVertexBuffer_LockExisting(void)
 {
 
 loc_00139590:
+    if (!xbvertexbuffer_va_range_is_valid(eax, 0x20) ||
+        !xbvertexbuffer_va_range_is_valid(MEM32(esp + 4), 4)) {
+        static uint32_t invalid_lock_existing_count = 0;
+        if (invalid_lock_existing_count < 8 || (invalid_lock_existing_count % 120) == 0) {
+            fprintf(stderr,
+                    "[FSW/XBVertexBuffer] skipping LockExisting invalid buffer=%08X out=%08X offset=%08X count=%u\n",
+                    (unsigned)eax,
+                    (unsigned)MEM32(esp + 4),
+                    (unsigned)MEM32(esp + 8),
+                    (unsigned)(invalid_lock_existing_count + 1));
+        }
+        invalid_lock_existing_count++;
+        if (xbvertexbuffer_va_range_is_valid(MEM32(esp + 4), 4)) {
+            MEM32(MEM32(esp + 4)) = 0;
+        }
+        esp += 12; return; /* ret 8 */
+    }
     ecx = 0; /* xor self */
     SET_LO8(ecx, MEM8(eax + 0x10));
     PUSH32(esp, edi);

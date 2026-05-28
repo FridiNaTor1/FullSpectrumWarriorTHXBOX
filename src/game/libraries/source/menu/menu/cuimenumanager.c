@@ -8,8 +8,154 @@
 #include "recomp_funcs.h"
 #include <math.h>
 #include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 
 extern uint32_t xbox_HeapAlloc(uint32_t size, uint32_t alignment);
+
+static int cuimenumanager_va_is_valid(uint32_t va)
+{
+    return va >= 0x00010000u && va < 0x04000000u;
+}
+
+static uint32_t fsw_menu_selected_node_va;
+static uint32_t fsw_menu_saved_manager_va;
+static uint32_t fsw_menu_saved_root_count;
+static uint32_t fsw_menu_saved_root_tail;
+static uint32_t fsw_menu_saved_root_head;
+static uint32_t fsw_menu_saved_selected_index;
+static uint32_t fsw_menu_last_camera_va;
+
+static void fsw_menu_set_selected_index(uint32_t manager, uint32_t index)
+{
+    uint32_t node = fsw_menu_selected_node_va;
+
+    if (!cuimenumanager_va_is_valid(manager)) {
+        return;
+    }
+    if (!cuimenumanager_va_is_valid(node)) {
+        node = xbox_HeapAlloc(0xC, 16);
+        fsw_menu_selected_node_va = node;
+    }
+    if (!cuimenumanager_va_is_valid(node)) {
+        return;
+    }
+
+    MEM32(node) = index;
+    MEM32(node + 4) = 0;
+    MEM32(node + 8) = 0;
+    MEM32(manager + 0x1C) = 1;
+    MEM32(manager + 0x20) = node;
+    MEM32(manager + 0x24) = node;
+    MEM32(manager + 0x28) = index;
+
+    fsw_menu_saved_manager_va = manager;
+    fsw_menu_saved_root_count = MEM32(manager + 0x10);
+    fsw_menu_saved_root_tail = MEM32(manager + 0x14);
+    fsw_menu_saved_root_head = MEM32(manager + 0x18);
+    fsw_menu_saved_selected_index = index;
+}
+
+static void fsw_menu_restore_selected_index(uint32_t manager)
+{
+    uint32_t node = fsw_menu_selected_node_va;
+
+    if (manager != fsw_menu_saved_manager_va ||
+        !cuimenumanager_va_is_valid(manager) ||
+        !cuimenumanager_va_is_valid(node)) {
+        return;
+    }
+
+    if (MEM32(manager + 0x18) != fsw_menu_saved_root_head ||
+        MEM32(manager + 0x20) != node ||
+        MEM32(manager + 0x24) != node) {
+        static uint32_t restore_log_count = 0;
+        if (restore_log_count < 32) {
+            fprintf(stderr,
+                    "[FSW/Menu] restoring manager selection manager=%08X roots %08X/%08X/%08X -> %08X/%08X/%08X stack %08X/%08X/%08X -> %08X/%08X/%08X\n",
+                    (unsigned)manager,
+                    (unsigned)MEM32(manager + 0x10), (unsigned)MEM32(manager + 0x14), (unsigned)MEM32(manager + 0x18),
+                    (unsigned)fsw_menu_saved_root_count, (unsigned)fsw_menu_saved_root_tail, (unsigned)fsw_menu_saved_root_head,
+                    (unsigned)MEM32(manager + 0x1C), (unsigned)MEM32(manager + 0x20), (unsigned)MEM32(manager + 0x24),
+                    1u, (unsigned)node, (unsigned)node);
+            restore_log_count++;
+        }
+    }
+
+    MEM32(manager + 0x10) = fsw_menu_saved_root_count;
+    MEM32(manager + 0x14) = fsw_menu_saved_root_tail;
+    MEM32(manager + 0x18) = fsw_menu_saved_root_head;
+    MEM32(node) = fsw_menu_saved_selected_index;
+    MEM32(node + 4) = 0;
+    MEM32(node + 8) = 0;
+    MEM32(manager + 0x1C) = 1;
+    MEM32(manager + 0x20) = node;
+    MEM32(manager + 0x24) = node;
+    MEM32(manager + 0x28) = fsw_menu_saved_selected_index;
+}
+
+static void fsw_menu_prepare_tree_for_render(uint32_t control, uint32_t depth)
+{
+    uint32_t node;
+    uint32_t guard = 0;
+
+    if (!cuimenumanager_va_is_valid(control) || depth > 64) {
+        return;
+    }
+
+    if (MEM8(control + 0xD1) == 2 || MEM8(control + 0xD1) == 3) {
+        MEM8(control + 0xE4) = MEM8(control + 0xE4) | 0x80;
+        MEM8(control + 0xE5) = MEM8(control + 0xE5) & 0xFC;
+    }
+
+    node = MEM32(control + 0xB4);
+    while (cuimenumanager_va_is_valid(node) && guard++ < 256) {
+        uint32_t child = MEM32(node);
+        if (cuimenumanager_va_is_valid(child)) {
+            fsw_menu_prepare_tree_for_render(child, depth + 1);
+        }
+        node = MEM32(node + 4);
+    }
+}
+
+static void fsw_menu_align_next_root_menu(uint32_t file)
+{
+    uint32_t stream;
+    uint32_t start;
+    uint32_t length;
+    uint32_t pos;
+    uint32_t end;
+
+    if (!cuimenumanager_va_is_valid(file + 0x24)) {
+        return;
+    }
+    stream = MEM32(file + 0x24);
+    if (!cuimenumanager_va_is_valid(stream + 0xC)) {
+        return;
+    }
+    start = MEM32(stream + 4);
+    length = MEM32(stream + 8);
+    pos = MEM32(stream + 0xC);
+    end = start + length;
+    if (!cuimenumanager_va_is_valid(start) || pos < start || pos >= end) {
+        return;
+    }
+    if (pos + 4 <= end && MEM32(pos) == 0x60942105u) {
+        return;
+    }
+    for (uint32_t scan = pos + 1; scan + 4 <= end; scan++) {
+        if (MEM32(scan) == 0x60942105u) {
+            static uint32_t align_log_count = 0;
+            if (align_log_count < 16) {
+                fprintf(stderr, "[FSW/Menu] aligned next root menu pos %08X -> %08X\n",
+                        (unsigned)pos, (unsigned)scan);
+                align_log_count++;
+            }
+            MEM32(stream + 0xC) = scan;
+            return;
+        }
+    }
+}
 
 /**
  * fn_0012FAB0_CUIMenuManager_LoadStrings
@@ -267,6 +413,9 @@ void fn_0012FBF0_CUIMenuManager_Render(void)
     int _flags = 0; /* fallback flag var */
 
 loc_0012FBF0:
+#ifdef XBOXRECOMP_VULKAN_GRAPHICS
+    fsw_menu_restore_selected_index(eax);
+#endif
     {
         static uint32_t render_log_count = 0;
         if (render_log_count < 8) {
@@ -308,6 +457,15 @@ void sub_0012FC0C(void)
     int _flags = 0; /* fallback flag var */
 
 loc_0012FC0C:
+    {
+        const char *forced_index = getenv("FSW_TH_MENU_INDEX");
+        if (forced_index != NULL && forced_index[0] != 0) {
+            uint32_t top = MEM32(eax + 0x20);
+            if (cuimenumanager_va_is_valid(top)) {
+                MEM32(top) = (uint32_t)strtoul(forced_index, NULL, 0);
+            }
+        }
+    }
     ecx = MEM32(eax + 0x20);
     if (TEST_Z(ecx, ecx)) { sub_0012FC2C(); return; } /* je: equal / zero */
 
@@ -355,16 +513,57 @@ loc_0012FC2C:
 void sub_0012FC2E(void)
 {
     uint32_t ebp;
+    uint32_t camera_arg;
     int _flags = 0; /* fallback flag var */
     ebp = g_seh_ebp; /* fpo_leaf: inherit caller's frame */
 
 loc_0012FC2E:
+    camera_arg = MEM32(ebp + 8);
+    if (cuimenumanager_va_is_valid(camera_arg)) {
+        fsw_menu_last_camera_va = camera_arg;
+    } else if (cuimenumanager_va_is_valid(fsw_menu_last_camera_va)) {
+        camera_arg = fsw_menu_last_camera_va;
+    }
     PUSH32(esp, 0); fn_00019360_GetIdentityMatrix(); /* call 0x00019360 */
 
 loc_0012FC33:
     if (TEST_Z(esi, esi)) goto loc_0012FC44; /* je: equal / zero */
 
 loc_0012FC37:
+    {
+        uint32_t vtbl = (esi >= 0x00010000u && esi < 0x04000000u) ? MEM32(esi) : 0;
+        uint32_t matrix = eax;
+        if (vtbl >= 0x00010000u && vtbl < 0x04000000u) {
+            uint32_t update_target = MEM32(vtbl + 0x2C);
+            if (update_target != 0 && matrix >= 0x00010000u && matrix < 0x04000000u) {
+                uint32_t saved_eax = eax;
+                uint32_t saved_ecx = ecx;
+                uint32_t saved_edx = edx;
+                uint32_t saved_ebx = ebx;
+                uint32_t saved_esi = esi;
+                uint32_t saved_edi = edi;
+                uint32_t saved_esp = esp;
+                uint32_t saved_ebp = ebp;
+                uint32_t zero_float = 0;
+                uint32_t _icall_esp = g_esp;
+                PUSH32(esp, 1);
+                PUSH32(esp, zero_float);
+                PUSH32(esp, matrix);
+                PUSH32(esp, 0);
+                ecx = esi;
+                RECOMP_ICALL_SAFE(update_target, _icall_esp);
+                eax = saved_eax;
+                ecx = saved_ecx;
+                edx = saved_edx;
+                ebx = saved_ebx;
+                esi = saved_esi;
+                edi = saved_edi;
+                ebp = saved_ebp;
+                esp = saved_esp;
+            }
+        }
+    }
+    fsw_menu_prepare_tree_for_render(esi, 0);
     {
         static uint32_t menu_render_call_log_count = 0;
         if (menu_render_call_log_count < 16) {
@@ -375,7 +574,7 @@ loc_0012FC37:
             fprintf(stderr,
                     "[FSW/Menu] render selected menu=%08X vtbl=%08X target=%08X camera=%08X flags=%02X callbacks=%08X/%08X/%08X child=%08X/%08X\n",
                     (unsigned)esi, (unsigned)vtbl, (unsigned)target,
-                    (unsigned)MEM32(ebp + 8),
+                    (unsigned)camera_arg,
                     (unsigned)((esi >= 0x00010000u && esi < 0x04000000u) ? MEM8(esi + 0xE5) : 0),
                     (unsigned)((esi >= 0x00010000u && esi < 0x04000000u) ? MEM32(esi + 0xBC) : 0),
                     (unsigned)((esi >= 0x00010000u && esi < 0x04000000u) ? MEM32(esi + 0xC0) : 0),
@@ -384,7 +583,7 @@ loc_0012FC37:
             menu_render_call_log_count++;
         }
     }
-    ecx = MEM32(ebp + 8);
+    ecx = camera_arg;
     eax = MEM32(esi);
     { uint32_t _icall_esp = g_esp;
     PUSH32(esp, 0);
@@ -480,6 +679,22 @@ loc_0012FC99:
 loc_0012FCA1:
     ebx = MEM32(eax);
     if (TEST_Z(ebx, ebx)) goto loc_0012FD86; /* je: equal / zero */
+    if (!cuimenumanager_va_is_valid(ebx) ||
+        !cuimenumanager_va_is_valid(MEM32(ebx) + 0x2C) ||
+        MEM32(MEM32(ebx) + 0x1C) == 0 ||
+        MEM32(MEM32(ebx) + 0x20) == 0 ||
+        MEM32(MEM32(ebx) + 0x28) == 0 ||
+        MEM32(MEM32(ebx) + 0x2C) == 0) {
+        static uint32_t update_skip_log_count = 0;
+        if (update_skip_log_count < 16) {
+            fprintf(stderr,
+                    "[FSW/Menu] skipping invalid update target control=%08X vtbl=%08X\n",
+                    (unsigned)ebx,
+                    (unsigned)(cuimenumanager_va_is_valid(ebx) ? MEM32(ebx) : 0));
+            update_skip_log_count++;
+        }
+        goto loc_0012FD86;
+    }
 
 loc_0012FCAB:
     PUSH32(esp, 0); fn_00019360_GetIdentityMatrix(); /* call 0x00019360 */
@@ -521,6 +736,11 @@ loc_0012FCFF:
     fp_st1() += fp_top(); fp_pop(); /* fadd */
 
 loc_0012FD05:
+    if (!cuimenumanager_va_is_valid(ebx) ||
+        !cuimenumanager_va_is_valid(MEM32(ebx) + 0x1C) ||
+        MEM32(MEM32(ebx) + 0x1C) == 0) {
+        goto loc_0012FD86;
+    }
     edx = MEM32(ebx);
     MEMF(esp + 0x1C) = (float)fp_top(); fp_popp(); /* fstp */
     ecx = ebx;
@@ -531,6 +751,11 @@ loc_0012FD05:
 loc_0012FD10:
     /* FPU: fdivr dword ptr [esp + 0x1c] */
     esi = MEM32(ebp + 8);
+    if (!cuimenumanager_va_is_valid(ebx) ||
+        !cuimenumanager_va_is_valid(MEM32(ebx) + 0x2C) ||
+        MEM32(MEM32(ebx) + 0x2C) == 0) {
+        goto loc_0012FD86;
+    }
     eax = MEM32(ebx);
     { uint32_t _icall_esp = g_esp;
     PUSH32(esp, 1);
@@ -562,6 +787,11 @@ loc_0012FD10:
     }
 
 loc_0012FD6C:
+    if (!cuimenumanager_va_is_valid(ebx) ||
+        !cuimenumanager_va_is_valid(MEM32(ebx) + 0x28) ||
+        MEM32(MEM32(ebx) + 0x28) == 0) {
+        goto loc_0012FD86;
+    }
     edx = MEM32(ebx);
     { uint32_t _icall_esp = g_esp;
     PUSH32(esp, esi);
@@ -570,6 +800,11 @@ loc_0012FD6C:
     }
 
 loc_0012FD74:
+    if (!cuimenumanager_va_is_valid(ebx) ||
+        !cuimenumanager_va_is_valid(MEM32(ebx) + 0x2C) ||
+        MEM32(MEM32(ebx) + 0x2C) == 0) {
+        goto loc_0012FD86;
+    }
     eax = MEM32(ebx);
     { uint32_t _icall_esp = g_esp;
     PUSH32(esp, 0);
@@ -1042,6 +1277,8 @@ void sub_0012FF6A(void)
     uint32_t ebp;
     uint32_t menu_count;
     uint32_t first_menu_va = 0;
+    uint32_t current_menu_va = 0;
+    uint32_t allocated_menu_va = 0;
     int _flags = 0; /* fallback flag var */
     ebp = g_seh_ebp; /* fpo_leaf: inherit caller's frame */
 
@@ -1112,10 +1349,17 @@ loc_0012FFBE:
     eax = eax + 0x10;
 
 loc_0012FFEA:
+    if (eax != 0 && !cuimenumanager_va_is_valid(eax)) {
+        eax = xbox_HeapAlloc(0x110, 16);
+        if (cuimenumanager_va_is_valid(eax)) {
+            memset((void *)XBOX_PTR(eax), 0, 0x110);
+        }
+    }
     if (TEST_Z(eax, eax)) goto loc_0012FFF7; /* je: equal / zero */
 
 loc_0012FFEE:
     esi = eax;
+    allocated_menu_va = eax;
     PUSH32(esp, 0); fn_0012F410_0CUIMenu_QAE_XZ(); /* call 0x0012F410 */
 
 loc_0012FFF5:
@@ -1123,24 +1367,47 @@ loc_0012FFF5:
 
 loc_0012FFF7:
     eax = 0; /* xor self */
+    allocated_menu_va = 0;
 
 loc_0012FFF9:
-    if (first_menu_va == 0 && eax >= 0x00010000u && eax < 0x04000000u) {
-        first_menu_va = eax;
+    current_menu_va = (allocated_menu_va >= 0x00010000u && allocated_menu_va < 0x04000000u) ? allocated_menu_va :
+        ((eax >= 0x00010000u && eax < 0x04000000u) ? eax : esi);
+    {
+        static uint32_t root_alloc_log_count = 0;
+        if (root_alloc_log_count < 16) {
+            uint32_t stream = cuimenumanager_va_is_valid(edi + 0x24) ? MEM32(edi + 0x24) : 0;
+            uint32_t pos = cuimenumanager_va_is_valid(stream + 0xC) ? MEM32(stream + 0xC) : 0;
+            fprintf(stderr,
+                    "[FSW/Menu] root alloc idx=%08X alloc=%08X eax=%08X esi=%08X current=%08X pos=%08X bytes=%02X %02X %02X %02X\n",
+                    (unsigned)ebp, (unsigned)allocated_menu_va, (unsigned)eax, (unsigned)esi,
+                    (unsigned)current_menu_va, (unsigned)pos,
+                    (unsigned)(cuimenumanager_va_is_valid(pos) ? MEM8(pos) : 0),
+                    (unsigned)(cuimenumanager_va_is_valid(pos + 1) ? MEM8(pos + 1) : 0),
+                    (unsigned)(cuimenumanager_va_is_valid(pos + 2) ? MEM8(pos + 2) : 0),
+                    (unsigned)(cuimenumanager_va_is_valid(pos + 3) ? MEM8(pos + 3) : 0));
+            root_alloc_log_count++;
+        }
     }
-    edx = MEM32(eax);
+    if (first_menu_va == 0 && current_menu_va >= 0x00010000u && current_menu_va < 0x04000000u) {
+        first_menu_va = current_menu_va;
+    }
+    edx = MEM32(current_menu_va);
     { uint32_t _icall_esp = g_esp;
+    uint32_t saved_esp = esp;
     PUSH32(esp, 0);
     PUSH32(esp, edi);
-    ecx = eax;
-    MEM32(esp + 0x20) = eax;
+    ecx = current_menu_va;
+    MEM32(esp + 0x20) = current_menu_va;
     PUSH32(esp, 0); RECOMP_ICALL_SAFE(MEM32(edx + 0x44), _icall_esp); /* indirect call */
+    esp = saved_esp;
     }
 
 loc_00130007:
     esi = MEM32(esp + 0x1C);
+    MEM32(esp + 0x18) = current_menu_va;
     ebx = esp + 0x18;
     PUSH32(esp, 0); fn_0004F4A0_PAVCUIMenu_ZeroList_Append(); /* call 0x0004F4A0 */
+    fsw_menu_align_next_root_menu(edi);
 
 loc_00130014:
     eax = menu_count;
@@ -1180,9 +1447,11 @@ loc_00130021:
                 uint32_t render_cb = (value >= 0x00010000u && value < 0x04000000u) ? MEM32(value + 0xC0) : 0;
                 if (i < 12 || render_cb != 0 || first_child != 0) {
                     fprintf(stderr,
-                            "[FSW/Menu] loaded node[%02u]=%08X value=%08X vtbl=%08X cb=%08X child=%08X/%08X next=%08X\n",
+                            "[FSW/Menu] loaded node[%02u]=%08X value=%08X vtbl=%08X crc=%08X alt=%08X cb=%08X child=%08X/%08X next=%08X\n",
                             (unsigned)i, (unsigned)scan, (unsigned)value,
                             (unsigned)((value >= 0x00010000u && value < 0x04000000u) ? MEM32(value) : 0),
+                            (unsigned)((value >= 0x00010000u && value < 0x04000000u) ? MEM32(value + 0x98) : 0),
+                            (unsigned)((value >= 0x00010000u && value < 0x04000000u) ? MEM32(value + 0x100) : 0),
                             (unsigned)render_cb, (unsigned)child_head, (unsigned)first_child, (unsigned)next);
                 }
                 if (best_menu == 0 &&
@@ -1524,6 +1793,17 @@ loc_00130150:
     eax = MEM32(eax + 8);
     PUSH32(esp, edi);
     edi = 0; /* xor self */
+    {
+        static uint32_t launch_crc_log_count = 0;
+        if (launch_crc_log_count < 32) {
+            fprintf(stderr,
+                    "[FSW/Menu] LaunchMenu CRC request=%08X manager=%08X list=%08X/%08X/%08X\n",
+                    (unsigned)MEM32(ebp + 8), (unsigned)ebx,
+                    (unsigned)MEM32(ebx + 0x10), (unsigned)MEM32(ebx + 0x14),
+                    (unsigned)MEM32(ebx + 0x18));
+        }
+        launch_crc_log_count++;
+    }
     (void)0; /* test eax, eax - flags set for next jcc */
     MEM32(esp + 8) = eax;
     if (TEST_Z(eax, eax)) goto loc_00130195; /* je: equal / zero */
@@ -1540,6 +1820,18 @@ loc_0013017D:
     eax = MEM32(eax);
     esi = MEM32(eax);
     ecx = MEM32(ebp + 8);
+    {
+        static uint32_t launch_scan_log_count = 0;
+        if (launch_scan_log_count < 96) {
+            fprintf(stderr,
+                    "[FSW/Menu] LaunchMenu scan idx=%u menu=%08X crc=%08X alt=%08X requested=%08X\n",
+                    (unsigned)edi, (unsigned)esi,
+                    (unsigned)(cuimenumanager_va_is_valid(esi) ? MEM32(esi + 0x98) : 0),
+                    (unsigned)(cuimenumanager_va_is_valid(esi) ? MEM32(esi + 0x100) : 0),
+                    (unsigned)ecx);
+        }
+        launch_scan_log_count++;
+    }
     if (CMP_EQ(MEM32(esi + 0x98), ecx)) { sub_0013019F(); return; } /* je: equal / zero */
 
 loc_0013018C:
@@ -1570,6 +1862,27 @@ void sub_0013019F(void)
     ebp = g_seh_ebp; /* fpo_leaf: inherit caller's frame */
 
 loc_0013019F:
+#ifdef XBOXRECOMP_VULKAN_GRAPHICS
+    if (cuimenumanager_va_is_valid(ebx) && cuimenumanager_va_is_valid(esi)) {
+        static uint32_t launch_select_log_count = 0;
+        uint32_t index = edi;
+        fsw_menu_set_selected_index(ebx, index);
+        if (launch_select_log_count < 32) {
+            fprintf(stderr,
+                    "[FSW/Menu] LaunchMenu selected idx=%u menu=%08X crc=%08X manager=%08X stack=%08X/%08X/%08X roots=%08X/%08X/%08X\n",
+                    (unsigned)index, (unsigned)esi, (unsigned)MEM32(esi + 0x98), (unsigned)ebx,
+                    (unsigned)MEM32(ebx + 0x1C), (unsigned)MEM32(ebx + 0x20), (unsigned)MEM32(ebx + 0x24),
+                    (unsigned)MEM32(ebx + 0x10), (unsigned)MEM32(ebx + 0x14), (unsigned)MEM32(ebx + 0x18));
+            launch_select_log_count++;
+        }
+        SET_LO8(eax, 1);
+        POP32(esp, edi);
+        POP32(esp, esi);
+        esp = ebp;
+        POP32(esp, ebp);
+        esp += 8; return; /* ret 4 */
+    }
+#endif
     eax = 0; /* xor self */
     ecx = 0x5607EC;
     PUSH32(esp, 0); fn_00128D90_CalcLowerCRC(); /* call 0x00128D90 */

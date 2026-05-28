@@ -7,8 +7,42 @@
 #define RECOMP_GENERATED_CODE
 #include "recomp_funcs.h"
 #include <math.h>
+#include <stdio.h>
 
 extern uint32_t xbox_HeapAlloc(uint32_t size, uint32_t alignment);
+
+static int xbshaderfactory_va_is_valid(uint32_t va)
+{
+    return va >= 0x00010000u && va < 0x04000000u;
+}
+
+static int xbshaderfactory_va_range_is_valid(uint32_t va, uint32_t size)
+{
+    if (!xbshaderfactory_va_is_valid(va) || va + size < va) {
+        return 0;
+    }
+    return va + size <= 0x04000000u;
+}
+
+static int xbshaderfactory_bucket_state_is_valid(uint32_t factory)
+{
+    for (uint32_t i = 0; i < 8; i++) {
+        uint32_t bucket = factory + 0x9C10u + i * 8u;
+        uint32_t data = MEM32(bucket);
+        int16_t count = (int16_t)MEM16(bucket + 4);
+        int16_t capacity = (int16_t)MEM16(bucket + 6);
+
+        if (count < 0 || capacity < 0 || count > capacity || count > 0x400 || capacity > 0x1000) {
+            return 0;
+        }
+        if ((count > 0 || capacity > 0) && !xbshaderfactory_va_range_is_valid(data, (uint32_t)capacity * 4u)) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
+static int xbshaderfactory_initshaders_started;
 
 /**
  * fn_00039A20_PAVCExpression_ZeroDynArrayBase_SetCount
@@ -432,6 +466,22 @@ loc_00148C00:
 loc_00148C20:
     SET_LO16(esi, MEM16(edi + 4));
     ecx = 0; /* xor self */
+    if ((int16_t)LO16(esi) > 0x400 || !xbshaderfactory_va_range_is_valid(MEM32(edi), (uint32_t)(uint16_t)LO16(esi) * 4u)) {
+        static uint32_t invalid_find_shader_bucket_count = 0;
+        if (invalid_find_shader_bucket_count < 16 || (invalid_find_shader_bucket_count % 128) == 0) {
+            fprintf(stderr,
+                    "[FSW/ShaderFactory] skipping invalid shader bucket factory=%08X bucket=%08X data=%08X count=%d wanted=%08X/%08X warn=%u\n",
+                    (unsigned)(edi - 0x9C10),
+                    (unsigned)edi,
+                    (unsigned)MEM32(edi),
+                    (int16_t)LO16(esi),
+                    (unsigned)ebx,
+                    (unsigned)ebp,
+                    (unsigned)(invalid_find_shader_bucket_count + 1));
+        }
+        invalid_find_shader_bucket_count++;
+        goto loc_00148C46;
+    }
     if (CMP_LE(LO16(esi) & LO16(esi), 0)) goto loc_00148C46; /* jle: less or equal (signed <=) */
 
 loc_00148C2B:
@@ -441,6 +491,23 @@ loc_00148C2B:
 loc_00148C30:
     eax = SX16(LO16(ecx));
     eax = MEM32(edx + eax * 4);
+    if (!xbshaderfactory_va_range_is_valid(eax, 0x2C)) {
+        static uint32_t invalid_find_shader_entry_count = 0;
+        if (invalid_find_shader_entry_count < 16 || (invalid_find_shader_entry_count % 128) == 0) {
+            fprintf(stderr,
+                    "[FSW/ShaderFactory] skipping invalid shader entry factory=%08X bucket=%08X entry=%08X index=%d count=%d wanted=%08X/%08X warn=%u\n",
+                    (unsigned)(edi - 0x9C10),
+                    (unsigned)edi,
+                    (unsigned)eax,
+                    (int16_t)LO16(ecx),
+                    (int16_t)LO16(esi),
+                    (unsigned)ebx,
+                    (unsigned)ebp,
+                    (unsigned)(invalid_find_shader_entry_count + 1));
+        }
+        invalid_find_shader_entry_count++;
+        goto loc_00148C40;
+    }
     if (CMP_NE(MEM32(eax + 0x24), ebx)) goto loc_00148C40; /* jne: not equal / not zero */
 
 loc_00148C3B:
@@ -1206,7 +1273,9 @@ void sub_00149560(void)
     ebp = g_seh_ebp; /* fpo_leaf: inherit caller's frame */
 
 loc_00149560:
+    if (!xbshaderfactory_va_is_valid(edx + 0x14)) goto loc_00149671;
     ebx = MEM32(edx + 0x14);
+    if (!xbshaderfactory_va_is_valid(ebx + 0xEC)) goto loc_00149671;
     esi = MEM32(ebx + 0xE8);
     ebx = MEM32(ebx + 0xE4);
     ebp = MEM32(esp + 0x10);
@@ -3595,7 +3664,25 @@ loc_0014D0F0:
     eax = 1;
     (void)0; /* test LO8(eax), LO8(ecx) - flags set for next jcc */
     MEM32(0) = esp;
-    if (TEST_NZ(LO8(eax), LO8(ecx))) goto loc_0014D139; /* jne: not equal / not zero */
+    if (TEST_NZ(LO8(eax), LO8(ecx)) &&
+        (xbshaderfactory_initshaders_started || xbshaderfactory_bucket_state_is_valid(0x619238))) {
+        goto loc_0014D139; /* jne: not equal / not zero */
+    }
+
+loc_0014D111_repair:
+    if (TEST_NZ(LO8(eax), LO8(ecx))) {
+        static uint32_t repaired_shader_factory_count = 0;
+        if (repaired_shader_factory_count < 4) {
+            fprintf(stderr,
+                    "[FSW/ShaderFactory] repairing stale singleton guard factory=00619238 guard=%08X bucket0=%08X/%04X/%04X warn=%u\n",
+                    (unsigned)MEM32(0x622E88),
+                    (unsigned)MEM32(0x622E48),
+                    (unsigned)MEM16(0x622E4C),
+                    (unsigned)MEM16(0x622E4E),
+                    (unsigned)(repaired_shader_factory_count + 1));
+        }
+        repaired_shader_factory_count++;
+    }
 
 loc_0014D114:
     MEM32(0x622E88) = MEM32(0x622E88) | eax;
@@ -3632,6 +3719,7 @@ void fn_0014D150_XBShaderFactory_InitShaders(void)
     ebp = g_seh_ebp; /* fpo_leaf: inherit caller's frame */
 
 loc_0014D150:
+    xbshaderfactory_initshaders_started = 1;
     PUSH32(esp, ebx);
     PUSH32(esp, ebp);
     PUSH32(esp, edi);

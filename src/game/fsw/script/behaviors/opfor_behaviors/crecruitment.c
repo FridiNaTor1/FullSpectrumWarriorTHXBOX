@@ -8,6 +8,17 @@
 #include "recomp_funcs.h"
 #include <math.h>
 
+static int crecruitment_va_range_is_valid(uint32_t va, uint32_t size)
+{
+    if (va < 0x00010000u || va >= 0x04000000u) {
+        return 0;
+    }
+    if (size > 0x04000000u || va > 0x04000000u - size) {
+        return 0;
+    }
+    return 1;
+}
+
 /**
  * fn_0003ED50_CRecruitment_GetDebugName
  * Symbol: ?GetDebugName@CRecruitment@@UBEPBDXZ
@@ -580,37 +591,56 @@ loc_0004493E:
  */
 void fn_0004FF90_PAVCUIMenu_ZeroList_RemoveAll(void)
 {
-    int _flags = 0; /* fallback flag var */
+    uint32_t list = esi;
+    unsigned steps = 0;
 
-loc_0004FF90:
-    eax = MEM32(esi + 8);
+    if (!crecruitment_va_range_is_valid(list, 0xC)) {
+        esp += 4; return; /* ret */
+    }
+
     PUSH32(esp, edi);
     edi = 0; /* xor self */
-    if (CMP_EQ(eax, edi)) goto loc_0004FFD8; /* je: equal / zero */
+    eax = MEM32(list + 8);
+    while (eax != 0) {
+        if (!crecruitment_va_range_is_valid(eax, 0xC) || ++steps > 4096) {
+            MEM32(list) = 0;
+            MEM32(list + 4) = 0;
+            MEM32(list + 8) = 0;
+            break;
+        }
 
-loc_0004FF9A:
-    /* nop */
+        if (MEM32(list) != 0) {
+            MEM32(list) = MEM32(list) - 1;
+        }
+        ecx = MEM32(eax + 4);
+        MEM32(list + 8) = crecruitment_va_range_is_valid(ecx, 0xC) ? ecx : 0;
+        ecx = MEM32(eax + 8);
+        if (ecx != 0 && crecruitment_va_range_is_valid(ecx, 0xC)) {
+            edx = MEM32(eax + 4);
+            MEM32(ecx + 4) = crecruitment_va_range_is_valid(edx, 0xC) ? edx : 0;
+        }
 
-loc_0004FFA0:
-    MEM32(esi) = MEM32(esi) - 1;
-    ecx = MEM32(eax + 4);
-    MEM32(esi + 8) = ecx;
-    ecx = MEM32(eax + 8);
-    if (CMP_EQ(ecx, edi)) goto loc_0004FFB5; /* je: equal / zero */
+        ecx = MEM32(eax + 4);
+        if (ecx != 0 && crecruitment_va_range_is_valid(ecx, 0xC)) {
+            edx = MEM32(eax + 8);
+            MEM32(ecx + 8) = crecruitment_va_range_is_valid(edx, 0xC) ? edx : 0;
+        }
 
-loc_0004FFAF:
-    edx = MEM32(eax + 4);
-    MEM32(ecx + 4) = edx;
+        edx = MEM32(list + 8);
+        MEM32(eax + 8) = edi;
+        MEM32(eax + 4) = edi;
+        PUSH32(esp, eax);
+        PUSH32(esp, 0); fn_001293F0_3_YAXPAX_Z(); /* call 0x001293F0 */
+        esp = esp + 4;
+        eax = edx;
+    }
 
-loc_0004FFB5:
-    ecx = MEM32(eax + 4);
-    if (CMP_EQ(ecx, edi)) goto loc_0004FFC2; /* je: equal / zero */
+    MEM32(list + 4) = edi;
+    MEM32(list + 8) = edi;
+    POP32(esp, edi);
+    esp += 4; return; /* ret */
 
-loc_0004FFBC:
-    edx = MEM32(eax + 8);
-    MEM32(ecx + 8) = edx;
-
-loc_0004FFC2:
+#if 0
     PUSH32(esp, eax);
     MEM32(eax + 8) = edi;
     MEM32(eax + 4) = edi;
@@ -626,6 +656,7 @@ loc_0004FFD8:
     MEM32(esi + 8) = edi;
     POP32(esp, edi);
     esp += 4; return; /* ret */
+#endif
 
 }
 

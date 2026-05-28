@@ -6,12 +6,511 @@
 
 #define RECOMP_GENERATED_CODE
 #include "recomp_funcs.h"
+#ifdef XBOXRECOMP_VULKAN_GRAPHICS
+#include "d3d8_vulkan_host.h"
+#endif
 #include <math.h>
+#include <stdlib.h>
+#include <string.h>
 
 static int cuiimagecontrol_va_is_valid(uint32_t va)
 {
     return va >= 0x00010000u && va < 0x04000000u;
 }
+
+#ifdef XBOXRECOMP_VULKAN_GRAPHICS
+extern uint32_t fsw_cuitexture_find_surface(uint32_t crc);
+
+typedef struct FswDecodedTexture {
+    uint32_t crc;
+    uint32_t surface;
+    uint32_t width;
+    uint32_t height;
+    uint32_t *bgra;
+} FswDecodedTexture;
+
+static FswDecodedTexture g_fsw_decoded_textures[128];
+
+typedef struct FswImageControlTexture {
+    uint32_t control;
+    uint32_t crc;
+} FswImageControlTexture;
+
+static FswImageControlTexture g_fsw_image_control_textures[64];
+static uint32_t g_fsw_image_control_texture_cursor;
+static uint32_t g_fsw_last_image_control_texture_crc;
+
+static void fsw_cuiimagecontrol_remember_texture(uint32_t control, uint32_t crc)
+{
+    for (uint32_t i = 0; i < (uint32_t)(sizeof(g_fsw_image_control_textures) / sizeof(g_fsw_image_control_textures[0])); i++) {
+        if (g_fsw_image_control_textures[i].control == control) {
+            g_fsw_image_control_textures[i].crc = crc;
+            return;
+        }
+    }
+    g_fsw_image_control_textures[g_fsw_image_control_texture_cursor].control = control;
+    g_fsw_image_control_textures[g_fsw_image_control_texture_cursor].crc = crc;
+    g_fsw_last_image_control_texture_crc = crc;
+    g_fsw_image_control_texture_cursor =
+        (g_fsw_image_control_texture_cursor + 1) %
+        (uint32_t)(sizeof(g_fsw_image_control_textures) / sizeof(g_fsw_image_control_textures[0]));
+}
+
+static uint32_t fsw_cuiimagecontrol_recall_texture(uint32_t control)
+{
+    for (uint32_t i = 0; i < (uint32_t)(sizeof(g_fsw_image_control_textures) / sizeof(g_fsw_image_control_textures[0])); i++) {
+        uint32_t remembered = g_fsw_image_control_textures[i].control;
+        if (remembered == control || (remembered >= control - 32 && remembered <= control + 32)) {
+            return g_fsw_image_control_textures[i].crc;
+        }
+    }
+    if (control >= 0x00E00000u && control < 0x01000000u) {
+        return g_fsw_last_image_control_texture_crc;
+    }
+    return 0;
+}
+
+static uint8_t fsw_expand5(uint32_t v) { return (uint8_t)((v << 3) | (v >> 2)); }
+static uint8_t fsw_expand6(uint32_t v) { return (uint8_t)((v << 2) | (v >> 4)); }
+
+static uint32_t fsw_bgra(uint8_t a, uint8_t r, uint8_t g, uint8_t b)
+{
+    return ((uint32_t)a << 24) | ((uint32_t)r << 16) | ((uint32_t)g << 8) | (uint32_t)b;
+}
+
+static uint16_t fsw_rd16(const uint8_t *p)
+{
+    return (uint16_t)p[0] | ((uint16_t)p[1] << 8);
+}
+
+static uint32_t fsw_rd32(const uint8_t *p)
+{
+    return (uint32_t)p[0] | ((uint32_t)p[1] << 8) | ((uint32_t)p[2] << 16) | ((uint32_t)p[3] << 24);
+}
+
+static void fsw_decode_565(uint16_t c, uint8_t *r, uint8_t *g, uint8_t *b)
+{
+    *r = fsw_expand5((c >> 11) & 31);
+    *g = fsw_expand6((c >> 5) & 63);
+    *b = fsw_expand5(c & 31);
+}
+
+static void fsw_decode_dxt_block(uint32_t *dst, uint32_t width, uint32_t height,
+                                 uint32_t bx, uint32_t by, const uint8_t *src,
+                                 int fmt)
+{
+    uint8_t alpha[8] = {255,255,255,255,255,255,255,255};
+    uint32_t alpha_bits = 0;
+    uint32_t color_offset = 0;
+    uint32_t colors[4];
+    uint8_t r0, g0, b0, r1, g1, b1;
+    uint16_t c0;
+    uint16_t c1;
+    uint32_t bits;
+
+    if (fmt == 0x0F) {
+        alpha[0] = src[0];
+        alpha[1] = src[1];
+        if (alpha[0] > alpha[1]) {
+            for (int i = 1; i < 7; i++) {
+                alpha[i + 1] = (uint8_t)(((7 - i) * alpha[0] + i * alpha[1]) / 7);
+            }
+        } else {
+            for (int i = 1; i < 5; i++) {
+                alpha[i + 1] = (uint8_t)(((5 - i) * alpha[0] + i * alpha[1]) / 5);
+            }
+            alpha[6] = 0;
+            alpha[7] = 255;
+        }
+        for (int i = 0; i < 6; i++) {
+            alpha_bits |= (uint32_t)src[2 + i] << (8 * i);
+        }
+        color_offset = 8;
+    } else if (fmt == 0x0E) {
+        color_offset = 8;
+    }
+
+    c0 = fsw_rd16(src + color_offset);
+    c1 = fsw_rd16(src + color_offset + 2);
+    fsw_decode_565(c0, &r0, &g0, &b0);
+    fsw_decode_565(c1, &r1, &g1, &b1);
+    colors[0] = fsw_bgra(255, r0, g0, b0);
+    colors[1] = fsw_bgra(255, r1, g1, b1);
+    if (c0 > c1 || fmt != 0x0C) {
+        colors[2] = fsw_bgra(255, (uint8_t)((2 * r0 + r1) / 3), (uint8_t)((2 * g0 + g1) / 3), (uint8_t)((2 * b0 + b1) / 3));
+        colors[3] = fsw_bgra(255, (uint8_t)((r0 + 2 * r1) / 3), (uint8_t)((g0 + 2 * g1) / 3), (uint8_t)((b0 + 2 * b1) / 3));
+    } else {
+        colors[2] = fsw_bgra(255, (uint8_t)((r0 + r1) / 2), (uint8_t)((g0 + g1) / 2), (uint8_t)((b0 + b1) / 2));
+        colors[3] = fsw_bgra(0, 0, 0, 0);
+    }
+    bits = fsw_rd32(src + color_offset + 4);
+
+    for (uint32_t py = 0; py < 4; py++) {
+        for (uint32_t px = 0; px < 4; px++) {
+            uint32_t x = bx * 4 + px;
+            uint32_t y = by * 4 + py;
+            uint32_t pi = py * 4 + px;
+            uint32_t ci;
+            uint8_t a = 255;
+            if (x >= width || y >= height) {
+                continue;
+            }
+            ci = (bits >> (2 * pi)) & 3;
+            if (fmt == 0x0F) {
+                a = alpha[(alpha_bits >> (3 * pi)) & 7];
+            } else if (fmt == 0x0E) {
+                a = (uint8_t)((src[pi / 2] >> ((pi & 1) ? 4 : 0)) & 0xF);
+                a = (uint8_t)((a << 4) | a);
+            } else if (fmt == 0x0C && c0 <= c1 && ci == 3) {
+                a = 0;
+            }
+            dst[y * width + x] = (colors[ci] & 0x00FFFFFFu) | ((uint32_t)a << 24);
+        }
+    }
+}
+
+static const uint32_t *fsw_cuiimagecontrol_decode_texture(uint32_t crc, uint32_t surface,
+                                                          uint32_t *out_w, uint32_t *out_h)
+{
+    uint32_t width;
+    uint32_t height;
+    uint32_t texreg;
+    uint32_t data;
+    uint32_t fmt_word;
+    uint32_t fmt;
+    uint32_t block_size;
+
+    if (!cuiimagecontrol_va_is_valid(surface + 0x60)) {
+        return NULL;
+    }
+    width = MEM32(surface + 0x18);
+    height = MEM32(surface + 0x1C);
+    if (width == 0 || height == 0 || width > 2048 || height > 2048) {
+        return NULL;
+    }
+    for (uint32_t i = 0; i < (uint32_t)(sizeof(g_fsw_decoded_textures) / sizeof(g_fsw_decoded_textures[0])); i++) {
+        if (g_fsw_decoded_textures[i].crc == crc && g_fsw_decoded_textures[i].surface == surface &&
+            g_fsw_decoded_textures[i].bgra != NULL) {
+            *out_w = g_fsw_decoded_textures[i].width;
+            *out_h = g_fsw_decoded_textures[i].height;
+            return g_fsw_decoded_textures[i].bgra;
+        }
+    }
+
+    texreg = MEM32(surface + 0x5C);
+    {
+        uint32_t virt_base = MEM32(0x5FA374);
+        if (cuiimagecontrol_va_is_valid(virt_base) && texreg < virt_base && texreg < 0x01000000u) {
+            texreg += virt_base;
+        }
+    }
+    if (!cuiimagecontrol_va_is_valid(texreg + 0x10)) {
+        return NULL;
+    }
+    data = MEM32(texreg + 4);
+    {
+        uint32_t phys_base = MEM32(0x5FA370);
+        if (cuiimagecontrol_va_is_valid(phys_base) && data < phys_base && data < 0x02000000u) {
+            data += phys_base;
+        }
+    }
+    fmt_word = MEM32(texreg + 0x0C);
+    fmt = (fmt_word >> 8) & 0xFF;
+    if (!cuiimagecontrol_va_is_valid(data)) {
+        return NULL;
+    }
+    if (fmt != 0x0C && fmt != 0x0E && fmt != 0x0F) {
+        return NULL;
+    }
+    block_size = (fmt == 0x0C) ? 8u : 16u;
+
+    for (uint32_t i = 0; i < (uint32_t)(sizeof(g_fsw_decoded_textures) / sizeof(g_fsw_decoded_textures[0])); i++) {
+        if (g_fsw_decoded_textures[i].bgra == NULL) {
+            uint32_t blocks_x = (width + 3) / 4;
+            uint32_t blocks_y = (height + 3) / 4;
+            const uint8_t *src = (const uint8_t *)XBOX_PTR(data);
+            uint32_t *dst = (uint32_t *)calloc((size_t)width * height, sizeof(uint32_t));
+            if (!dst) {
+                return NULL;
+            }
+            for (uint32_t by = 0; by < blocks_y; by++) {
+                for (uint32_t bx = 0; bx < blocks_x; bx++) {
+                    fsw_decode_dxt_block(dst, width, height, bx, by,
+                                         src + (by * blocks_x + bx) * block_size, (int)fmt);
+                }
+            }
+            g_fsw_decoded_textures[i].crc = crc;
+            g_fsw_decoded_textures[i].surface = surface;
+            g_fsw_decoded_textures[i].width = width;
+            g_fsw_decoded_textures[i].height = height;
+            g_fsw_decoded_textures[i].bgra = dst;
+            *out_w = width;
+            *out_h = height;
+            fprintf(stderr, "[FSW/Menu] decoded texture crc=%08X surface=%08X %ux%u fmt=%02X data=%08X\n",
+                    crc, surface, width, height, fmt, data);
+            return dst;
+        }
+    }
+    return NULL;
+}
+
+static int fsw_cuiimagecontrol_draw_real_texture(uint32_t control, uint32_t matrix)
+{
+    static uint32_t miss_log_count;
+    static uint32_t draw_log_count;
+    uint32_t crc;
+    uint32_t surface;
+    uint32_t tex_w = 0;
+    uint32_t tex_h = 0;
+    const uint32_t *bgra;
+    float x;
+    float y;
+    float w;
+    float h;
+    float u0;
+    float v0;
+    float u1;
+    float v1;
+    uint32_t color;
+    float a;
+    float r;
+    float g;
+    float b;
+    float raw_x;
+    float raw_y;
+    int is_stack_temp;
+    float m00;
+    float m01;
+    float m10;
+    float m11;
+    float tx;
+    float ty;
+    float sx;
+    float sy;
+    int use_matrix;
+    int center_anchor;
+    float lx0;
+    float ly0;
+    float lx1;
+    float ly1;
+    float p0x;
+    float p0y;
+    float p1x;
+    float p1y;
+    float p2x;
+    float p2y;
+    float p3x;
+    float p3y;
+
+    if (!cuiimagecontrol_va_is_valid(control + 0x140)) {
+        return 0;
+    }
+    crc = MEM32(control + 0x138);
+    if (crc == 0) {
+        crc = fsw_cuiimagecontrol_recall_texture(control);
+    }
+    surface = fsw_cuitexture_find_surface(crc);
+    bgra = fsw_cuiimagecontrol_decode_texture(crc, surface, &tex_w, &tex_h);
+    if (!bgra) {
+        if (miss_log_count < 32) {
+            fprintf(stderr, "[FSW/Menu] real texture unavailable control=%08X crc=%08X surface=%08X texreg=%08X\n",
+                    control, crc, surface,
+                    cuiimagecontrol_va_is_valid(surface + 0x60) ? MEM32(surface + 0x5C) : 0);
+            miss_log_count++;
+        }
+        return 0;
+    }
+    if (crc == 0x99D7384Au && tex_w <= 16 && tex_h <= 16) {
+        return 1;
+    }
+    is_stack_temp = (control >= 0x00E00000u && control < 0x01000000u);
+
+    if (!cuiimagecontrol_va_is_valid(matrix + 0x40)) {
+        matrix = control + 0x10;
+    }
+    x = MEMF(matrix + 0x30);
+    y = MEMF(matrix + 0x34);
+    w = MEMF(control + 0x9C);
+    h = MEMF(control + 0xA0);
+    if (w <= 0.0f || w > 1280.0f) w = MEMF(control + 0x10C);
+    if (h <= 0.0f || h > 960.0f) h = MEMF(control + 0x110);
+    if (w <= 0.0f || w > 1280.0f) w = (float)tex_w;
+    if (h <= 0.0f || h > 960.0f) h = (float)tex_h;
+    if (!isfinite(w) || w <= 0.0f || w > 1280.0f) w = (float)tex_w;
+    if (!isfinite(h) || h <= 0.0f || h > 960.0f) h = (float)tex_h;
+    raw_x = MEMF(control + 0x40);
+    raw_y = MEMF(control + 0x44);
+    if ((raw_x != 0.0f || raw_y != 0.0f) &&
+        raw_x > -640.0f && raw_x < 1280.0f &&
+        raw_y > -480.0f && raw_y < 960.0f) {
+        x = raw_x - w * 0.5f;
+        y = raw_y - h * 0.5f;
+    }
+    if (!isfinite(x) || x < -640.0f || x > 1280.0f) x = 0.0f;
+    if (!isfinite(y) || y < -480.0f || y > 960.0f) y = 0.0f;
+    if (is_stack_temp && tex_w == 1024 && tex_h == 512 && (w < 300.0f || h > 480.0f)) {
+        x = 0.0f;
+        y = 80.0f;
+        w = 640.0f;
+        h = 221.0f;
+    }
+    if (draw_log_count < 80) {
+        fprintf(stderr,
+                "[FSW/Menu] draw texture control=%08X crc=%08X pos=%.2f,%.2f size=%.2f,%.2f tex=%ux%u flags full=%u dim=%u m00=%.3f m01=%.3f m10=%.3f m11=%.3f rawpos=%.2f,%.2f\n",
+                control, crc, x, y, w, h, tex_w, tex_h,
+                (unsigned)MEM8(control + 0x13C), (unsigned)MEM8(control + 0x13D),
+                MEMF(matrix), MEMF(matrix + 4), MEMF(matrix + 0x10), MEMF(matrix + 0x14), raw_x, raw_y);
+        draw_log_count++;
+    }
+
+    u0 = MEMF(control + 0x100 + 0x14);
+    v0 = MEMF(control + 0x100 + 0x18);
+    u1 = MEMF(control + 0x100 + 0x1C);
+    v1 = MEMF(control + 0x100 + 0x20);
+    if (u1 <= u0 || v1 <= v0 || u1 > 8.0f || v1 > 8.0f) {
+        u0 = 0.0f; v0 = 0.0f; u1 = 1.0f; v1 = 1.0f;
+    }
+
+    color = MEM32(control + 0x90);
+    a = (float)((color >> 24) & 0xFF) / 255.0f;
+    r = (float)((color >> 16) & 0xFF) / 255.0f;
+    g = (float)((color >> 8) & 0xFF) / 255.0f;
+    b = (float)(color & 0xFF) / 255.0f;
+    if (a <= 0.0f) a = 1.0f;
+    if ((color & 0x00FFFFFFu) == 0) {
+        r = g = b = 1.0f;
+    }
+
+    m00 = MEMF(matrix);
+    m01 = MEMF(matrix + 4);
+    m10 = MEMF(matrix + 0x10);
+    m11 = MEMF(matrix + 0x14);
+    tx = MEMF(matrix + 0x30);
+    ty = MEMF(matrix + 0x34);
+    sx = sqrtf(m00 * m00 + m01 * m01);
+    sy = sqrtf(m10 * m10 + m11 * m11);
+    use_matrix = isfinite(m00) && isfinite(m01) && isfinite(m10) && isfinite(m11) &&
+                 isfinite(tx) && isfinite(ty) && sx > 0.001f && sy > 0.001f &&
+                 sx < 16.0f && sy < 16.0f &&
+                 tx > -2048.0f && tx < 4096.0f && ty > -2048.0f && ty < 4096.0f;
+    center_anchor = (raw_x != 0.0f || raw_y != 0.0f) && !MEM8(control + 0x13C);
+    if (center_anchor &&
+        (fabsf(tx - raw_x) > 0.5f || fabsf(ty - raw_y) > 0.5f)) {
+        use_matrix = 0;
+    }
+    if (use_matrix) {
+        if (center_anchor) {
+            lx0 = -w * 0.5f;
+            ly0 = -h * 0.5f;
+            lx1 = w * 0.5f;
+            ly1 = h * 0.5f;
+        } else {
+            lx0 = 0.0f;
+            ly0 = 0.0f;
+            lx1 = w;
+            ly1 = h;
+        }
+
+        p0x = lx0 * m00 + ly0 * m10 + tx;
+        p0y = lx0 * m01 + ly0 * m11 + ty;
+        p1x = lx1 * m00 + ly0 * m10 + tx;
+        p1y = lx1 * m01 + ly0 * m11 + ty;
+        p2x = lx1 * m00 + ly1 * m10 + tx;
+        p2y = lx1 * m01 + ly1 * m11 + ty;
+        p3x = lx0 * m00 + ly1 * m10 + tx;
+        p3y = lx0 * m01 + ly1 * m11 + ty;
+        if (!isfinite(p0x) || !isfinite(p0y) || !isfinite(p1x) || !isfinite(p1y) ||
+            !isfinite(p2x) || !isfinite(p2y) || !isfinite(p3x) || !isfinite(p3y) ||
+            p0x < -4096.0f || p0x > 8192.0f || p0y < -4096.0f || p0y > 8192.0f ||
+            p2x < -4096.0f || p2x > 8192.0f || p2y < -4096.0f || p2y > 8192.0f) {
+            use_matrix = 0;
+        }
+    }
+
+    if (use_matrix) {
+        D3D8VulkanRhwVertex quad[6] = {
+            { p0x, p0y, 0.06f, 1.0f, r, g, b, a, u0, v0 },
+            { p1x, p1y, 0.06f, 1.0f, r, g, b, a, u1, v0 },
+            { p2x, p2y, 0.06f, 1.0f, r, g, b, a, u1, v1 },
+            { p0x, p0y, 0.06f, 1.0f, r, g, b, a, u0, v0 },
+            { p2x, p2y, 0.06f, 1.0f, r, g, b, a, u1, v1 },
+            { p3x, p3y, 0.06f, 1.0f, r, g, b, a, u0, v1 },
+        };
+        d3d8_vulkan_host_draw_rhw(quad, 6, bgra, tex_w, tex_h, 0, 0);
+        return 1;
+    }
+
+    D3D8VulkanRhwVertex rect[6] = {
+        { x,     y,     0.06f, 1.0f, r, g, b, a, u0, v0 },
+        { x + w, y,     0.06f, 1.0f, r, g, b, a, u1, v0 },
+        { x + w, y + h, 0.06f, 1.0f, r, g, b, a, u1, v1 },
+        { x,     y,     0.06f, 1.0f, r, g, b, a, u0, v0 },
+        { x + w, y + h, 0.06f, 1.0f, r, g, b, a, u1, v1 },
+        { x,     y + h, 0.06f, 1.0f, r, g, b, a, u0, v1 },
+    };
+    d3d8_vulkan_host_draw_rhw(rect, 6, bgra, tex_w, tex_h, 0, 0);
+    return 1;
+}
+
+int fsw_cuiimagecontrol_draw_texture_crc(uint32_t crc, float x, float y,
+                                         float w, float h, uint32_t color)
+{
+    static uint32_t draw_log_count;
+    static uint32_t miss_log_count;
+    uint32_t surface;
+    uint32_t tex_w = 0;
+    uint32_t tex_h = 0;
+    const uint32_t *bgra;
+    float u0 = 0.0f;
+    float v0 = 0.0f;
+    float u1 = 1.0f;
+    float v1 = 1.0f;
+    float a;
+    float r;
+    float g;
+    float b;
+
+    surface = fsw_cuitexture_find_surface(crc);
+    bgra = fsw_cuiimagecontrol_decode_texture(crc, surface, &tex_w, &tex_h);
+    if (!bgra || w <= 0.0f || h <= 0.0f) {
+        if (miss_log_count < 64) {
+            fprintf(stderr,
+                    "[FSW/Menu] direct texture unavailable crc=%08X surface=%08X size=%.2f,%.2f\n",
+                    crc, surface, w, h);
+            miss_log_count++;
+        }
+        return 0;
+    }
+
+    a = (float)((color >> 24) & 0xFF) / 255.0f;
+    r = (float)((color >> 16) & 0xFF) / 255.0f;
+    g = (float)((color >> 8) & 0xFF) / 255.0f;
+    b = (float)(color & 0xFF) / 255.0f;
+    if (a <= 0.0f) a = 1.0f;
+    if ((color & 0x00FFFFFFu) == 0) {
+        r = g = b = 1.0f;
+    }
+
+    if (draw_log_count < 64) {
+        fprintf(stderr,
+                "[FSW/Menu] draw texture direct crc=%08X pos=%.2f,%.2f size=%.2f,%.2f tex=%ux%u color=%08X\n",
+                crc, x, y, w, h, tex_w, tex_h, color);
+        draw_log_count++;
+    }
+
+    D3D8VulkanRhwVertex rect[6] = {
+        { x,     y,     0.08f, 1.0f, r, g, b, a, u0, v0 },
+        { x + w, y,     0.08f, 1.0f, r, g, b, a, u1, v0 },
+        { x + w, y + h, 0.08f, 1.0f, r, g, b, a, u1, v1 },
+        { x,     y,     0.08f, 1.0f, r, g, b, a, u0, v0 },
+        { x + w, y + h, 0.08f, 1.0f, r, g, b, a, u1, v1 },
+        { x,     y + h, 0.08f, 1.0f, r, g, b, a, u0, v1 },
+    };
+    d3d8_vulkan_host_draw_rhw(rect, 6, bgra, tex_w, tex_h, 0, 0);
+    return 1;
+}
+
+#endif
 
 /**
  * fn_00052A70_GCUIImageControl_UAEPAXI_Z
@@ -258,6 +757,11 @@ loc_0012BA70:
 
 loc_0012BA89:
     SET_LO8(ecx, MEM8(eax + 0x134));
+#ifdef XBOXRECOMP_VULKAN_GRAPHICS
+    if (TEST_Z(LO8(ecx), LO8(ecx))) {
+        goto loc_0012BBBF;
+    }
+#endif
     if (TEST_Z(LO8(ecx), LO8(ecx))) goto loc_0012BBBF; /* je: equal / zero */
 
 loc_0012BA97:
@@ -350,6 +854,12 @@ loc_0012BB86:
     MEM8(0x617123) = LO8(ecx);
 
 loc_0012BBAB:
+#ifdef XBOXRECOMP_VULKAN_GRAPHICS
+    if (fsw_cuiimagecontrol_draw_real_texture(eax, esp + 0x10)) {
+        goto loc_0012BBBF;
+    }
+    goto loc_0012BBBF;
+#endif
     ecx = MEM32(ebp + 8);
     edx = esp + 0x10;
     PUSH32(esp, edx);
@@ -440,6 +950,9 @@ loc_0012BC30:
     MEM32(eax) = ebx;
     _saved_edi = edi;
     _saved_ebx = ebx;
+#ifdef XBOXRECOMP_VULKAN_GRAPHICS
+    fsw_cuiimagecontrol_remember_texture(edi, ebx);
+#endif
     PUSH32(esp, 0); fn_0012B8F0_CUIImage_Load(); /* call 0x0012B8F0 */
 
 loc_0012BC46:

@@ -7,6 +7,58 @@
 #define RECOMP_GENERATED_CODE
 #include "recomp_funcs.h"
 #include <math.h>
+#include <string.h>
+
+extern uint32_t xbox_HeapAlloc(uint32_t size, uint32_t alignment);
+
+static int hkarray_va_range_is_valid(uint32_t va, uint32_t size)
+{
+    if (size == 0) {
+        return va >= 0x00010000u && va < 0x04000000u;
+    }
+    if (va < 0x00010000u || va >= 0x04000000u || va + size < va) {
+        return 0;
+    }
+    return va + size <= 0x04000000u;
+}
+
+static void hkarray_native_reserve(uint32_t array, uint32_t capacity, uint32_t elem_size)
+{
+    uint32_t old_data;
+    uint32_t size;
+    uint32_t old_flags;
+    uint32_t bytes;
+    uint32_t new_data;
+
+    if (!hkarray_va_range_is_valid(array, 0xC) || elem_size == 0) {
+        return;
+    }
+
+    old_data = MEM32(array);
+    size = MEM32(array + 4);
+    old_flags = MEM32(array + 8);
+    if (capacity < size) {
+        capacity = size;
+    }
+    if (capacity == 0) {
+        capacity = 1;
+    }
+    if (capacity > 0x10000000u / elem_size) {
+        return;
+    }
+
+    bytes = capacity * elem_size;
+    new_data = xbox_HeapAlloc(bytes ? bytes : elem_size, 16);
+    if (!hkarray_va_range_is_valid(new_data, bytes ? bytes : elem_size)) {
+        return;
+    }
+
+    if (size != 0 && old_data != 0 && hkarray_va_range_is_valid(old_data, size * elem_size)) {
+        memcpy((void *)XBOX_PTR(new_data), (const void *)XBOX_PTR(old_data), size * elem_size);
+    }
+    MEM32(array) = new_data;
+    MEM32(array + 8) = (old_flags & 0x40000000u) | capacity;
+}
 
 /**
  * fn_000A5200_hkArrayUtil_reserve
@@ -22,6 +74,9 @@ void fn_000A5200_hkArrayUtil_reserve(void)
     ebp = g_seh_ebp; /* fpo_leaf: inherit caller's frame */
 
 loc_000A5200:
+    hkarray_native_reserve(MEM32(esp + 4), MEM32(esp + 8), MEM32(esp + 0xC));
+    esp += 4; return; /* ret */
+
     ecx = MEM32(0x5D5A88);
     eax = MEM32(ecx);
     { uint32_t _icall_esp = g_esp;
@@ -95,6 +150,18 @@ void fn_000A5270_hkArrayUtil_reserveMore(void)
     ebp = g_seh_ebp; /* fpo_leaf: inherit caller's frame */
 
 loc_000A5270:
+    {
+        uint32_t array = MEM32(esp + 4);
+        uint32_t elem_size = MEM32(esp + 8);
+        uint32_t capacity = 1;
+        if (hkarray_va_range_is_valid(array, 0xC)) {
+            capacity = MEM32(array + 4);
+            capacity = capacity != 0 ? capacity * 2u : 1u;
+        }
+        hkarray_native_reserve(array, capacity, elem_size);
+        esp += 4; return; /* ret */
+    }
+
     PUSH32(esp, ebx);
     PUSH32(esp, ebp);
     PUSH32(esp, esi);

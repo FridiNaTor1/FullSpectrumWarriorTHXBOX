@@ -7,6 +7,117 @@
 #define RECOMP_GENERATED_CODE
 #include "recomp_funcs.h"
 #include <math.h>
+#include <stdio.h>
+
+static int cui_anim_mesh_va_range_is_valid(uint32_t va, uint32_t size)
+{
+    if (va < 0x00010000u || va >= 0x04000000u) {
+        return 0;
+    }
+    if (size > 0x04000000u || va > 0x04000000u - size) {
+        return 0;
+    }
+    return 1;
+}
+
+static int movementcursor_vtable_is_valid(uint32_t object, uint32_t min_size)
+{
+    uint32_t vtbl;
+    if (!cui_anim_mesh_va_range_is_valid(object, 4)) {
+        return 0;
+    }
+    vtbl = MEM32(object);
+    if (!cui_anim_mesh_va_range_is_valid(vtbl, min_size)) {
+        return 0;
+    }
+    return vtbl < 0x00800000u;
+}
+
+static uint32_t g_fsw_movement_cursor_this;
+
+static int movementcursor_box_trigger_is_valid(uint32_t object)
+{
+    uint32_t vtbl;
+    uint32_t parser;
+
+    if (!cui_anim_mesh_va_range_is_valid(object, 0x3C)) {
+        return 0;
+    }
+
+    vtbl = MEM32(object);
+    if (vtbl < 0x00540000u || vtbl >= 0x00570000u) {
+        return 0;
+    }
+
+    parser = MEM32(object + 0x18);
+    if (parser != 0 && !cui_anim_mesh_va_range_is_valid(parser, 0x10)) {
+        return 0;
+    }
+
+    return 1;
+}
+
+static uint32_t movementcursor_repair_constraint_triggers(uint32_t object)
+{
+    uint32_t count;
+    uint32_t valid_count = 0;
+
+    if (!cui_anim_mesh_va_range_is_valid(object, 0x3140)) {
+        fprintf(stderr, "[FSW/HUD] invalid movement cursor constraints owner=%08X\n", object);
+        return 0;
+    }
+
+    count = MEM32(object + 0x313C);
+    if (count > 8) {
+        fprintf(stderr, "[FSW/HUD] clamping movement cursor constraint count owner=%08X count=%u\n",
+                object, count);
+        count = 8;
+    }
+
+    for (uint32_t i = 0; i < count; ++i) {
+        uint32_t trigger = MEM32(object + 0x311C + i * 4);
+        if (!movementcursor_box_trigger_is_valid(trigger)) {
+            fprintf(stderr, "[FSW/HUD] dropping invalid movement cursor constraint owner=%08X index=%u trigger=%08X\n",
+                    object, i, trigger);
+            continue;
+        }
+        MEM32(object + 0x311C + valid_count * 4) = trigger;
+        valid_count++;
+    }
+
+    for (uint32_t i = valid_count; i < 8; ++i) {
+        MEM32(object + 0x311C + i * 4) = 0;
+    }
+    MEM32(object + 0x313C) = valid_count;
+    return valid_count;
+}
+
+static int movementcursor_interaction_node_is_valid(uint32_t node)
+{
+    uint32_t object;
+
+    if (!cui_anim_mesh_va_range_is_valid(node, 8)) {
+        return 0;
+    }
+
+    object = MEM32(node);
+    if (!cui_anim_mesh_va_range_is_valid(object, 0xF4)) {
+        return 0;
+    }
+
+    return 1;
+}
+
+static int movementcursor_restore_this(void)
+{
+    if (!cui_anim_mesh_va_range_is_valid(g_fsw_movement_cursor_this, 0x1E70)) {
+        fprintf(stderr, "[FSW/HUD] movement cursor cached this invalid=%08X\n",
+                g_fsw_movement_cursor_this);
+        return 0;
+    }
+    ebx = g_fsw_movement_cursor_this;
+    return 1;
+}
 
 /**
  * fn_00029730_1CUIMesh_QAE_XZ
@@ -123,6 +234,9 @@ loc_000297D0:
     esi += ecx * 4; edi += ecx * 4; ecx = 0; /* rep movsd */
     ecx = MEM32(ebx + 0x50);
     esi = 0; /* xor self */
+    if (!cui_anim_mesh_va_range_is_valid(ecx, 0xC)) {
+        ecx = esi;
+    }
     if (CMP_EQ(ecx, esi)) goto loc_000297F1; /* je: equal / zero */
 
 loc_000297E5:
@@ -1088,6 +1202,33 @@ void fn_002EDCC0_CMovementCursor_SetConstraintTriggers(void)
     int _flags = 0; /* fallback flag var */
 
 loc_002EDCC0:
+    {
+        uint32_t valid_count = 0;
+        MEM32(ebx + 0x313C) = 0;
+        if (CMP_A(esi, 8)) {
+            esp += 4; return; /* ret */
+        }
+        if (esi != 0 && !cui_anim_mesh_va_range_is_valid(edi, esi * 4)) {
+            fprintf(stderr, "[FSW/HUD] ignoring invalid constraint trigger array this=%08X array=%08X count=%u\n",
+                    ebx, edi, esi);
+            esp += 4; return; /* ret */
+        }
+        for (uint32_t i = 0; i < esi; ++i) {
+            uint32_t trigger = MEM32(edi + i * 4);
+            if (!movementcursor_box_trigger_is_valid(trigger)) {
+                fprintf(stderr, "[FSW/HUD] rejecting invalid constraint trigger this=%08X index=%u trigger=%08X\n",
+                        ebx, i, trigger);
+                continue;
+            }
+            MEM32(ebx + 0x311C + valid_count * 4) = trigger;
+            valid_count++;
+        }
+        for (uint32_t i = valid_count; i < 8; ++i) {
+            MEM32(ebx + 0x311C + i * 4) = 0;
+        }
+        MEM32(ebx + 0x313C) = valid_count;
+        esp += 4; return; /* ret */
+    }
     (void)0; /* cmp esi, 8 - flags set for next jcc */
     MEM32(ebx + 0x313C) = 0;
     if (CMP_A(esi, 8)) goto loc_002EDCF7; /* ja: above (unsigned >) */
@@ -4780,6 +4921,11 @@ loc_002F0033:
 
 loc_002F0059:
     edx = MEM32(edi);
+    if (!movementcursor_vtable_is_valid(edi, 0xC)) {
+        fprintf(stderr, "[FSW/HUD] skipping movement cursor anim init mesh=%08X vtbl=%08X\n",
+                edi, cui_anim_mesh_va_range_is_valid(edi, 4) ? MEM32(edi) : 0);
+        goto loc_002F0061;
+    }
     { uint32_t _icall_esp = g_esp;
     PUSH32(esp, ebx);
     ecx = edi;
@@ -4830,6 +4976,11 @@ loc_002F00B3:
     ecx = edi + -208;
     MEMF(edi) = xmm0; /* movss */
     MEMF(edi + -64) = xmm0; /* movss */
+    if (!movementcursor_vtable_is_valid(ecx, 0xC)) {
+        fprintf(stderr, "[FSW/HUD] skipping movement cursor marker init object=%08X vtbl=%08X\n",
+                ecx, cui_anim_mesh_va_range_is_valid(ecx, 4) ? MEM32(ecx) : 0);
+        goto loc_002F00D1;
+    }
     eax = MEM32(ecx);
     { uint32_t _icall_esp = g_esp;
     PUSH32(esp, ebx);
@@ -6534,7 +6685,7 @@ void fn_002F13D0_CMovementCursor_IsWithinConstraints(void)
 loc_002F13D0:
     PUSH32(esp, ebp);
     ebp = MEM32(esp + 8);
-    eax = MEM32(ebp + 0x313C);
+    eax = movementcursor_repair_constraint_triggers(ebp);
     if (TEST_NZ(eax, eax)) { sub_002F13E5(); return; } /* jne: not equal / not zero */
 
 loc_002F13DF:
@@ -6570,6 +6721,11 @@ loc_002F13EE:
 loc_002F13F4:
     ecx = MEM32(esp + 0x18);
     edi = MEM32(ebx);
+    if (!movementcursor_box_trigger_is_valid(edi)) {
+        fprintf(stderr, "[FSW/HUD] skipping invalid movement cursor constraint owner=%08X index=%u trigger=%08X\n",
+                ebp, esi, edi);
+        goto loc_002F1405;
+    }
     eax = 0; /* xor self */
     PUSH32(esp, 0); fn_001F4960_CBoxTrigger_PointInside(); /* call 0x001F4960 */
 
@@ -8662,14 +8818,27 @@ loc_002F21CD:
 
 loc_002F21DD:
     ebp = MEM32(esp + 8);
+    if (ebp != 0 && !movementcursor_interaction_node_is_valid(ebp)) {
+        fprintf(stderr, "[FSW/HUD] dropping invalid movement cursor interaction head=%08X\n", ebp);
+        ebp = 0;
+    }
     if (TEST_Z(ebp, ebp)) goto loc_002F22C9; /* je: equal / zero */
 
 loc_002F21E9:
     /* nop */
 
 loc_002F21F0:
+    if (!movementcursor_interaction_node_is_valid(ebp)) {
+        fprintf(stderr, "[FSW/HUD] stopping invalid movement cursor interaction node=%08X\n", ebp);
+        goto loc_002F22C9;
+    }
     eax = MEM32(ebp);
     ecx = MEM32(eax + 0xF0);
+    if (ecx != 0 && !movementcursor_vtable_is_valid(ecx, 0x84)) {
+        fprintf(stderr, "[FSW/HUD] skipping invalid movement cursor interaction target=%08X node=%08X\n",
+                ecx, ebp);
+        goto loc_002F22BE;
+    }
     if (TEST_Z(ecx, ecx)) goto loc_002F22BE; /* je: equal / zero */
 
 loc_002F2201:
@@ -8680,6 +8849,11 @@ loc_002F2201:
 
 loc_002F2209:
     esi = eax;
+    if (esi != 0 && !movementcursor_vtable_is_valid(esi, 0x84)) {
+        fprintf(stderr, "[FSW/HUD] skipping invalid movement cursor interaction object=%08X node=%08X\n",
+                esi, ebp);
+        goto loc_002F22BE;
+    }
     if (TEST_Z(esi, esi)) goto loc_002F22BE; /* je: equal / zero */
 
 loc_002F2213:
@@ -10724,14 +10898,28 @@ void sub_002F31FA(void)
     ebp = g_seh_ebp; /* fpo_leaf: inherit caller's frame */
 
 loc_002F31FA:
+    if (!cui_anim_mesh_va_range_is_valid(esi, 0x220)) {
+        fprintf(stderr, "[FSW/HUD] movement cursor environ invalid team=%08X\n", (unsigned)esi);
+        g_seh_ebp = ebp; sub_002F324E(); return;
+    }
     if (TEST_Z(esi, esi)) { sub_002F324E(); return; } /* je: equal / zero */
 
 loc_002F31FE:
     eax = MEM32(esi + 0x21C);
+    if (!cui_anim_mesh_va_range_is_valid(eax, 0xF4)) {
+        fprintf(stderr, "[FSW/HUD] movement cursor environ invalid actor team=%08X actor=%08X\n",
+                (unsigned)esi, (unsigned)eax);
+        g_seh_ebp = ebp; sub_002F324E(); return;
+    }
     if (TEST_Z(eax, eax)) { sub_002F324E(); return; } /* je: equal / zero */
 
 loc_002F3208:
     ecx = MEM32(eax + 0xF0);
+    if (ecx != 0 && !movementcursor_vtable_is_valid(ecx, 0x84)) {
+        fprintf(stderr, "[FSW/HUD] movement cursor environ invalid actor owner actor=%08X owner=%08X\n",
+                (unsigned)eax, (unsigned)ecx);
+        g_seh_ebp = ebp; sub_002F324E(); return;
+    }
     if (TEST_Z(ecx, ecx)) { sub_002F324E(); return; } /* je: equal / zero */
 
 loc_002F3212:
@@ -10741,14 +10929,28 @@ loc_002F3212:
     }
 
 loc_002F321A:
+    if (eax != 0 && !cui_anim_mesh_va_range_is_valid(eax, 0x28)) {
+        fprintf(stderr, "[FSW/HUD] movement cursor environ invalid owner target=%08X\n",
+                (unsigned)eax);
+        g_seh_ebp = ebp; sub_002F324E(); return;
+    }
     if (TEST_Z(eax, eax)) { sub_002F324E(); return; } /* je: equal / zero */
 
 loc_002F321E:
     esi = MEM32(esi + 0x21C);
+    if (!cui_anim_mesh_va_range_is_valid(esi, 0xF4)) {
+        fprintf(stderr, "[FSW/HUD] movement cursor environ invalid actor2=%08X\n", (unsigned)esi);
+        g_seh_ebp = ebp; sub_002F324E(); return;
+    }
     if (TEST_Z(esi, esi)) { sub_002F3243(); return; } /* je: equal / zero */
 
 loc_002F3228:
     ecx = MEM32(esi + 0xF0);
+    if (ecx != 0 && !movementcursor_vtable_is_valid(ecx, 0x84)) {
+        fprintf(stderr, "[FSW/HUD] movement cursor environ invalid actor2 owner actor=%08X owner=%08X\n",
+                (unsigned)esi, (unsigned)ecx);
+        g_seh_ebp = ebp; sub_002F324E(); return;
+    }
     if (TEST_Z(ecx, ecx)) { sub_002F3243(); return; } /* je: equal / zero */
 
 loc_002F3232:
@@ -10758,6 +10960,11 @@ loc_002F3232:
     }
 
 loc_002F323A:
+    if (!cui_anim_mesh_va_range_is_valid(eax, 0x28)) {
+        fprintf(stderr, "[FSW/HUD] movement cursor environ invalid owner2 target=%08X\n",
+                (unsigned)eax);
+        g_seh_ebp = ebp; sub_002F324E(); return;
+    }
     ecx = MEM32(eax + 0x24);
     MEM32(esp + 0x1C) = ecx;
     g_seh_ebp = ebp; sub_002F325D(); return; /* tail jmp 0x002F325D */
@@ -10776,10 +10983,7 @@ void sub_002F3243(void)
     ebp = g_seh_ebp; /* fpo_leaf: inherit caller's frame */
 
 loc_002F3243:
-    eax = 0; /* xor self */
-    ecx = MEM32(eax + 0x24);
-    MEM32(esp + 0x1C) = ecx;
-    g_seh_ebp = ebp; sub_002F325D(); return; /* tail jmp 0x002F325D */
+    g_seh_ebp = ebp; sub_002F324E(); return; /* no actor: use HUD command fallback */
 
 }
 
@@ -12199,6 +12403,24 @@ loc_002F3E90:
     esi = MEM32(esp + 0x20);
     (void)0; /* test esi, esi - flags set for next jcc */
     PUSH32(esp, edi);
+    if (!cui_anim_mesh_va_range_is_valid(ebp, 0x1E80)) {
+        static int movement_cursor_submit_logs;
+        if (movement_cursor_submit_logs < 16) {
+            fprintf(stderr, "[FSW/HUD] skipping movement cursor submit invalid this=%08X camera=%08X\n",
+                    (unsigned)ebp, (unsigned)esi);
+            movement_cursor_submit_logs++;
+        }
+        goto loc_002F4642;
+    }
+    if (esi != 0 && !cui_anim_mesh_va_range_is_valid(esi, 0x40)) {
+        static int movement_cursor_camera_logs;
+        if (movement_cursor_camera_logs < 16) {
+            fprintf(stderr, "[FSW/HUD] skipping movement cursor submit invalid camera=%08X this=%08X\n",
+                    (unsigned)esi, (unsigned)ebp);
+            movement_cursor_camera_logs++;
+        }
+        goto loc_002F4642;
+    }
     if (TEST_Z(esi, esi)) goto loc_002F4642; /* je: equal / zero */
 
 loc_002F3EA7:
@@ -12681,6 +12903,16 @@ loc_002F436B:
     }
 
 loc_002F43D7:
+    if (!cui_anim_mesh_va_range_is_valid(esi, 0x6740)) {
+        fprintf(stderr, "[FSW/HUD] skipping movement cursor video command upload invalid video=%08X\n",
+                (unsigned)esi);
+        goto loc_002F45C9;
+    }
+    if (MEM32(esi + 0x5834) > 0x100) {
+        fprintf(stderr, "[FSW/HUD] resetting movement cursor video command count video=%08X count=%08X\n",
+                (unsigned)esi, (unsigned)MEM32(esi + 0x5834));
+        MEM32(esi + 0x5834) = 0;
+    }
     SET_LO8(edx, MEM8(esi + 0x4CF5));
     SET_LO8(eax, 0xFE);
     SET_LO8(edx, LO8(edx) & LO8(eax));
@@ -12863,20 +13095,39 @@ loc_002F4660:
  */
 void sub_002F4670(void)
 {
+    uint32_t cursor_type_call_esp = 0;
 
 loc_002F4670:
+    cursor_type_call_esp = esp;
     PUSH32(esp, ebx);
     PUSH32(esp, 0); fn_002F30F0_CMovementCursor_DetermineEnviron(); /* call 0x002F30F0 */
 
 loc_002F4676:
+    if (esp != cursor_type_call_esp) {
+        fprintf(stderr, "[FSW/HUD] repairing stack after DetermineEnviron before=%08X after=%08X\n",
+                cursor_type_call_esp, esp);
+        esp = cursor_type_call_esp;
+    }
+    cursor_type_call_esp = esp;
     PUSH32(esp, ebx);
     PUSH32(esp, 0); fn_002F25C0_CMovementCursor_DetermineDeadOrInjured(); /* call 0x002F25C0 */
 
 loc_002F467C:
+    if (esp != cursor_type_call_esp) {
+        fprintf(stderr, "[FSW/HUD] repairing stack after DetermineDeadOrInjured before=%08X after=%08X\n",
+                cursor_type_call_esp, esp);
+        esp = cursor_type_call_esp;
+    }
+    cursor_type_call_esp = esp;
     edi = ebx;
     PUSH32(esp, 0); fn_002F2180_CMovementCursor_DetermineInteraction(); /* call 0x002F2180 */
 
 loc_002F4683:
+    if (esp != cursor_type_call_esp) {
+        fprintf(stderr, "[FSW/HUD] repairing stack after DetermineInteraction before=%08X after=%08X\n",
+                cursor_type_call_esp, esp);
+        esp = cursor_type_call_esp;
+    }
     esi = 0; /* xor self */
 
 }
@@ -14564,6 +14815,8 @@ loc_002F57E3:
 void fn_002F57F0_CMovementCursor_Update(void)
 {
     uint32_t ebp;
+    uint32_t movement_cursor_this = 0;
+    static int logged_invalid_update_this = 0;
     int _flags = 0; /* fallback flag var */
     float xmm0, xmm1, xmm2, xmm4;
     ebp = g_seh_ebp; /* fpo_leaf: inherit caller's frame */
@@ -14572,11 +14825,25 @@ loc_002F57F0:
     esp = esp - 0x1C;
     PUSH32(esp, ebx);
     ebx = MEM32(esp + 0x24);
-    eax = MEM32(ebx + 0xF4);
-    (void)0; /* test eax, eax - flags set for next jcc */
+    movement_cursor_this = ebx;
+    g_fsw_movement_cursor_this = ebx;
     PUSH32(esp, ebp);
     PUSH32(esp, esi);
     PUSH32(esp, edi);
+    if (!cui_anim_mesh_va_range_is_valid(ebx, 0x1E70)) {
+        if (!logged_invalid_update_this) {
+            fprintf(stderr, "[FSW/HUD] skipping movement cursor update invalid this=%08X\n", ebx);
+            logged_invalid_update_this = 1;
+        }
+        POP32(esp, edi);
+        POP32(esp, esi);
+        POP32(esp, ebp);
+        POP32(esp, ebx);
+        esp = esp + 0x1C;
+        esp += 12; return; /* ret 8 */
+    }
+    eax = MEM32(ebx + 0xF4);
+    (void)0; /* test eax, eax - flags set for next jcc */
     if (TEST_Z(eax, eax)) goto loc_002F5828; /* je: equal / zero */
 
 loc_002F5805:
@@ -14667,6 +14934,7 @@ loc_002F5923:
     ecx = esi;
     PUSH32(esp, 0); RECOMP_ICALL_SAFE(MEM32(edx + 0xC), _icall_esp); /* indirect call */
     }
+    ebx = movement_cursor_this;
 
 loc_002F592F:
     xmm0 = MEMF(0x582854); /* movss */
@@ -14676,6 +14944,19 @@ loc_002F592F:
     PUSH32(esp, 0); fn_003AE530_CUIMeshTrails_Update(); /* call 0x003AE530 */
 
 loc_002F5950:
+    ebx = movement_cursor_this;
+    if (!cui_anim_mesh_va_range_is_valid(ebx, 0x1E70)) {
+        if (!logged_invalid_update_this) {
+            fprintf(stderr, "[FSW/HUD] movement cursor update lost this=%08X\n", ebx);
+            logged_invalid_update_this = 1;
+        }
+        POP32(esp, edi);
+        POP32(esp, esi);
+        POP32(esp, ebp);
+        POP32(esp, ebx);
+        esp = esp + 0x1C;
+        esp += 12; return; /* ret 8 */
+    }
     esi = ebx + 0x200;
     ebp = 0x13;
     g_seh_ebp = ebp; sub_002F5960(); return; /* tail jmp 0x002F5960 */
@@ -14691,6 +14972,8 @@ loc_002F5950:
 void sub_002F5960(void)
 {
     uint32_t ebp;
+    uint32_t marker_object = 0;
+    uint32_t marker_remaining = 0;
     int _flags = 0; /* fallback flag var */
     int _fpu_cmp = 0; /* FPU compare result: -1/0/1 */
     float xmm0, xmm1, xmm2, xmm3;
@@ -14704,12 +14987,21 @@ void sub_002F5960(void)
     ebp = g_seh_ebp; /* fpo_leaf: inherit caller's frame */
 
 loc_002F5960:
+    if (!movementcursor_vtable_is_valid(esi, 0x10)) {
+        fprintf(stderr, "[FSW/HUD] skipping movement cursor marker update object=%08X vtbl=%08X remaining=%u\n",
+                esi, cui_anim_mesh_va_range_is_valid(esi, 4) ? MEM32(esi) : 0, ebp);
+        goto loc_002F5968;
+    }
+    marker_object = esi;
+    marker_remaining = ebp;
     eax = MEM32(esi);
     { uint32_t _icall_esp = g_esp;
     PUSH32(esp, edi);
     ecx = esi;
     PUSH32(esp, 0); RECOMP_ICALL_SAFE(MEM32(eax + 0xC), _icall_esp); /* indirect call */
     }
+    esi = marker_object;
+    ebp = marker_remaining;
 
 loc_002F5968:
     esi = esi + 0x100;
@@ -14873,11 +15165,13 @@ loc_002F5AAB:
     esp += 12; return; /* ret 8 */
 
 loc_002F5AB5:
+    if (!movementcursor_restore_this()) goto loc_002F5DBD;
     eax = esp + 0x1C;
     ecx = ebx;
     PUSH32(esp, 0); fn_002EEAC0_CMovementCursor_CalcVel(); /* call 0x002EEAC0 */
 
 loc_002F5AC0:
+    if (!movementcursor_restore_this()) goto loc_002F5DBD;
     xmm1 = MEMF(eax + 4); /* movss */
     xmm2 = MEMF(eax + 8); /* movss */
     xmm3 = MEMF(esp + 0x34); /* movss */
@@ -14906,18 +15200,22 @@ loc_002F5AC0:
     PUSH32(esp, 0); fn_002F2FD0_CMovementCursor_AttemptMoveTo(); /* call 0x002F2FD0 */
 
 loc_002F5B35:
+    if (!movementcursor_restore_this()) goto loc_002F5DBD;
     PUSH32(esp, ebx);
     PUSH32(esp, 0); fn_002F48F0_CMovementCursor_UpdateLogicalPosition(); /* call 0x002F48F0 */
 
 loc_002F5B3B:
+    if (!movementcursor_restore_this()) goto loc_002F5DBD;
     PUSH32(esp, edi);
     esi = ebx;
     PUSH32(esp, 0); fn_002EF8C0_CMovementCursor_PushCamera(); /* call 0x002EF8C0 */
 
 loc_002F5B43:
+    if (!movementcursor_restore_this()) goto loc_002F5DBD;
     PUSH32(esp, 0); fn_002F4650_CMovementCursor_DetermineCursorType(); /* call 0x002F4650 */
 
 loc_002F5B48:
+    if (!movementcursor_restore_this()) goto loc_002F5DBD;
     eax = MEM32(0x613F30);
     if (CMP_EQ(eax, MEM32(ebx + 0x1E40))) goto loc_002F5DAA; /* je: equal / zero */
 
@@ -14991,6 +15289,7 @@ loc_002F5C89:
     MEMF(esp + 0x14) = xmm0; /* movss */
 
 loc_002F5C97:
+    if (!movementcursor_restore_this()) goto loc_002F5DBD;
     eax = MEM32(0x5FA8E8);
     ecx = MEM32(eax + 0xD0);
     edx = MEM32(ecx);
@@ -15026,6 +15325,7 @@ loc_002F5CC9:
     PUSH32(esp, 0); fn_000299B0_CUIAnimMesh_SetPos(); /* call 0x000299B0 */
 
 loc_002F5CF3:
+    if (!movementcursor_restore_this()) goto loc_002F5DBD;
     esi = MEM32(ebx + 0x1E40);
     (void)0; /* cmp esi, 6 - flags set for next jcc */
     eax = MEM32(0x5FAAA4);
@@ -15046,6 +15346,7 @@ loc_002F5D21:
     PUSH32(esp, 0); fn_002C3730_CUIAnimMesh_RollPitchYawQuat(); /* call 0x002C3730 */
 
 loc_002F5D2D:
+    if (!movementcursor_restore_this()) goto loc_002F5DBD;
     ecx = MEM32(esp + 0x28);
     edi = MEM32(esp + 0x34);
     xmm0 = MEMF(0x5828A4); /* movss */
@@ -15077,6 +15378,7 @@ loc_002F5D2D:
     MEM32(0x613F30) = edx;
 
 loc_002F5DAA:
+    if (!movementcursor_restore_this()) goto loc_002F5DBD;
     xmm0 = 0.0f; /* xorps self = zero */
     MEMF(ebx + 0x1E5C) = xmm0; /* movss */
     MEMF(ebx + 0x1E58) = xmm0; /* movss */

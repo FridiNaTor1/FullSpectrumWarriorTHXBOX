@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720" viewBox="0 0 1280 720">
+  <rect width="1280" height="720" fill="#161719"/>
+  <rect x="72" y="72" width="1136" height="576" rx="8" fill="#23262a" stroke="#59606a" stroke-width="2"/>
+  <text x="104" y="136" fill="#f7f3ea" font-family="DejaVu Sans Mono, monospace" font-size="34">Real Shell Render Path</text>
+  <text x="104" y="196" fill="#d8caa6" font-family="DejaVu Sans Mono, monospace" font-size="24">Shell.pak resources now reach the Vulkan UI draw path</text>
+  <text x="104" y="284" fill="#e3ded2" font-family="DejaVu Sans Mono, monospace" font-size="24">Observed in runtime logs</text>
+  <text x="128" y="334" fill="#9ee0ff" font-family="DejaVu Sans Mono, monospace" font-size="22">menu.ui loads and LaunchMenu selects shell CRC 2AC92FB0</text>
+  <text x="128" y="374" fill="#9ee0ff" font-family="DejaVu Sans Mono, monospace" font-size="22">SHL_BACKGROUND texture CRC 99D7384A resolves from PAK data</text>
+  <text x="128" y="414" fill="#9ee0ff" font-family="DejaVu Sans Mono, monospace" font-size="22">SHL_Logo texture CRC 9C7F2F31 decodes as 512x128 DXT data</text>
+  <text x="128" y="454" fill="#9ee0ff" font-family="DejaVu Sans Mono, monospace" font-size="22">Direct splash/media texture CRC 7B22D2B0 decodes as 1024x512</text>
+  <text x="128" y="494" fill="#9ee0ff" font-family="DejaVu Sans Mono, monospace" font-size="22">UIFont rendering reaches real text draw calls</text>
+  <text x="104" y="586" fill="#ffd18a" font-family="DejaVu Sans Mono, monospace" font-size="22">Next: correct final menu transforms, animation timing, and capture real frames.</text>
+</svg>

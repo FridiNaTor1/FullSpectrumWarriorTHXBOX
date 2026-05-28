@@ -7,6 +7,12 @@
 #define RECOMP_GENERATED_CODE
 #include "recomp_funcs.h"
 #include <math.h>
+#include <stdio.h>
+
+static int creportingmanager_va_range_is_valid(uint32_t va, uint32_t size)
+{
+    return va >= 0x00010000u && va < 0x04000000u && size <= 0x04000000u - va;
+}
 
 /**
  * fn_0002F140_CTrigger_GetDebugName
@@ -3540,6 +3546,18 @@ loc_00296C24:
     if (TEST_Z(ecx, ecx)) goto loc_00296D64; /* je: equal / zero */
 
 loc_00296C38:
+    if (!creportingmanager_va_range_is_valid(ecx, 4) ||
+        !creportingmanager_va_range_is_valid(MEM32(ecx), 0x84)) {
+        static uint32_t invalid_unsynced_owner_logs = 0;
+        if (invalid_unsynced_owner_logs < 8 || (invalid_unsynced_owner_logs % 8192) == 0) {
+            fprintf(stderr,
+                    "[FSW/Reporting] skipping unsynced visibility owner callback owner=%08X vtbl=%08X\n",
+                    (unsigned)ecx,
+                    (unsigned)(creportingmanager_va_range_is_valid(ecx, 4) ? MEM32(ecx) : 0));
+        }
+        invalid_unsynced_owner_logs++;
+        goto loc_00296D64;
+    }
     edx = MEM32(ecx);
     { uint32_t _icall_esp = g_esp;
     PUSH32(esp, 0); RECOMP_ICALL_SAFE(MEM32(edx + 0x80), _icall_esp); /* indirect call */
@@ -3659,12 +3677,36 @@ loc_00296D08:
 
 loc_00296D0F:
     ecx = MEM32(esp + 0xC);
+    if (!creportingmanager_va_range_is_valid(ecx, 4) ||
+        !creportingmanager_va_range_is_valid(MEM32(ecx), 0xD0)) {
+        static uint32_t invalid_unsynced_target_logs = 0;
+        if (invalid_unsynced_target_logs < 8 || (invalid_unsynced_target_logs % 120) == 0) {
+            fprintf(stderr,
+                    "[FSW/Reporting] skipping unsynced visibility target callback target=%08X vtbl=%08X\n",
+                    (unsigned)ecx,
+                    (unsigned)(creportingmanager_va_range_is_valid(ecx, 4) ? MEM32(ecx) : 0));
+        }
+        invalid_unsynced_target_logs++;
+        goto loc_00296D64;
+    }
     edx = MEM32(ecx);
     { uint32_t _icall_esp = g_esp;
     PUSH32(esp, 0); RECOMP_ICALL_SAFE(MEM32(edx + 0xCC), _icall_esp); /* indirect call */
     }
 
 loc_00296D1B:
+    if (!creportingmanager_va_range_is_valid(eax, 4) ||
+        !creportingmanager_va_range_is_valid(MEM32(eax), 0xEC)) {
+        static uint32_t invalid_unsynced_team_logs = 0;
+        if (invalid_unsynced_team_logs < 8 || (invalid_unsynced_team_logs % 120) == 0) {
+            fprintf(stderr,
+                    "[FSW/Reporting] skipping unsynced visibility team callback team=%08X vtbl=%08X\n",
+                    (unsigned)eax,
+                    (unsigned)(creportingmanager_va_range_is_valid(eax, 4) ? MEM32(eax) : 0));
+        }
+        invalid_unsynced_team_logs++;
+        goto loc_00296D64;
+    }
     edx = MEM32(eax);
     ecx = eax;
     { uint32_t _icall_esp = g_esp;
@@ -4696,10 +4738,110 @@ loc_00297531:
 
 }
 
-/* Fallback for unresolved generated target 0x00297550. */
 void fn_00297550_CReportingManager_IsTriggerSet(void)
 {
-    recomp_missing_target(0x00297550u);
+    int _flags = 0; /* fallback flag var */
+
+loc_00297550:
+    PUSH32(esp, ecx);
+    PUSH32(esp, ebx);
+    PUSH32(esp, esi);
+    esi = MEM32(esp + 0x10);
+    if (!creportingmanager_va_range_is_valid(esi, 0x8F)) {
+        static uint32_t invalid_is_trigger_set_logs = 0;
+        if (invalid_is_trigger_set_logs < 8 || (invalid_is_trigger_set_logs % 120) == 0) {
+            fprintf(stderr, "[FSW/Reporting] IsTriggerSet invalid button=%08X\n", (unsigned)esi);
+        }
+        invalid_is_trigger_set_logs++;
+        SET_LO8(eax, 0);
+        POP32(esp, esi);
+        POP32(esp, ebx);
+        POP32(esp, ecx);
+        esp += 4; return; /* ret */
+    }
+    SET_LO8(ecx, MEM8(esi + 0x8E));
+    SET_LO8(eax, 0);
+    PUSH32(esp, edi);
+    MEM8(esp + 0xF) = LO8(eax);
+    if (TEST_Z(LO8(ecx), LO8(ecx))) goto loc_002975E0; /* je: equal / zero */
+
+loc_00297568:
+    eax = esp + 0xF;
+    PUSH32(esp, eax);
+    PUSH32(esp, ecx);
+    ecx = MEM32(esi);
+    eax = esp;
+    MEM32(eax) = ecx;
+    PUSH32(esp, 0); fn_001EF790_CManualTrigger_GetManualTrigger(); /* call 0x001EF790 */
+
+loc_00297579:
+    SET_LO8(ebx, MEM8(esp + 0x17));
+    esp = esp + 8;
+    if (TEST_Z(LO8(ebx), LO8(ebx))) goto loc_002975DE; /* je: equal / zero */
+
+loc_00297584:
+    SET_LO8(eax, MEM8(esi + 0x8E));
+    if (TEST_Z(LO8(eax), LO8(eax))) goto loc_002975DE; /* je: equal / zero */
+
+loc_0029758E:
+    eax = MEM32(0x608470);
+    ecx = 0; /* xor self */
+    if (TEST_Z(eax, eax)) goto loc_002975AC; /* je: equal / zero */
+
+loc_002975A0:
+    if (!creportingmanager_va_range_is_valid(eax, 8)) {
+        static uint32_t invalid_report_list_logs = 0;
+        if (invalid_report_list_logs < 8 || (invalid_report_list_logs % 120) == 0) {
+            fprintf(stderr, "[FSW/Reporting] IsTriggerSet stopping invalid report list node=%08X\n",
+                    (unsigned)eax);
+        }
+        invalid_report_list_logs++;
+        goto loc_002975AC;
+    }
+    if (CMP_EQ(MEM32(eax), esi)) goto loc_002975E5; /* je: equal / zero */
+
+loc_002975A4:
+    eax = MEM32(eax + 4);
+    ecx++;
+    if (TEST_NZ(eax, eax)) goto loc_002975A0; /* jne: not equal / not zero */
+
+loc_002975AC:
+    edi = 0xFFFFFFFFu;
+    eax = esp + 0x14;
+    ecx = 0x608468;
+    PUSH32(esp, 0); fn_000367D0_PAVCGnatPosition_ZeroList_Remove(); /* call 0x000367D0 */
+
+loc_002975BD:
+    PUSH32(esp, esi);
+    PUSH32(esp, 0); fn_00296D80_1CReportButtonData_QAE_XZ(); /* call 0x00296D80 */
+
+loc_002975C3:
+    PUSH32(esp, esi);
+    PUSH32(esp, 0); fn_001293F0_3_YAXPAX_Z(); /* call 0x001293F0 */
+
+loc_002975C9:
+    esp = esp + 4;
+    PUSH32(esp, 0); fn_00295A30_CReportingManager_RefreshStrings(); /* call 0x00295A30 */
+
+loc_002975D1:
+    if (CMP_G(edi, MEM32(0x57F374))) goto loc_002975DE; /* jg: greater (signed >) */
+
+loc_002975D9:
+    PUSH32(esp, 0); fn_00295910_CReportingManager_MoveLeft(); /* call 0x00295910 */
+
+loc_002975DE:
+    SET_LO8(eax, LO8(ebx));
+
+loc_002975E0:
+    POP32(esp, edi);
+    POP32(esp, esi);
+    POP32(esp, ebx);
+    POP32(esp, ecx);
+    esp += 4; return; /* ret */
+
+loc_002975E5:
+    edi = ecx;
+    goto loc_002975AC;
 }
 
 /**
@@ -5258,6 +5400,9 @@ loc_002979A1:
 void fn_002979B0_CReportingManager_UpdateVisibility(void)
 {
     uint32_t ebp;
+    uint32_t visibility_iterations = 0;
+    uint32_t last_visibility_node = 0;
+    uint32_t repeated_visibility_node = 0;
     int _flags = 0; /* fallback flag var */
     ebp = g_seh_ebp; /* fpo_leaf: inherit caller's frame */
 
@@ -5286,6 +5431,38 @@ loc_002979EB:
     /* nop */
 
 loc_002979F0:
+    if (!creportingmanager_va_range_is_valid(ebp, 8)) {
+        fprintf(stderr, "[FSW/Reporting] stopping visibility update invalid node=%08X iter=%u\n",
+                (unsigned)ebp, (unsigned)visibility_iterations);
+        ebp = 0;
+        goto loc_00297C86;
+    }
+    visibility_iterations++;
+    if (visibility_iterations <= 8) {
+        fprintf(stderr, "[FSW/Reporting] visibility node #%u node=%08X data=%08X next=%08X esp=%08X\n",
+                (unsigned)visibility_iterations,
+                (unsigned)ebp,
+                (unsigned)MEM32(ebp),
+                (unsigned)MEM32(ebp + 4),
+                (unsigned)esp);
+    }
+    if (ebp == last_visibility_node) {
+        repeated_visibility_node++;
+    } else {
+        last_visibility_node = ebp;
+        repeated_visibility_node = 0;
+    }
+    if (repeated_visibility_node >= 2 || visibility_iterations > 4096) {
+        fprintf(stderr,
+                "[FSW/Reporting] stopping visibility update cyclic list node=%08X data=%08X next=%08X iter=%u repeat=%u\n",
+                (unsigned)ebp,
+                (unsigned)MEM32(ebp),
+                (unsigned)MEM32(ebp + 4),
+                (unsigned)visibility_iterations,
+                (unsigned)repeated_visibility_node);
+        ebp = 0;
+        goto loc_00297C86;
+    }
     eax = MEM32(ebp);
     ecx = MEM32(ebp + 4);
     PUSH32(esp, eax);
@@ -5384,6 +5561,18 @@ loc_00297AF2:
 
 loc_00297AF6:
     ecx = MEM32(esp + 0x4C);
+    if (!creportingmanager_va_range_is_valid(ecx, 4) ||
+        !creportingmanager_va_range_is_valid(MEM32(ecx), 0x3C)) {
+        static uint32_t invalid_visibility_trigger_logs = 0;
+        if (invalid_visibility_trigger_logs < 8 || (invalid_visibility_trigger_logs % 120) == 0) {
+            fprintf(stderr,
+                    "[FSW/Reporting] skipping visibility trigger callback trigger=%08X vtbl=%08X\n",
+                    (unsigned)ecx,
+                    (unsigned)(creportingmanager_va_range_is_valid(ecx, 4) ? MEM32(ecx) : 0));
+        }
+        invalid_visibility_trigger_logs++;
+        goto loc_00297AFF;
+    }
     edx = MEM32(ecx);
     { uint32_t _icall_esp = g_esp;
     PUSH32(esp, 0); RECOMP_ICALL_SAFE(MEM32(edx + 0x38), _icall_esp); /* indirect call */
@@ -5400,6 +5589,18 @@ loc_00297B08:
     if (TEST_Z(eax, eax)) goto loc_00297B1A; /* je: equal / zero */
 
 loc_00297B13:
+    if (!creportingmanager_va_range_is_valid(eax, 4) ||
+        !creportingmanager_va_range_is_valid(MEM32(eax), 0x38)) {
+        static uint32_t invalid_visibility_action_logs = 0;
+        if (invalid_visibility_action_logs < 8 || (invalid_visibility_action_logs % 120) == 0) {
+            fprintf(stderr,
+                    "[FSW/Reporting] skipping visibility action callback action=%08X vtbl=%08X\n",
+                    (unsigned)eax,
+                    (unsigned)(creportingmanager_va_range_is_valid(eax, 4) ? MEM32(eax) : 0));
+        }
+        invalid_visibility_action_logs++;
+        goto loc_00297B1A;
+    }
     edx = MEM32(eax);
     ecx = eax;
     { uint32_t _icall_esp = g_esp;
@@ -5413,6 +5614,18 @@ loc_00297B1A:
     if (TEST_Z(ecx, ecx)) goto loc_00297B30; /* je: equal / zero */
 
 loc_00297B2B:
+    if (!creportingmanager_va_range_is_valid(ecx, 4) ||
+        !creportingmanager_va_range_is_valid(MEM32(ecx), 0x3C)) {
+        static uint32_t invalid_visibility_cleanup_logs = 0;
+        if (invalid_visibility_cleanup_logs < 8 || (invalid_visibility_cleanup_logs % 120) == 0) {
+            fprintf(stderr,
+                    "[FSW/Reporting] skipping visibility cleanup callback trigger=%08X vtbl=%08X\n",
+                    (unsigned)ecx,
+                    (unsigned)(creportingmanager_va_range_is_valid(ecx, 4) ? MEM32(ecx) : 0));
+        }
+        invalid_visibility_cleanup_logs++;
+        goto loc_00297B30;
+    }
     eax = MEM32(ecx);
     { uint32_t _icall_esp = g_esp;
     PUSH32(esp, 0); RECOMP_ICALL_SAFE(MEM32(eax + 0x38), _icall_esp); /* indirect call */

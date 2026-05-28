@@ -7,6 +7,18 @@
 #define RECOMP_GENERATED_CODE
 #include "recomp_funcs.h"
 #include <math.h>
+#include <stdio.h>
+
+static int hudicon_va_range_is_valid(uint32_t va, uint32_t size)
+{
+    if (size == 0) {
+        return va >= 0x00010000u && va < 0x04000000u;
+    }
+    if (va < 0x00010000u || va >= 0x04000000u || va + size < va) {
+        return 0;
+    }
+    return va + size <= 0x04000000u;
+}
 
 /**
  * fn_003AEC80_HUDIcon_Clear
@@ -20,13 +32,25 @@ void fn_003AEC80_HUDIcon_Clear(void)
     float xmm0, xmm1;
 
 loc_003AEC80:
+    if (!hudicon_va_range_is_valid(eax, 0x58)) {
+        fprintf(stderr, "[FSW/HUD] skipping HUDIcon_Clear invalid icon=%08X\n", eax);
+        esp += 4; return; /* ret */
+    }
     PUSH32(esp, ecx);
     ecx = MEM32(eax + 4);
     edx = MEM32(eax + 8);
-    MEM32(ecx + 8) = edx;
+    if (hudicon_va_range_is_valid(ecx, 0xC) && hudicon_va_range_is_valid(edx, 0xC)) {
+        MEM32(ecx + 8) = edx;
+    } else {
+        fprintf(stderr, "[FSW/HUD] repairing HUDIcon_Clear list icon=%08X prev=%08X next=%08X\n", eax, ecx, edx);
+        ecx = eax;
+        edx = eax;
+    }
     ecx = MEM32(eax + 8);
     edx = MEM32(eax + 4);
-    MEM32(ecx + 4) = edx;
+    if (hudicon_va_range_is_valid(ecx, 0xC) && hudicon_va_range_is_valid(edx, 0xC)) {
+        MEM32(ecx + 4) = edx;
+    }
     edx = MEM32(eax + 0x48);
     xmm0 = 0.0f; /* xorps self = zero */
     xmm1 = MEMF(0x561704); /* movss */

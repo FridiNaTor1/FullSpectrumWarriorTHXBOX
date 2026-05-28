@@ -7,6 +7,12 @@
 #define RECOMP_GENERATED_CODE
 #include "recomp_funcs.h"
 #include <math.h>
+#include <stdio.h>
+
+static int cdecalbuffer_va_range_is_valid(uint32_t va, uint32_t size)
+{
+    return va >= 0x00010000u && va < 0x04000000u && size <= 0x04000000u - va;
+}
 
 /**
  * fn_0004EDB0_0CDecal_QAE_XZ
@@ -985,11 +991,16 @@ loc_0017A62F:
 void fn_0017A640_CDecalBuffer_Update(void)
 {
     uint32_t ebp;
+    static int logged_uninitialized_decal_buffer = 0;
     int _flags = 0; /* fallback flag var */
     float xmm0, xmm1;
     ebp = g_seh_ebp; /* fpo_leaf: inherit caller's frame */
 
 loc_0017A640:
+    if (!cdecalbuffer_va_range_is_valid(ecx, 0x40)) {
+        fprintf(stderr, "[FSW/Decal] skipping invalid decal buffer=%08X\n", ecx);
+        esp += 4; return; /* ret */
+    }
     xmm0 = xmm0 + MEMF(ecx + 0x38); /* addss */
     xmm1 = MEMF(0x5614D4); /* movss */
     esp = esp - 8;
@@ -1008,6 +1019,14 @@ loc_0017A674:
     MEMF(ecx + 0x38) = xmm1; /* movss */
 
 loc_0017A679:
+    if (MEM32(ecx + 4) == 0 || MEM32(ecx + 0x14) == 0 || MEM32(ecx + 0x28) == 0) {
+        if (!logged_uninitialized_decal_buffer) {
+            fprintf(stderr, "[FSW/Decal] skipping uninitialized decal buffer=%08X counts=%u/%u/%u\n",
+                    ecx, MEM32(ecx + 4), MEM32(ecx + 0x14), MEM32(ecx + 0x28));
+            logged_uninitialized_decal_buffer = 1;
+        }
+        goto loc_0017A770;
+    }
     eax = MEM32(ecx + 0xC);
     edx = ((int32_t)eax < 0) ? 0xFFFFFFFF : 0; /* cdq */
     PUSH32(esp, ebp);

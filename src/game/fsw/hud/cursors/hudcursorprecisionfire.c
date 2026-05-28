@@ -7,6 +7,18 @@
 #define RECOMP_GENERATED_CODE
 #include "recomp_funcs.h"
 #include <math.h>
+#include <stdio.h>
+
+static int hudprecision_va_range_is_valid(uint32_t va, uint32_t size)
+{
+    if (size == 0) {
+        return va >= 0x00010000u && va < 0x04000000u;
+    }
+    if (va < 0x00010000u || va >= 0x04000000u || va + size < va) {
+        return 0;
+    }
+    return va + size <= 0x04000000u;
+}
 
 /**
  * fn_0002CCB0_0HUDCursorPrecisionFire_QAE_XZ
@@ -456,6 +468,10 @@ loc_002C0C81:
     if (CMP_EQ(eax, ebx)) goto loc_002C0CB1; /* je: equal / zero */
 
 loc_002C0C8B:
+    if (!hudprecision_va_range_is_valid(eax, 0xB8)) {
+        fprintf(stderr, "[FSW/HUD] skipping PrecisionFire tex entry index=%u object=%08X\n", esi >> 2, eax);
+        goto loc_002C0CB1;
+    }
     ecx = MEM32(eax + 0xB4);
     eax = eax + 0xB4;
     if (CMP_NE(ecx, ebx)) goto loc_002C0C9F; /* jne: not equal / not zero */

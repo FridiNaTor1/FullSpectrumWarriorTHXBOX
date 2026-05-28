@@ -7,6 +7,43 @@
 #define RECOMP_GENERATED_CODE
 #include "recomp_funcs.h"
 #include <math.h>
+#include <stdio.h>
+
+static int hudsoldiericons_va_range_is_valid(uint32_t va, uint32_t size)
+{
+    if (size == 0) {
+        return va >= 0x00010000u && va < 0x04000000u;
+    }
+    if (va < 0x00010000u || va >= 0x04000000u || va + size < va) {
+        return 0;
+    }
+    return va + size <= 0x04000000u;
+}
+
+static void hudsoldiericons_reset_list(uint32_t head, const char *tag)
+{
+    uint32_t prev;
+    uint32_t next;
+
+    if (!hudsoldiericons_va_range_is_valid(head, 0xC)) {
+        fprintf(stderr, "[FSW/HUD] skipping HUDSoldierIcons %s invalid list head=%08X\n", tag, head);
+        return;
+    }
+
+    prev = MEM32(head + 4);
+    next = MEM32(head + 8);
+    if (hudsoldiericons_va_range_is_valid(prev, 0xC) &&
+        hudsoldiericons_va_range_is_valid(next, 0xC)) {
+        MEM32(prev + 8) = next;
+        MEM32(next + 4) = prev;
+    } else {
+        fprintf(stderr, "[FSW/HUD] repairing HUDSoldierIcons %s list head=%08X prev=%08X next=%08X\n",
+                tag, head, prev, next);
+    }
+
+    MEM32(head + 8) = head;
+    MEM32(head + 4) = head;
+}
 
 /**
  * fn_0002C020_CHUDActorData_GetBestKnownTeam
@@ -179,15 +216,8 @@ loc_003D284C:
 loc_003D284F:
     MEM32(edi + 0x10) = ebx;
     MEM32(edi + 0x14) = ebx;
-    ecx = MEM32(edi + 0x1C);
-    edx = MEM32(edi + 0x20);
     eax = edi + 0x18;
-    MEM32(ecx + 8) = edx;
-    ecx = MEM32(eax + 8);
-    edx = MEM32(eax + 4);
-    MEM32(ecx + 4) = edx;
-    MEM32(eax + 8) = eax;
-    MEM32(eax + 4) = eax;
+    hudsoldiericons_reset_list(eax, "primary");
     PUSH32(esp, 0); fn_003AEC80_HUDIcon_Clear(); /* call 0x003AEC80 */
 
 loc_003D2875:
@@ -204,16 +234,9 @@ loc_003D2882:
 loc_003D2885:
     MEM32(edi + 0x7C) = ebx;
     MEM32(edi + 0x80) = ebx;
-    ecx = MEM32(edi + 0x88);
-    edx = MEM32(edi + 0x8C);
     eax = edi + 0x84;
-    MEM32(ecx + 8) = edx;
-    ecx = MEM32(eax + 8);
-    edx = MEM32(eax + 4);
-    MEM32(ecx + 4) = edx;
     PUSH32(esp, esi);
-    MEM32(eax + 8) = eax;
-    MEM32(eax + 4) = eax;
+    hudsoldiericons_reset_list(eax, "secondary");
     PUSH32(esp, 0); fn_003AEC80_HUDIcon_Clear(); /* call 0x003AEC80 */
 
 loc_003D28B8:
@@ -236,15 +259,8 @@ loc_003D28D4:
 loc_003D28D7:
     MEM32(edi + 0x218) = ebx;
     MEM32(edi + 0x21C) = ebx;
-    ecx = MEM32(edi + 0x224);
-    edx = MEM32(edi + 0x228);
     eax = edi + 0x220;
-    MEM32(ecx + 8) = edx;
-    ecx = MEM32(eax + 8);
-    edx = MEM32(eax + 4);
-    MEM32(ecx + 4) = edx;
-    MEM32(eax + 8) = eax;
-    MEM32(eax + 4) = eax;
+    hudsoldiericons_reset_list(eax, "tertiary");
     PUSH32(esp, 0); fn_003AEC80_HUDIcon_Clear(); /* call 0x003AEC80 */
 
 loc_003D290C:

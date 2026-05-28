@@ -7,6 +7,12 @@
 #define RECOMP_GENERATED_CODE
 #include "recomp_funcs.h"
 #include <math.h>
+#include <stdio.h>
+
+static int replaydisplay_va_range_is_valid(uint32_t va, uint32_t size)
+{
+    return va > 0x00010000u && va < 0x04000000u && size <= 0x04000000u - va;
+}
 
 /**
  * fn_0002C640_CReplayDisplay_Get
@@ -189,8 +195,34 @@ void fn_002CBA60_CReplayDisplay_Update(void)
     ebp = g_seh_ebp; /* fpo_leaf: inherit caller's frame */
 
 loc_002CBA60:
+    if (!replaydisplay_va_range_is_valid(ecx, 0x84)) {
+        static uint32_t logged_bad_display;
+        if (logged_bad_display < 8) {
+            fprintf(stderr, "[FSW/ReplayDisplay] skipping update invalid display=%08X\n",
+                    (unsigned)ecx);
+            logged_bad_display++;
+        }
+        esp += 8; return; /* ret 4 */
+    }
+    if (MEM8(ecx + 0x7D) == 0) {
+        static uint32_t logged_inactive;
+        if (logged_inactive < 4) {
+            fprintf(stderr, "[FSW/ReplayDisplay] inactive update display=%08X root=%08X\n",
+                    (unsigned)ecx, (unsigned)MEM32(ecx + 0x78));
+            logged_inactive++;
+        }
+        esp += 8; return; /* ret 4 */
+    }
     ecx = MEM32(ecx + 0x78);
-    if (ecx == 0 || ecx >= 0x04000000u) {
+    if (!replaydisplay_va_range_is_valid(ecx, 4) ||
+        !replaydisplay_va_range_is_valid(MEM32(ecx), 0xC)) {
+        static uint32_t logged_bad_root;
+        if (logged_bad_root < 8) {
+            fprintf(stderr, "[FSW/ReplayDisplay] skipping update invalid root=%08X vtbl=%08X\n",
+                    (unsigned)ecx,
+                    (unsigned)(replaydisplay_va_range_is_valid(ecx, 4) ? MEM32(ecx) : 0));
+            logged_bad_root++;
+        }
         esp += 8; return; /* ret 4 */
     }
     eax = MEM32(ecx);
@@ -785,6 +817,10 @@ loc_002CBD90:
     PUSH32(esp, esi);
     PUSH32(esp, edi);
     ebx = ecx;
+    if (!replaydisplay_va_range_is_valid(ebx, 0x84)) {
+        fprintf(stderr, "[FSW/ReplayDisplay] skipping submit invalid display=%08X\n", (unsigned)ebx);
+        goto loc_002CBF64;
+    }
     if (TEST_NZ(LO8(eax), 1)) goto loc_002CBF64; /* jne: not equal / not zero */
 
 loc_002CBDAE:
@@ -816,6 +852,12 @@ loc_002CBDEF:
     memcpy((void*)XBOX_PTR(edi), (void*)XBOX_PTR(esi), ecx * 4);
     esi += ecx * 4; edi += ecx * 4; ecx = 0; /* rep movsd */
     ecx = MEM32(ebx + 0x78);
+    if (!replaydisplay_va_range_is_valid(ecx, 4) ||
+        !replaydisplay_va_range_is_valid(MEM32(ecx), 8)) {
+        fprintf(stderr, "[FSW/ReplayDisplay] skipping submit invalid root control=%08X display=%08X\n",
+                (unsigned)ecx, (unsigned)ebx);
+        goto loc_002CBF64;
+    }
     eax = MEM32(ecx);
     { uint32_t _icall_esp = g_esp;
     PUSH32(esp, edx);
@@ -924,6 +966,15 @@ loc_002CBEF8:
 
 loc_002CBF0E:
     eax = MEM32(ebx + 0x78);
+    if (!replaydisplay_va_range_is_valid(eax, 0x38) ||
+        !replaydisplay_va_range_is_valid(MEM32(eax + 0x34), 4) ||
+        !replaydisplay_va_range_is_valid(MEM32(MEM32(eax + 0x34)), 0x1C)) {
+        fprintf(stderr, "[FSW/ReplayDisplay] skipping submit invalid slider=%08X data=%08X display=%08X\n",
+                (unsigned)eax,
+                (unsigned)(replaydisplay_va_range_is_valid(eax, 0x38) ? MEM32(eax + 0x34) : 0),
+                (unsigned)ebx);
+        goto loc_002CBF64;
+    }
     ecx = MEM32(eax + 0x34);
     eax = MEM32(ecx);
     { uint32_t _icall_esp = g_esp;

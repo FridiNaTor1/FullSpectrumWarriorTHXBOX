@@ -7,6 +7,18 @@
 #define RECOMP_GENERATED_CODE
 #include "recomp_funcs.h"
 #include <math.h>
+#include <stdio.h>
+
+static int ccinematic_va_range_is_valid(uint32_t va, uint32_t size)
+{
+    if (size == 0) {
+        return va >= 0x00010000u && va < 0x04000000u;
+    }
+    if (va < 0x00010000u || va >= 0x04000000u || va + size < va) {
+        return 0;
+    }
+    return va + size <= 0x04000000u;
+}
 
 /**
  * fn_0004DE90_CCinematic_Load
@@ -103,13 +115,53 @@ loc_0004DED8:
  */
 void fn_0004E5F0_PAVCDialogEvent_ZeroList_Remove(void)
 {
+    static uint32_t remove_invalid_log_count;
+    uint32_t iterator;
+    uint32_t node;
+    uint32_t next;
+    uint32_t out_iterator;
+    uint32_t list;
 
 loc_0004E5F0:
-    eax = MEM32(eax);
+    iterator = eax;
+    out_iterator = esi;
+    list = edi;
+    if (!ccinematic_va_range_is_valid(iterator, 4) ||
+        !ccinematic_va_range_is_valid(out_iterator, 8) ||
+        !ccinematic_va_range_is_valid(list, 0xC)) {
+        if (remove_invalid_log_count < 32 || (remove_invalid_log_count % 256) == 0) {
+            fprintf(stderr, "[FSW/Cinematic] iterator remove skipped invalid iterator=%08X out=%08X list=%08X\n",
+                    (unsigned)iterator, (unsigned)out_iterator, (unsigned)list);
+        }
+        remove_invalid_log_count++;
+        if (ccinematic_va_range_is_valid(out_iterator, 8)) {
+            MEM32(out_iterator) = 0;
+            MEM32(out_iterator + 4) = list;
+            eax = out_iterator;
+        }
+        esp += 4; return; /* ret */
+    }
+    node = MEM32(iterator);
+    if (!ccinematic_va_range_is_valid(node, 0xC)) {
+        if (remove_invalid_log_count < 32 || (remove_invalid_log_count % 256) == 0) {
+            fprintf(stderr, "[FSW/Cinematic] iterator remove skipped invalid node iterator=%08X node=%08X list=%08X\n",
+                    (unsigned)iterator, (unsigned)node, (unsigned)list);
+        }
+        remove_invalid_log_count++;
+        MEM32(out_iterator) = 0;
+        MEM32(out_iterator + 4) = list;
+        eax = out_iterator;
+        esp += 4; return; /* ret */
+    }
+    eax = node;
     PUSH32(esp, ebx);
-    ebx = MEM32(eax + 4);
-    ecx = edi;
+    next = MEM32(eax + 4);
+    ebx = next;
+    ecx = list;
     PUSH32(esp, 0); fn_0003E000_PAVCHavokBody_ZeroList_Remove(); /* call 0x0003E000 */
+    esi = out_iterator;
+    edi = list;
+    ebx = next;
 
 loc_0004E5FD:
     MEM32(esi) = ebx;
@@ -1620,6 +1672,7 @@ loc_0018A535:
 void fn_0018A540_CCinematicData_TickAll(void)
 {
     uint32_t ebp;
+    static uint32_t tickall_invalid_log_count;
     int _flags = 0; /* fallback flag var */
 
 loc_0018A540:
@@ -1629,6 +1682,16 @@ loc_0018A540:
     esp = esp - 0x10;
     PUSH32(esp, esi);
     esi = MEM32(0x612E10);
+    if (esi != 0 && !ccinematic_va_range_is_valid(esi, 8)) {
+        if (tickall_invalid_log_count < 32 || (tickall_invalid_log_count % 256) == 0) {
+            fprintf(stderr, "[FSW/Cinematic] TickAll clearing invalid head=%08X list=612E08\n",
+                    (unsigned)esi);
+        }
+        tickall_invalid_log_count++;
+        MEM32(0x612E10) = 0;
+        MEM32(0x612E0C) = 0;
+        esi = 0;
+    }
     (void)0; /* test esi, esi - flags set for next jcc */
     PUSH32(esp, edi);
     MEM32(esp + 0xC) = 0x612E08;
@@ -1636,10 +1699,36 @@ loc_0018A540:
     if (TEST_Z(esi, esi)) goto loc_0018A599; /* je: equal / zero */
 
 loc_0018A561:
+    if (!ccinematic_va_range_is_valid(esi, 8)) {
+        if (tickall_invalid_log_count < 32 || (tickall_invalid_log_count % 256) == 0) {
+            fprintf(stderr, "[FSW/Cinematic] TickAll stopped invalid node=%08X\n",
+                    (unsigned)esi);
+        }
+        tickall_invalid_log_count++;
+        esi = 0;
+        goto loc_0018A599;
+    }
     eax = MEM32(esi);
+    if (!ccinematic_va_range_is_valid(eax, 0x54)) {
+        if (tickall_invalid_log_count < 32 || (tickall_invalid_log_count % 256) == 0) {
+            fprintf(stderr, "[FSW/Cinematic] TickAll removing invalid data node=%08X data=%08X\n",
+                    (unsigned)esi, (unsigned)eax);
+        }
+        tickall_invalid_log_count++;
+        esi = MEM32(esi + 4);
+        if (esi != 0 && !ccinematic_va_range_is_valid(esi, 8)) {
+            esi = 0;
+        }
+        goto loc_0018A591;
+    }
     PUSH32(esp, 0); fn_0018A420_CCinematicData_Tick(); /* call 0x0018A420 */
 
 loc_0018A568:
+    if (!ccinematic_va_range_is_valid(esi, 8) ||
+        !ccinematic_va_range_is_valid(MEM32(esi), 0x54)) {
+        esi = 0;
+        goto loc_0018A591;
+    }
     eax = MEM32(esi);
     SET_LO8(ecx, MEM8(eax + 0x50));
     if (TEST_Z(LO8(ecx), LO8(ecx))) goto loc_0018A58E; /* je: equal / zero */
@@ -1653,11 +1742,27 @@ loc_0018A571:
 loc_0018A583:
     ecx = MEM32(eax + 4);
     esi = MEM32(eax);
+    if (esi != 0 && !ccinematic_va_range_is_valid(esi, 8)) {
+        if (tickall_invalid_log_count < 32 || (tickall_invalid_log_count % 256) == 0) {
+            fprintf(stderr, "[FSW/Cinematic] TickAll stopped invalid next after remove next=%08X list=%08X\n",
+                    (unsigned)esi, (unsigned)ecx);
+        }
+        tickall_invalid_log_count++;
+        esi = 0;
+    }
     MEM32(esp + 0xC) = ecx;
     goto loc_0018A591;
 
 loc_0018A58E:
     esi = MEM32(esi + 4);
+    if (esi != 0 && !ccinematic_va_range_is_valid(esi, 8)) {
+        if (tickall_invalid_log_count < 32 || (tickall_invalid_log_count % 256) == 0) {
+            fprintf(stderr, "[FSW/Cinematic] TickAll stopped invalid next=%08X\n",
+                    (unsigned)esi);
+        }
+        tickall_invalid_log_count++;
+        esi = 0;
+    }
 
 loc_0018A591:
     (void)0; /* test esi, esi - flags set for next jcc */

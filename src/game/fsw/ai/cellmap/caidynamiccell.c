@@ -7,6 +7,12 @@
 #define RECOMP_GENERATED_CODE
 #include "recomp_funcs.h"
 #include <math.h>
+#include <stdio.h>
+
+static int caidynamiccell_va_range_is_valid(uint32_t va, uint32_t size)
+{
+    return va >= 0x00010000u && va < 0x04000000u && size <= 0x04000000u - va;
+}
 
 /**
  * fn_00023CA0_GCAIDynamicCell_UAEPAXI_Z
@@ -1034,6 +1040,28 @@ loc_00313350:
     esi = edx;
     PUSH32(esp, edi);
     edx = 0; /* xor self */
+    if (!caidynamiccell_va_range_is_valid(eax, 0x60) ||
+        !caidynamiccell_va_range_is_valid(esi, 0x40)) {
+        fprintf(stderr, "[FSW/AI] skipping DynamicCell_SetMatrixFast invalid cell=%08X matrix=%08X\n",
+                (unsigned)eax, (unsigned)esi);
+        goto loc_003135AB;
+    }
+    if (SMEM16(eax + 0x2C) > 1024) {
+        fprintf(stderr, "[FSW/AI] skipping DynamicCell_SetMatrixFast corrupt cell count=%d cell=%08X\n",
+                (int)SMEM16(eax + 0x2C), (unsigned)eax);
+        goto loc_003135AB;
+    }
+    if (SMEM16(eax + 0x2C) > 0 &&
+        (!caidynamiccell_va_range_is_valid(MEM32(eax + 0x54), (uint32_t)SMEM16(eax + 0x2C) * 0x4Cu) ||
+         !caidynamiccell_va_range_is_valid(MEM32(eax + 0x28), (uint32_t)SMEM16(eax + 0x2C) * 4u))) {
+        fprintf(stderr,
+                "[FSW/AI] skipping DynamicCell_SetMatrixFast invalid arrays cell=%08X verts=%08X cells=%08X count=%d\n",
+                (unsigned)eax,
+                (unsigned)MEM32(eax + 0x54),
+                (unsigned)MEM32(eax + 0x28),
+                (int)SMEM16(eax + 0x2C));
+        goto loc_003135AB;
+    }
     (void)0; /* cmp MEM16(eax + 0x2C), LO16(edx) - flags set for next jcc */
     ecx = 0x10;
     edi = esp + 0x40;

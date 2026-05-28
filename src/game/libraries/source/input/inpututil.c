@@ -14,6 +14,11 @@ static int inpututil_va_is_valid(uint32_t va)
     return va >= 0x00010000u && va < 0x04000000u;
 }
 
+static int inpututil_code_va_is_valid(uint32_t va)
+{
+    return va >= 0x00010000u && va < 0x00580000u;
+}
+
 /**
  * fn_003C39E0_InputUtil_RemapCapture
  * Symbol: ?RemapCapture@InputUtil@@YAXABV?$InputArray@PAUInputDevice@@@@AAVInputCapture@@I@Z
@@ -69,6 +74,15 @@ loc_003C3A08:
 loc_003C3A13:
     esi = MEM32(esi + 0x2C);
     if (TEST_Z(esi, esi)) goto loc_003C3A20; /* je: equal / zero */
+    if (!inpututil_code_va_is_valid(esi)) {
+        static uint32_t logged_bad_callback;
+        if (logged_bad_callback < 8) {
+            fprintf(stderr, "[FSW/Input] skipping invalid remap callback=%08X capture=%08X\n",
+                    (unsigned)esi, (unsigned)MEM32(esp + 4));
+            logged_bad_callback++;
+        }
+        goto loc_003C3A20;
+    }
 
 loc_003C3A1A:
     { uint32_t _icall_esp = g_esp;

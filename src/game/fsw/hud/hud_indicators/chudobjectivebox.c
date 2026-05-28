@@ -7,6 +7,7 @@
 #define RECOMP_GENERATED_CODE
 #include "recomp_funcs.h"
 #include <math.h>
+#include <stdio.h>
 
 /**
  * fn_0002B030_0HUDFrame_QAE_XZ
@@ -925,6 +926,7 @@ void fn_003B0C00_CHUDObjectiveBox_Setup(void)
     ebp = g_seh_ebp; /* fpo_leaf: inherit caller's frame */
 
 loc_003B0C00:
+    fprintf(stderr, "[FSW/HUD] ObjectiveBox_Setup enter obj=%08X esp=%08X\n", eax, esp);
     esp = esp - 0x18;
     PUSH32(esp, ebx);
     PUSH32(esp, esi);
@@ -968,9 +970,11 @@ loc_003B0C63:
 loc_003B0C74:
     MEM32(esi) = eax;
     eax = ebx;
+    fprintf(stderr, "[FSW/HUD] ObjectiveBox_Setup before frame0 obj=%08X esp=%08X\n", eax, esp);
     PUSH32(esp, 0); fn_002C71B0_HUDFrame_Setup(); /* call 0x002C71B0 */
 
 loc_003B0C7D:
+    fprintf(stderr, "[FSW/HUD] ObjectiveBox_Setup after frame0 esp=%08X\n", esp);
     PUSH32(esp, ecx);
     eax = 0; /* xor self */
     ecx = 0x53D6E0;
@@ -996,9 +1000,11 @@ loc_003B0C9D:
 loc_003B0CAE:
     MEM32(esi) = eax;
     eax = ebx + 0x438;
+    fprintf(stderr, "[FSW/HUD] ObjectiveBox_Setup before frame1 obj=%08X esp=%08X\n", eax, esp);
     PUSH32(esp, 0); fn_002C71B0_HUDFrame_Setup(); /* call 0x002C71B0 */
 
 loc_003B0CBB:
+    fprintf(stderr, "[FSW/HUD] ObjectiveBox_Setup after frame1 esp=%08X\n", esp);
     PUSH32(esp, ecx);
     eax = 0; /* xor self */
     ecx = 0x53D6E0;
@@ -1025,9 +1031,11 @@ loc_003B0CEC:
     MEM32(esi) = eax;
     edi = ebx + 0x884;
     eax = edi;
+    fprintf(stderr, "[FSW/HUD] ObjectiveBox_Setup before frame2 obj=%08X esp=%08X\n", eax, esp);
     PUSH32(esp, 0); fn_002C71B0_HUDFrame_Setup(); /* call 0x002C71B0 */
 
 loc_003B0CFB:
+    fprintf(stderr, "[FSW/HUD] ObjectiveBox_Setup after frame2 esp=%08X\n", esp);
     xmm0 = 0.0f; /* xorps self = zero */
     MEMF(ebx + 0x87C) = xmm0; /* movss */
     MEMF(ebx + 0x880) = xmm0; /* movss */
@@ -1061,6 +1069,7 @@ void sub_003B0D4E(void)
 loc_003B0D4E:
     MEMF(ebx + 0x22C) = xmm0; /* movss */
     MEMF(ebx + 0x234) = xmm0; /* movss */
+    sub_003B0D5E(); return; /* generated split: original code falls through */
 
 }
 
@@ -1106,6 +1115,7 @@ void sub_003B0D8F(void)
 loc_003B0D8F:
     MEMF(ebx + 0x664) = xmm0; /* movss */
     MEMF(ebx + 0x66C) = xmm0; /* movss */
+    sub_003B0D9F(); return; /* generated split: original code falls through */
 
 }
 
@@ -1148,6 +1158,7 @@ void sub_003B0DC5(void)
 
 loc_003B0DC5:
     MEMF(ebx + 0xAB0) = xmm0; /* movss */
+    sub_003B0DCD(); return; /* generated split: original code falls through */
 
 }
 
@@ -1162,6 +1173,8 @@ void sub_003B0DCD(void)
     float xmm0;
 
 loc_003B0DCD:
+    fprintf(stderr, "[FSW/HUD] ObjectiveBox_Setup finalize obj=%08X timing=%08X video=%08X esp=%08X\n",
+            ebx, MEM32(0x60069C), MEM32(0x5FA8E8), esp);
     MEMF(ebx + 0xAB8) = xmm0; /* movss */
     eax = MEM32(0x60069C);
     edx = MEM32(eax + 0x28);
@@ -1197,6 +1210,7 @@ loc_003B0DCD:
     PUSH32(esp, 0); fn_002C6D00_HUDFrame_SetArea(); /* call 0x002C6D00 */
 
 loc_003B0E4A:
+    fprintf(stderr, "[FSW/HUD] ObjectiveBox_Setup leave esp=%08X\n", esp);
     POP32(esp, edi);
     POP32(esp, esi);
     POP32(esp, ebx);

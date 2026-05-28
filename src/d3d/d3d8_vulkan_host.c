@@ -89,6 +89,12 @@ typedef struct VulkanHost {
     int gpu_dump_checked;
     uint32_t gpu_dump_target_frame;
     uint32_t gpu_present_count;
+    uint32_t rhw_draw_count;
+    uint32_t rhw_textured_draw_count;
+    uint32_t rhw_vertex_count;
+    uint32_t present_gpu_count;
+    uint32_t present_copy_count;
+    uint32_t present_clear_count;
     int initialized;
 } VulkanHost;
 
@@ -1340,6 +1346,24 @@ int d3d8_vulkan_host_draw_rhw(const D3D8VulkanRhwVertex *vertices,
     end_one_time_commands(cmd);
     g_vk.render_layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
     g_vk.gpu_frame_valid = 1;
+
+    g_vk.rhw_draw_count++;
+    g_vk.rhw_vertex_count += vertex_count;
+    if (use_texture) {
+        g_vk.rhw_textured_draw_count++;
+    }
+    if (g_vk.rhw_draw_count <= 8 || (g_vk.rhw_draw_count % 512) == 0) {
+        fprintf(stderr,
+                "[D3D8/Vulkan] native RHW draw #%u vertices=%u textured=%u tex=%ux%u depth_test=%d depth_write=%d total_vertices=%u\n",
+                g_vk.rhw_draw_count,
+                vertex_count,
+                use_texture ? 1u : 0u,
+                texture_width,
+                texture_height,
+                depth_test,
+                depth_write,
+                g_vk.rhw_vertex_count);
+    }
     return 1;
 }
 
@@ -1688,6 +1712,27 @@ void d3d8_vulkan_host_present_bgra(const void *pixels, uint32_t width,
 
     vkResetCommandBuffer(g_vk.command_buffers[image_index], 0);
     int use_gpu_frame = g_vk.gpu_frame_valid && g_vk.render_image;
+    if (use_gpu_frame) {
+        g_vk.present_gpu_count++;
+    } else if (copy_pixels) {
+        g_vk.present_copy_count++;
+    } else {
+        g_vk.present_clear_count++;
+    }
+    if (g_vk.gpu_present_count <= 8 || (g_vk.gpu_present_count % 120) == 0) {
+        fprintf(stderr,
+                "[D3D8/Vulkan] present #%u mode=%s gpu=%u copy=%u clear=%u rhw_draws=%u textured=%u vertices=%u copy_size=%ux%u\n",
+                g_vk.gpu_present_count,
+                use_gpu_frame ? "native" : (copy_pixels ? "copy" : "clear"),
+                g_vk.present_gpu_count,
+                g_vk.present_copy_count,
+                g_vk.present_clear_count,
+                g_vk.rhw_draw_count,
+                g_vk.rhw_textured_draw_count,
+                g_vk.rhw_vertex_count,
+                copy_width,
+                copy_height);
+    }
     record_present(image_index, copy_pixels, copy_width, copy_height, use_gpu_frame);
 
     VkPipelineStageFlags wait_stage = VK_PIPELINE_STAGE_TRANSFER_BIT;

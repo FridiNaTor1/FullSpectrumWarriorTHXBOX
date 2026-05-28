@@ -8,6 +8,17 @@
 #include "recomp_funcs.h"
 #include <math.h>
 
+static int cscripttrigger_va_range_is_valid(uint32_t va, uint32_t size)
+{
+    if (va < 0x00010000u || va >= 0x04000000u) {
+        return 0;
+    }
+    if (size > 0x04000000u || va > 0x04000000u - size) {
+        return 0;
+    }
+    return 1;
+}
+
 /**
  * fn_00039B00_CExpression_Evaluate
  * Symbol: ?Evaluate@CExpression@@UAE_NXZ
@@ -1144,19 +1155,27 @@ loc_0003A050:
     PUSH32(esp, ecx);
     PUSH32(esp, esi);
     esi = ecx;
+    if (!cscripttrigger_va_range_is_valid(esi, 0x1C)) goto loc_0003A09A;
     MEM32(esp + 4) = esi;
     MEM32(esi) = 0x54B5E8;
     MEM32(esp + 0x10) = 0;
     ecx = MEM32(esi + 0x14);
-    eax = MEM32(ecx);
-    PUSH32(esp, 0); RECOMP_ICALL_SAFE(MEM32(eax + 0x38), _icall_esp); /* indirect call */
+    if (cscripttrigger_va_range_is_valid(ecx, 4)) {
+        eax = MEM32(ecx);
+        if (cscripttrigger_va_range_is_valid(eax, 0x3C)) {
+            PUSH32(esp, 0); RECOMP_ICALL_SAFE(MEM32(eax + 0x38), _icall_esp); /* indirect call */
+        }
+    }
     }
 
 loc_0003A083:
     ecx = MEM32(esi + 0x18);
-    edx = MEM32(ecx);
-    { uint32_t _icall_esp = g_esp;
-    PUSH32(esp, 0); RECOMP_ICALL_SAFE(MEM32(edx + 0x38), _icall_esp); /* indirect call */
+    if (cscripttrigger_va_range_is_valid(ecx, 4)) {
+        edx = MEM32(ecx);
+        if (cscripttrigger_va_range_is_valid(edx, 0x3C)) {
+            uint32_t _icall_esp = g_esp;
+            PUSH32(esp, 0); RECOMP_ICALL_SAFE(MEM32(edx + 0x38), _icall_esp); /* indirect call */
+        }
     }
 
 loc_0003A08B:

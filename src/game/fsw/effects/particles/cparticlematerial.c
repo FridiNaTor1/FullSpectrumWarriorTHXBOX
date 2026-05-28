@@ -7,6 +7,72 @@
 #define RECOMP_GENERATED_CODE
 #include "recomp_funcs.h"
 #include <math.h>
+#include <stdio.h>
+
+static int fsw_particle_va_range_is_valid(uint32_t va, uint32_t size)
+{
+    return va >= 0x00010000u && va < 0x04000000u && size <= 0x04000000u - va;
+}
+
+static void fsw_particle_repair_zerolist(uint32_t list)
+{
+    uint32_t count = MEM32(list);
+    uint32_t tail = MEM32(list + 4);
+    uint32_t head = MEM32(list + 8);
+
+    if (count == 0) {
+        if (tail != 0 || head != 0) {
+            fprintf(stderr,
+                    "[FSW/Particle] clearing empty renderer list with stale links list=%08X tail=%08X head=%08X\n",
+                    list, tail, head);
+            MEM32(list + 4) = 0;
+            MEM32(list + 8) = 0;
+        }
+        return;
+    }
+
+    if (!fsw_particle_va_range_is_valid(head, 0xC) || !fsw_particle_va_range_is_valid(tail, 0xC)) {
+        fprintf(stderr,
+                "[FSW/Particle] clearing invalid renderer list list=%08X count=%08X tail=%08X head=%08X\n",
+                list, count, tail, head);
+        MEM32(list) = 0;
+        MEM32(list + 4) = 0;
+        MEM32(list + 8) = 0;
+    }
+}
+
+static uint32_t fsw_particle_zerolist_append_value(uint32_t list, uint32_t value)
+{
+    uint32_t saved_esp = esp;
+    uint32_t node;
+    uint32_t tail;
+
+    fsw_particle_repair_zerolist(list);
+
+    PUSH32(esp, 0xC);
+    PUSH32(esp, 0);
+    fn_0009E3F2_malloc();
+    esp = saved_esp;
+
+    node = eax;
+    if (node == 0) {
+        return 0;
+    }
+
+    tail = MEM32(list + 4);
+    MEM32(list) = MEM32(list) + 1;
+    MEM32(node) = value;
+    MEM32(node + 4) = 0;
+    MEM32(node + 8) = tail;
+
+    if (tail != 0) {
+        MEM32(tail + 4) = node;
+    } else {
+        MEM32(list + 8) = node;
+    }
+    MEM32(list + 4) = node;
+    return node;
+}
 
 /**
  * fn_00011520_ZeroVideo_RequestResolutionChange
@@ -3147,12 +3213,9 @@ loc_0015A340:
     eax = MEM32(esp + 0x20);
     MEM32(edi) = 0x55FC78;
     MEM32(edi + 0x14) = eax;
-    ebx = esp + 0x20;
-    esi = 0x613448;
     MEM32(edi + 0x18) = ecx;
     MEM32(edi + 0x10) = edx;
-    MEM32(esp + 0x20) = edi;
-    PUSH32(esp, 0); fn_0004F4A0_PAVCUIMenu_ZeroList_Append(); /* call 0x0004F4A0 */
+    eax = fsw_particle_zerolist_append_value(0x613448, edi);
 
 loc_0015A3A2:
     ecx = MEM32(esp + 0xC);
@@ -4318,12 +4381,9 @@ loc_0015AFA0:
     eax = MEM32(esp + 0x20);
     MEM32(edi) = 0x55FCB4;
     MEM32(edi + 0x14) = eax;
-    ebx = esp + 0x20;
-    esi = 0x61343C;
     MEM32(edi + 0x18) = ecx;
     MEM32(edi + 0x10) = edx;
-    MEM32(esp + 0x20) = edi;
-    PUSH32(esp, 0); fn_0004F4A0_PAVCUIMenu_ZeroList_Append(); /* call 0x0004F4A0 */
+    eax = fsw_particle_zerolist_append_value(0x61343C, edi);
 
 loc_0015B002:
     ecx = MEM32(esp + 0xC);
@@ -4829,6 +4889,7 @@ loc_0015B4E0:
     PUSH32(esp, eax);
     MEM32(0) = esp;
     esp = esp - 0x14;
+    fsw_particle_repair_zerolist(0x613448);
     eax = MEM32(0x613450);
     PUSH32(esp, esi);
     PUSH32(esp, edi);
@@ -4873,7 +4934,14 @@ loc_0015B524:
     esi = MEM32(eax);
     eax = esp + 8;
     ecx = esp + 0x10;
+    { uint32_t _saved_esi = esi;
+    uint32_t _saved_edi = edi;
+    uint32_t _saved_ebx = ebx;
     PUSH32(esp, 0); fn_0004E360_EIterator_ZeroList_K_QAE_AV01_H_Z(); /* call 0x0004E360 */
+    esi = _saved_esi;
+    edi = _saved_edi;
+    ebx = _saved_ebx;
+    }
 
 loc_0015B533:
     if (CMP_NE(MEM32(esi + 0x14), edi)) { sub_0015B516(); return; } /* jne: not equal / not zero */
@@ -5348,6 +5416,7 @@ loc_0015B8B0:
     PUSH32(esp, eax);
     MEM32(0) = esp;
     esp = esp - 0x1C;
+    fsw_particle_repair_zerolist(0x61343C);
     eax = MEM32(0x613444);
     PUSH32(esp, esi);
     PUSH32(esp, edi);
@@ -5393,7 +5462,14 @@ loc_0015B8F6:
     esi = MEM32(eax);
     eax = esp + 0x10;
     ecx = esp + 0x18;
+    { uint32_t _saved_esi = esi;
+    uint32_t _saved_edi = edi;
+    uint32_t _saved_ebx = ebx;
     PUSH32(esp, 0); fn_0004E360_EIterator_ZeroList_K_QAE_AV01_H_Z(); /* call 0x0004E360 */
+    esi = _saved_esi;
+    edi = _saved_edi;
+    ebx = _saved_ebx;
+    }
 
 loc_0015B905:
     if (CMP_NE(MEM32(esi + 0x14), edi)) { sub_0015B8E6(); return; } /* jne: not equal / not zero */

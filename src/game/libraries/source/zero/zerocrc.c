@@ -8,6 +8,64 @@
 #include "recomp_funcs.h"
 #include <math.h>
 
+static int fsw_crc_va_is_valid(uint32_t va)
+{
+    return va >= 0x00010000u && va < 0x04000000u;
+}
+
+static uint32_t fsw_crc32_table_value(uint8_t index)
+{
+    uint32_t crc = (uint32_t)index << 24;
+    for (uint32_t bit = 0; bit < 8; bit++) {
+        if ((crc & 0x80000000u) != 0) {
+            crc = (crc << 1) ^ 0x04C11DB7u;
+        } else {
+            crc <<= 1;
+        }
+    }
+    return crc;
+}
+
+static uint8_t fsw_crc_lower_byte(uint8_t value)
+{
+    if (value >= 'A' && value <= 'Z') {
+        return (uint8_t)(value + ('a' - 'A'));
+    }
+    return value;
+}
+
+static uint32_t fsw_crc32_update(uint32_t seed, uint32_t data_va, uint32_t length, int lower)
+{
+    uint32_t crc = ~seed;
+    if (data_va == 0 || !fsw_crc_va_is_valid(data_va)) {
+        return seed;
+    }
+
+    for (uint32_t i = 0; i < length; i++) {
+        if (!fsw_crc_va_is_valid(data_va + i)) {
+            break;
+        }
+        uint8_t value = MEM8(data_va + i);
+        if (lower) {
+            value = fsw_crc_lower_byte(value);
+        }
+        crc = (crc << 8) ^ fsw_crc32_table_value((uint8_t)((crc >> 24) ^ value));
+    }
+    return ~crc;
+}
+
+static uint32_t fsw_crc32_string(uint32_t seed, uint32_t string_va, int lower)
+{
+    uint32_t length = 0;
+    if (string_va == 0 || !fsw_crc_va_is_valid(string_va)) {
+        return seed;
+    }
+    while (fsw_crc_va_is_valid(string_va + length) && MEM8(string_va + length) != 0) {
+        length++;
+    }
+    return fsw_crc32_update(seed, string_va, length, lower);
+}
+
 /**
  * fn_00128D90_CalcLowerCRC
  * Symbol: ?CalcLowerCRC@@YAIPBDI@Z
@@ -17,38 +75,7 @@
  */
 void fn_00128D90_CalcLowerCRC(void)
 {
-    int _flags = 0; /* fallback flag var */
-
-loc_00128D90:
-    PUSH32(esp, esi);
-    esi = ecx;
-    if (TEST_Z(esi, esi)) goto loc_00128DC8; /* je: equal / zero */
-
-loc_00128D97:
-    SET_LO8(ecx, MEM8(esi));
-    (void)0; /* test LO8(ecx), LO8(ecx) - flags set for next jcc */
-    eax = ~eax;
-    edx = esi;
-    if (TEST_Z(LO8(ecx), LO8(ecx))) goto loc_00128DC6; /* je: equal / zero */
-
-loc_00128DA1:
-    ecx = ZX8(LO8(ecx));
-    ecx = ZX8(MEM8(ecx + 0x5CE110));
-    esi = eax;
-    esi = esi >> 0x18;
-    ecx = ecx ^ esi;
-    esi = MEM32(ecx * 4 + 0x5CDD10);
-    SET_LO8(ecx, MEM8(edx + 1));
-    eax = eax << 8;
-    eax = eax ^ esi;
-    edx++;
-    if (TEST_NZ(LO8(ecx), LO8(ecx))) goto loc_00128DA1; /* jne: not equal / not zero */
-
-loc_00128DC6:
-    eax = ~eax;
-
-loc_00128DC8:
-    POP32(esp, esi);
+    eax = fsw_crc32_string(eax, ecx, 1);
     esp += 4; return; /* ret */
 
 }
@@ -62,41 +89,7 @@ loc_00128DC8:
  */
 void fn_00128DD0_CalcCRC(void)
 {
-    int _flags = 0; /* fallback flag var */
-
-loc_00128DD0:
-    if (TEST_Z(ecx, ecx)) goto loc_00128DFE; /* je: equal / zero */
-
-loc_00128DD4:
-    (void)0; /* test edx, edx - flags set for next jcc */
-    eax = ~eax;
-    if (CMP_BE(edx & edx, 0)) goto loc_00128DFC; /* jbe: below or equal (unsigned <=) */
-
-loc_00128DDA:
-    PUSH32(esp, esi);
-    PUSH32(esp, edi);
-    /* nop */
-
-loc_00128DE0:
-    edi = ZX8(MEM8(ecx));
-    esi = eax;
-    esi = esi >> 0x18;
-    esi = esi ^ edi;
-    edi = MEM32(esi * 4 + 0x5CDD10);
-    eax = eax << 8;
-    eax = eax ^ edi;
-    ecx++;
-    edx--;
-    if ((edx != 0)) goto loc_00128DE0; /* jne: not equal / not zero */
-
-loc_00128DFA:
-    POP32(esp, edi);
-    POP32(esp, esi);
-
-loc_00128DFC:
-    eax = ~eax;
-
-loc_00128DFE:
+    eax = fsw_crc32_update(eax, ecx, edx, 0);
     esp += 4; return; /* ret */
 
 }
@@ -110,8 +103,12 @@ loc_00128DFE:
  */
 void fn_00128E00_CRC_Append(void)
 {
+    uint32_t data_va = MEM32(esp + 4);
+    uint32_t length = MEM32(esp + 8);
 
-loc_00128E00:
+    if (esi != 0) {
+        MEM32(esi) = fsw_crc32_update(MEM32(esi), data_va, length, 0);
+    }
     esp += 4; return; /* ret */
 
 }
@@ -125,13 +122,9 @@ loc_00128E00:
  */
 void fn_00128E10_CRC_Append(void)
 {
-
-loc_00128E10:
-    eax = MEM32(esi);
-    PUSH32(esp, 0); fn_00128D90_CalcLowerCRC(); /* call 0x00128D90 */
-
-loc_00128E17:
-    MEM32(esi) = eax;
+    if (esi != 0) {
+        MEM32(esi) = fsw_crc32_string(MEM32(esi), ecx, 1);
+    }
     esp += 4; return; /* ret */
 
 }
@@ -145,18 +138,14 @@ loc_00128E17:
  */
 void fn_00128E20_0CRC_QAE_PBXH_Z(void)
 {
-    int _flags = 0; /* fallback flag var */
+    uint32_t this_va = eax;
+    uint32_t data_va = edx;
+    uint32_t length = esi;
 
-loc_00128E20:
-    (void)0; /* test edx, edx - flags set for next jcc */
-    PUSH32(esp, esi);
-    esi = ecx;
-    if (TEST_NZ(edx, edx)) { sub_00128E2D(); return; } /* jne: not equal / not zero */
-
-loc_00128E27:
-    ecx = 0; /* xor self */
-    MEM32(eax) = ecx;
-    POP32(esp, esi);
+    if (this_va != 0) {
+        MEM32(this_va) = (data_va != 0 && length != 0) ? fsw_crc32_update(0, data_va, length, 0) : 0;
+    }
+    eax = this_va;
     esp += 4; return; /* ret */
 
 }
@@ -169,36 +158,11 @@ loc_00128E27:
  */
 void sub_00128E2D(void)
 {
-    int _flags = 0; /* fallback flag var */
-
-loc_00128E2D:
-    ecx = ecx | 0xFFFFFFFFu;
-    if (CMP_BE(esi & esi, 0)) goto loc_00128E52; /* jbe: below or equal (unsigned <=) */
-
-loc_00128E34:
-    PUSH32(esp, ebx);
-    PUSH32(esp, edi);
-
-loc_00128E36:
-    ebx = ZX8(MEM8(edx));
-    edi = ecx;
-    edi = edi >> 0x18;
-    edi = edi ^ ebx;
-    ebx = MEM32(edi * 4 + 0x5CDD10);
-    ecx = ecx << 8;
-    ecx = ecx ^ ebx;
-    edx++;
-    esi--;
-    if ((esi != 0)) goto loc_00128E36; /* jne: not equal / not zero */
-
-loc_00128E50:
-    POP32(esp, edi);
-    POP32(esp, ebx);
-
-loc_00128E52:
-    ecx = ~ecx;
-    MEM32(eax) = ecx;
-    POP32(esp, esi);
+    uint32_t this_va = eax;
+    if (this_va != 0) {
+        MEM32(this_va) = fsw_crc32_update(0, edx, esi, 0);
+    }
+    eax = this_va;
     esp += 4; return; /* ret */
 
 }
@@ -212,13 +176,11 @@ loc_00128E52:
  */
 void fn_00128E60_0CRC_QAE_PBD_Z(void)
 {
-    int _flags = 0; /* fallback flag var */
-
-loc_00128E60:
-    if (TEST_NZ(ecx, ecx)) { sub_00128E69(); return; } /* jne: not equal / not zero */
-
-loc_00128E64:
-    MEM32(esi) = ecx;
+    if (ecx != 0) {
+        MEM32(esi) = fsw_crc32_string(0, ecx, 1);
+    } else {
+        MEM32(esi) = 0;
+    }
     eax = esi;
     esp += 4; return; /* ret */
 
@@ -232,13 +194,7 @@ loc_00128E64:
  */
 void sub_00128E69(void)
 {
-
-loc_00128E69:
-    eax = 0; /* xor self */
-    PUSH32(esp, 0); fn_00128D90_CalcLowerCRC(); /* call 0x00128D90 */
-
-loc_00128E70:
-    MEM32(esi) = eax;
+    MEM32(esi) = fsw_crc32_string(0, ecx, 1);
     eax = esi;
     esp += 4; return; /* ret */
 

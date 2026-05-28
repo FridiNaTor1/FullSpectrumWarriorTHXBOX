@@ -2164,6 +2164,8 @@ loc_003A8422:
 void fn_003A8430_CProp_InitInstance(void)
 {
     uint32_t ebp;
+    uint32_t prop_object;
+    uint32_t wld_prop;
     int _flags = 0; /* fallback flag var */
     float xmm0;
     ebp = g_seh_ebp; /* fpo_leaf: inherit caller's frame */
@@ -2177,12 +2179,16 @@ loc_003A8430:
     PUSH32(esp, eax);
     PUSH32(esp, ecx);
     esi = ecx;
+    prop_object = esi;
+    wld_prop = edi;
     ecx = MEM32(edi + 0x44);
     eax = esp;
     PUSH32(esp, esi);
     MEM8(0x57F1F8) = 0;
     MEM32(eax) = ecx;
     PUSH32(esp, 0); fn_002A9F60_LoadMesh(); /* call 0x002A9F60 */
+    esi = prop_object;
+    edi = wld_prop;
 
 loc_003A8454:
     eax = MEM32(edi + 0x44);
@@ -2235,9 +2241,12 @@ loc_003A84D3:
  */
 void sub_003A84DC(void)
 {
+    uint32_t ebp;
+    ebp = g_seh_ebp; /* fpo_leaf: inherit caller's frame */
 
 loc_003A84DC:
     eax = eax | 0xFFFFFFFFu;
+    g_seh_ebp = ebp; sub_003A84DF(); return; /* fallthrough */
 
 }
 
@@ -2250,11 +2259,15 @@ loc_003A84DC:
 void sub_003A84DF(void)
 {
     uint32_t ebp;
+    uint32_t prop_object;
+    uint32_t wld_prop;
     int _flags = 0; /* fallback flag var */
     float xmm0, xmm1, xmm2, xmm3, xmm4, xmm5;
     ebp = g_seh_ebp; /* fpo_leaf: inherit caller's frame */
 
 loc_003A84DF:
+    prop_object = esi;
+    wld_prop = edi;
     ebp = MEM32(esi + 0x14);
     (void)0; /* test ebp, ebp - flags set for next jcc */
     MEM16(esi + 0xE0) = LO16(eax);
@@ -2263,27 +2276,37 @@ loc_003A84DF:
 
 loc_003A84F4:
     PUSH32(esp, 0); fn_00019360_GetIdentityMatrix(); /* call 0x00019360 */
+    esi = prop_object;
+    edi = wld_prop;
 
 loc_003A84F9:
     ecx = eax;
     eax = ebp + 0x20;
     PUSH32(esp, 0); fn_0001ED80_4ZeroSphere_QAEAAV0_ABVZeroMatrix_Z(); /* call 0x0001ED80 */
+    esi = prop_object;
+    edi = wld_prop;
 
 loc_003A8503:
     eax = esi + 0x20;
     ecx = edi;
     PUSH32(esp, 0); fn_0001ED80_4ZeroSphere_QAEAAV0_ABVZeroMatrix_Z(); /* call 0x0001ED80 */
+    esi = prop_object;
+    edi = wld_prop;
 
 loc_003A850D:
     PUSH32(esp, ebx);
     ecx = esi;
     PUSH32(esp, 0); fn_00127070_ZeroObject_UpdateWorldMatrix(); /* call 0x00127070 */
+    esi = prop_object;
+    edi = wld_prop;
 
 loc_003A8515:
     PUSH32(esp, ebx);
     PUSH32(esp, 0);
     ecx = esi;
     PUSH32(esp, 0); fn_00127670_ZeroObject_CalcSphere(); /* call 0x00127670 */
+    esi = prop_object;
+    edi = wld_prop;
 
 loc_003A851F:
     if (TEST_Z(MEM8(edi + 0x62), LO8(ebx))) goto loc_003A8535; /* je: equal / zero */

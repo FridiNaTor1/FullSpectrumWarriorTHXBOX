@@ -6,9 +6,14 @@
 
 #define RECOMP_GENERATED_CODE
 #include "recomp_funcs.h"
+#ifdef XBOXRECOMP_VULKAN_GRAPHICS
+#include "d3d8_vulkan_host.h"
+#endif
 #include <math.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
+#include <zlib.h>
 
 extern uint32_t xbox_HeapAlloc(uint32_t size, uint32_t alignment);
 
@@ -17,6 +22,546 @@ static uint32_t g_fsw_loadpak_crc;
 static uint32_t g_fsw_loadpak_path_va;
 static uint8_t g_fsw_loadpak_changed;
 static uint8_t g_fsw_loadpak_use_copy;
+static uint32_t g_fsw_loadpak_font_log_count;
+static uint32_t g_fsw_loadpak_abk_log_count;
+static uint32_t g_fsw_loadpak_scene_entries_va;
+static uint32_t g_fsw_loadpak_scene_visible_va;
+
+#ifdef XBOXRECOMP_VULKAN_GRAPHICS
+static void fsw_loading_bar_draw_rect(float x, float y, float w, float h, uint32_t argb)
+{
+    float a = (float)((argb >> 24) & 0xFF) / 255.0f;
+    float r = (float)((argb >> 16) & 0xFF) / 255.0f;
+    float g = (float)((argb >> 8) & 0xFF) / 255.0f;
+    float b = (float)(argb & 0xFF) / 255.0f;
+    D3D8VulkanRhwVertex rect[6];
+    if (!isfinite(x) || !isfinite(y) || !isfinite(w) || !isfinite(h) ||
+        w <= 0.0f || h <= 0.0f) {
+        return;
+    }
+    rect[0] = (D3D8VulkanRhwVertex){ x,     y,     0.04f, 1.0f, r, g, b, a, 0.0f, 0.0f };
+    rect[1] = (D3D8VulkanRhwVertex){ x + w, y,     0.04f, 1.0f, r, g, b, a, 1.0f, 0.0f };
+    rect[2] = (D3D8VulkanRhwVertex){ x + w, y + h, 0.04f, 1.0f, r, g, b, a, 1.0f, 1.0f };
+    rect[3] = rect[0];
+    rect[4] = rect[2];
+    rect[5] = (D3D8VulkanRhwVertex){ x,     y + h, 0.04f, 1.0f, r, g, b, a, 0.0f, 1.0f };
+    d3d8_vulkan_host_draw_rhw(rect, 6, NULL, 0, 0, 0, 0);
+}
+
+static void fsw_loading_bar_draw_vulkan(void)
+{
+    static uint32_t log_count;
+    float progress = (float)(int32_t)MEM32(0x5D9678);
+    float normalized;
+    float filled;
+    if (!MEM8(0x5FA388)) {
+        return;
+    }
+    if (!isfinite(progress) || progress < 0.0f) progress = 0.0f;
+    if (progress > 40.0f) progress = 40.0f;
+    normalized = progress / 40.0f;
+    filled = 640.0f * normalized;
+
+    if (log_count < 8) {
+        fprintf(stderr, "[FSW/Load] draw loading bar progress=%u normalized=%.3f active=%u mode=%u\n",
+                (unsigned)MEM32(0x5D9678), normalized,
+                (unsigned)MEM8(0x5FA388), (unsigned)MEM8(0x5D9668));
+        log_count++;
+    }
+
+    fsw_loading_bar_draw_rect(0.0f, 361.0f, 640.0f, 1.0f, 0xFFC8C8C8u);
+    fsw_loading_bar_draw_rect(0.0f, 376.0f, 640.0f, 1.0f, 0xFFB8B8B8u);
+    fsw_loading_bar_draw_rect(0.0f, 362.0f, 640.0f, 14.0f, 0x66000000u);
+    if (filled > 0.0f) {
+        fsw_loading_bar_draw_rect(0.0f, 362.0f, filled, 14.0f, 0x884A4A4Au);
+        fsw_loading_bar_draw_rect(filled, 361.0f, 2.0f, 16.0f, 0xFFE6E6E6u);
+    }
+}
+#endif
+
+static int fsw_loadpak_va_is_valid(uint32_t va)
+{
+    return va >= 0x00010000u && va < 0x04000000u;
+}
+
+static int fsw_loadpak_va_range_is_valid(uint32_t va, uint32_t size)
+{
+    if (size == 0) {
+        return fsw_loadpak_va_is_valid(va);
+    }
+    if (!fsw_loadpak_va_is_valid(va)) {
+        return 0;
+    }
+    if (va + size < va) {
+        return 0;
+    }
+    return va + size <= 0x04000000u;
+}
+
+static int fsw_loadpak_stack_va_is_valid(uint32_t va)
+{
+    return va >= 0x00780000u && va < 0x00980000u;
+}
+
+static void fsw_loadpak_restore_construct_stack(uint32_t expected, const char *phase)
+{
+    static uint32_t repair_count;
+    if (!fsw_loadpak_stack_va_is_valid(esp)) {
+        if (repair_count < 16 || (repair_count % 128) == 0) {
+            fprintf(stderr,
+                    "[FSW/Load] ConstructObjects repaired inner esp before %s %08X -> %08X warn=%u\n",
+                    phase, (unsigned)esp, (unsigned)expected, (unsigned)(repair_count + 1));
+        }
+        repair_count++;
+        esp = expected;
+    }
+}
+
+static int fsw_loadpak_vtable_is_valid(uint32_t vtbl, uint32_t min_size)
+{
+    if (!fsw_loadpak_va_range_is_valid(vtbl, min_size)) {
+        return 0;
+    }
+    return vtbl < 0x00800000u;
+}
+
+static int fsw_loadpak_object_vtable_is_valid(uint32_t object, uint32_t min_vtbl_size)
+{
+    uint32_t vtbl;
+
+    if (!fsw_loadpak_va_range_is_valid(object, 4)) {
+        return 0;
+    }
+    vtbl = MEM32(object);
+    return fsw_loadpak_vtable_is_valid(vtbl, min_vtbl_size);
+}
+
+static void fsw_loadpak_log_bad_abk(const char *reason, uint32_t entry, uint32_t a, uint32_t b)
+{
+    if (g_fsw_loadpak_abk_log_count < 32) {
+        fprintf(stderr, "[FSW/Load] skipping ABK entry: %s entry=%08X a=%08X b=%08X\n",
+                reason, (unsigned)entry, (unsigned)a, (unsigned)b);
+    }
+    g_fsw_loadpak_abk_log_count++;
+}
+
+static void fsw_loadpak_log_init_step(const char *phase)
+{
+    uint32_t scene = 0x643B60u;
+    uint32_t scene_entries = fsw_loadpak_va_range_is_valid(scene + 0xDC, 0x1C) ? MEM32(scene + 0xDC) : 0;
+    uint32_t scene_count = fsw_loadpak_va_range_is_valid(scene + 0xE0, 4) ? MEM32(scene + 0xE0) : 0xFFFFFFFFu;
+    uint32_t scene_visible = fsw_loadpak_va_range_is_valid(scene + 0xF4, 4) ? MEM32(scene + 0xF4) : 0xFFFFFFFFu;
+    fprintf(stderr,
+            "[FSW/Load] InitLevel %s esp=%08X tex=%u/%08X obj=%u/%08X hk=%u/%08X,%u/%08X,%u/%08X abk=%u/%08X font=%u/%08X snd=%u/%08X mesh=%u/%08X scene=%08X entries=%08X count=%u visible=%u\n",
+            phase, (unsigned)esp,
+            (unsigned)MEM32(0x6081CC), (unsigned)MEM32(0x608148),
+            (unsigned)MEM32(0x60815C), (unsigned)MEM32(0x6080D8),
+            (unsigned)MEM32(0x6081A0), (unsigned)MEM32(0x60811C),
+            (unsigned)MEM32(0x6081A4), (unsigned)MEM32(0x608120),
+            (unsigned)MEM32(0x6081A8), (unsigned)MEM32(0x608124),
+            (unsigned)MEM32(0x6081B8), (unsigned)MEM32(0x608134),
+            (unsigned)MEM32(0x6081C4), (unsigned)MEM32(0x608140),
+            (unsigned)MEM32(0x6081C0), (unsigned)MEM32(0x60813C),
+            (unsigned)MEM32(0x60819C), (unsigned)MEM32(0x608118),
+            (unsigned)scene, (unsigned)scene_entries,
+            (unsigned)scene_count, (unsigned)scene_visible);
+}
+
+static void fsw_loadpak_ensure_scene_storage(const char *phase)
+{
+    const uint32_t scene = 0x643B60u;
+    uint32_t entries = fsw_loadpak_va_range_is_valid(scene + 0xDC, 0x24) ? MEM32(scene + 0xDC) : 0;
+    uint32_t visible = fsw_loadpak_va_range_is_valid(scene + 0xF0, 8) ? MEM32(scene + 0xF0) : 0;
+    uint32_t count = fsw_loadpak_va_range_is_valid(scene + 0xE0, 4) ? MEM32(scene + 0xE0) : 0xFFFFFFFFu;
+
+    if (!fsw_loadpak_va_range_is_valid(entries, 0x4C) || count > 0x2000u) {
+        uint32_t block = xbox_HeapAlloc(4u + 0x2000u * 0x4Cu, 16);
+        if (fsw_loadpak_va_range_is_valid(block, 4u + 0x2000u * 0x4Cu)) {
+            memset((void *)XBOX_PTR(block), 0, 4u + 0x2000u * 0x4Cu);
+            MEM32(block) = 0x2000u;
+            MEM32(scene + 0xDC) = block + 4u;
+            MEM32(scene + 0xE0) = 0;
+            g_fsw_loadpak_scene_entries_va = block + 4u;
+            fprintf(stderr, "[FSW/Scene] %s allocated scene entries block=%08X entries=%08X\n",
+                    phase, (unsigned)block, (unsigned)(block + 4u));
+        } else {
+            fprintf(stderr, "[FSW/Scene] %s failed to allocate scene entries block=%08X\n",
+                    phase, (unsigned)block);
+        }
+    }
+
+    if (!fsw_loadpak_va_range_is_valid(visible, 0x100)) {
+        visible = xbox_HeapAlloc(0x8000u, 16);
+        if (fsw_loadpak_va_range_is_valid(visible, 0x8000u)) {
+            memset((void *)XBOX_PTR(visible), 0, 0x8000u);
+            MEM32(scene + 0xF0) = visible;
+            MEM32(scene + 0xF4) = 0;
+            g_fsw_loadpak_scene_visible_va = visible;
+            fprintf(stderr, "[FSW/Scene] %s allocated visible object list=%08X\n",
+                    phase, (unsigned)visible);
+        }
+    }
+
+    MEM32(scene + 0xE8) = 0;
+    MEM32(scene + 0xEC) = 0x1000u;
+}
+
+static uint32_t fsw_loadpak_count_scene_entries(uint32_t entries)
+{
+    uint32_t i;
+    if (!fsw_loadpak_va_range_is_valid(entries, 0x4C)) {
+        return 0;
+    }
+    for (i = 0; i < 0x2000u; i++) {
+        uint32_t entry = entries + i * 0x4Cu;
+        uint32_t object = MEM32(entry);
+        if (object == 0 || !fsw_loadpak_va_range_is_valid(object, 4)) {
+            break;
+        }
+    }
+    return i;
+}
+
+static int fsw_loadpak_wld_tag_is_known(uint32_t tag)
+{
+    switch (tag) {
+    case 0x41505250u:
+    case 0x42454856u:
+    case 0x42545247u:
+    case 0x4349564Cu:
+    case 0x454D5432u:
+    case 0x46414354u:
+    case 0x464C4147u:
+    case 0x47525044u:
+    case 0x494D5532u:
+    case 0x4C474854u:
+    case 0x4D504154u:
+    case 0x50525443u:
+        return 1;
+    default:
+        return 0;
+    }
+}
+
+static uint32_t fsw_loadpak_crc32_table_value(uint8_t index)
+{
+    uint32_t crc = (uint32_t)index << 24;
+    uint32_t bit;
+    for (bit = 0; bit < 8; bit++) {
+        if ((crc & 0x80000000u) != 0) {
+            crc = (crc << 1) ^ 0x04C11DB7u;
+        } else {
+            crc <<= 1;
+        }
+    }
+    return crc;
+}
+
+static uint32_t fsw_loadpak_calc_lower_crc_string(const char *value)
+{
+    uint32_t crc = 0xFFFFFFFFu;
+    const unsigned char *cursor = (const unsigned char *)value;
+
+    if (value == NULL || value[0] == '\0') {
+        return 0;
+    }
+
+    while (*cursor != 0) {
+        uint8_t ch = *cursor++;
+        if (ch >= 'A' && ch <= 'Z') {
+            ch = (uint8_t)(ch + ('a' - 'A'));
+        }
+        crc = (crc << 8) ^ fsw_loadpak_crc32_table_value((uint8_t)((crc >> 24) ^ ch));
+    }
+
+    return ~crc;
+}
+
+static uint32_t fsw_loadpak_wld_first_chunk(uint32_t data, uint32_t size)
+{
+    uint32_t strings;
+    uint32_t cursor;
+    uint32_t end;
+    uint32_t i;
+
+    if (!fsw_loadpak_va_range_is_valid(data, 8) || size < 16 || !fsw_loadpak_va_range_is_valid(data, size)) {
+        return 0;
+    }
+
+    strings = MEM32(data + 4);
+    if (strings > 0x400u) {
+        return 0;
+    }
+
+    cursor = data + 8;
+    end = data + size;
+    for (i = 0; i < strings; i++) {
+        uint32_t guard = 0;
+        while (cursor < end && MEM8(cursor) != 0 && guard++ < 0x200u) {
+            cursor++;
+        }
+        if (cursor >= end || guard >= 0x200u) {
+            return 0;
+        }
+        cursor++;
+    }
+
+    if (cursor + 8 > end) {
+        return 0;
+    }
+    return MEM32(cursor);
+}
+
+static uint32_t fsw_loadpak_find_known_wld_tag(uint32_t data, uint32_t size)
+{
+    uint32_t end;
+    uint32_t cursor;
+
+    if (!fsw_loadpak_va_range_is_valid(data, 8) || size < 16 || !fsw_loadpak_va_range_is_valid(data, size)) {
+        return 0;
+    }
+
+    end = data + size - 4u;
+    cursor = data;
+    while (cursor <= end) {
+        uint32_t tag = MEM32(cursor);
+        if (fsw_loadpak_wld_tag_is_known(tag)) {
+            return tag;
+        }
+        cursor++;
+    }
+
+    return 0;
+}
+
+static int fsw_loadpak_memfs_has_crc(uint32_t memfs, uint32_t wanted_crc, uint32_t *out_size, uint32_t *out_data, uint32_t *out_tag)
+{
+    uint32_t count;
+    uint32_t i;
+
+    if (wanted_crc == 0 || !fsw_loadpak_va_range_is_valid(memfs, 4)) {
+        return 0;
+    }
+
+    count = MEM32(memfs);
+    if (count == 0 || count > 0x10000u || !fsw_loadpak_va_range_is_valid(memfs + 4, count * 0xCu)) {
+        return 0;
+    }
+
+    for (i = 0; i < count; i++) {
+        uint32_t entry = memfs + 4 + i * 0xCu;
+        uint32_t crc = MEM32(entry);
+        if (crc == wanted_crc) {
+            uint32_t size = MEM32(entry + 4);
+            uint32_t data = MEM32(entry + 8);
+            uint32_t tag = fsw_loadpak_wld_first_chunk(data, size);
+            if (tag == 0) {
+                tag = fsw_loadpak_find_known_wld_tag(data, size);
+            }
+            if (out_size != NULL) *out_size = size;
+            if (out_data != NULL) *out_data = data;
+            if (out_tag != NULL) *out_tag = tag;
+            return fsw_loadpak_va_range_is_valid(data, size);
+        }
+    }
+
+    return 0;
+}
+
+static int fsw_loadpak_open_crc_memfile(uint32_t file, uint32_t wanted_crc)
+{
+    uint32_t size = 0;
+    uint32_t data = 0;
+    uint32_t tag = 0;
+    uint32_t memfile;
+
+    if (!fsw_loadpak_va_range_is_valid(file, 0x31) || wanted_crc == 0) {
+        return 0;
+    }
+    if (!fsw_loadpak_memfs_has_crc(MEM32(0x608204), wanted_crc, &size, &data, &tag) &&
+        !fsw_loadpak_memfs_has_crc(MEM32(0x608208), wanted_crc, &size, &data, &tag)) {
+        return 0;
+    }
+
+    memfile = xbox_HeapAlloc(0x10u, 16);
+    if (!fsw_loadpak_va_range_is_valid(memfile, 0x10)) {
+        return 0;
+    }
+
+    MEM32(memfile) = 0x00560CE8u;
+    MEM32(memfile + 4) = data;
+    MEM32(memfile + 8) = size;
+    MEM32(memfile + 0xC) = data;
+    MEM32(file + 8) = data;
+    MEM32(file + 0x14) = data;
+    MEM32(file + 0x24) = memfile;
+
+    fprintf(stderr,
+            "[FSW/LoadWLD] repaired CRC memfile crc=%08X file=%08X memfile=%08X data=%08X size=%u tag=%08X\n",
+            (unsigned)wanted_crc, (unsigned)file, (unsigned)memfile,
+            (unsigned)data, (unsigned)size, (unsigned)tag);
+    return 1;
+}
+
+static uint32_t fsw_loadpak_find_wld_crc_in_memfs(uint32_t memfs)
+{
+    uint32_t count;
+    uint32_t i;
+
+    if (!fsw_loadpak_va_range_is_valid(memfs, 4)) {
+        return 0;
+    }
+
+    count = MEM32(memfs);
+    if (count == 0 || count > 0x10000u || !fsw_loadpak_va_range_is_valid(memfs + 4, count * 0xCu)) {
+        return 0;
+    }
+
+    for (i = 0; i < count; i++) {
+        uint32_t entry = memfs + 4 + i * 0xCu;
+        uint32_t crc = MEM32(entry);
+        uint32_t size = MEM32(entry + 4);
+        uint32_t data = MEM32(entry + 8);
+        uint32_t tag = fsw_loadpak_wld_first_chunk(data, size);
+        if (tag == 0) {
+            tag = fsw_loadpak_find_known_wld_tag(data, size);
+        }
+        if (fsw_loadpak_wld_tag_is_known(tag)) {
+            fprintf(stderr,
+                    "[FSW/LoadWLD] discovered WLD crc=%08X size=%u data=%08X first_tag=%08X memfs=%08X index=%u\n",
+                    (unsigned)crc, (unsigned)size, (unsigned)data, (unsigned)tag,
+                    (unsigned)memfs, (unsigned)i);
+            return crc;
+        }
+    }
+
+    return 0;
+}
+
+static uint32_t fsw_loadpak_find_wld_crc(void)
+{
+    uint32_t size = 0;
+    uint32_t data = 0;
+    uint32_t tag = 0;
+    uint32_t crc = 0;
+
+    if (fsw_loadpak_va_range_is_valid(0x5D92B8u, 1) && MEM8(0x5D92B8u) != 0) {
+        const char *level = (const char *)XBOX_PTR(0x5D92B8u);
+        crc = fsw_loadpak_calc_lower_crc_string(level);
+        if (fsw_loadpak_memfs_has_crc(MEM32(0x608204), crc, &size, &data, &tag) ||
+            fsw_loadpak_memfs_has_crc(MEM32(0x608208), crc, &size, &data, &tag)) {
+            fprintf(stderr,
+                    "[FSW/LoadWLD] resolved active level '%s' crc=%08X size=%u data=%08X tag=%08X\n",
+                    level, (unsigned)crc, (unsigned)size, (unsigned)data, (unsigned)tag);
+            return crc;
+        }
+        fprintf(stderr, "[FSW/LoadWLD] active level '%s' crc=%08X not found in memfs\n",
+                level, (unsigned)crc);
+    }
+
+    crc = fsw_loadpak_find_wld_crc_in_memfs(MEM32(0x608204));
+    if (crc != 0) {
+        return crc;
+    }
+    return fsw_loadpak_find_wld_crc_in_memfs(MEM32(0x608208));
+}
+
+static void fsw_loadpak_repair_scene_after_objects(const char *phase)
+{
+    const uint32_t scene = 0x643B60u;
+    uint32_t entries = g_fsw_loadpak_scene_entries_va;
+    uint32_t visible = g_fsw_loadpak_scene_visible_va;
+    uint32_t count = fsw_loadpak_count_scene_entries(entries);
+
+    if (!fsw_loadpak_va_range_is_valid(entries, 0x4C)) {
+        return;
+    }
+    if (!fsw_loadpak_va_range_is_valid(visible, 0x100)) {
+        visible = MEM32(scene + 0xF0);
+    }
+    MEM32(scene + 0xDC) = entries;
+    MEM32(scene + 0xE0) = count;
+    if (fsw_loadpak_va_range_is_valid(visible, 0x100)) {
+        MEM32(scene + 0xF0) = visible;
+    }
+    MEM32(scene + 0xF4) = 0;
+    MEM32(scene + 0xE8) = 0;
+    MEM32(scene + 0xEC) = 0x1000u;
+    fprintf(stderr,
+            "[FSW/Scene] %s restored scene entries=%08X count=%u visible=%08X raw_entries=%08X raw_count=%u\n",
+            phase, (unsigned)entries, (unsigned)count, (unsigned)visible,
+            (unsigned)MEM32(scene + 0xDC), (unsigned)MEM32(scene + 0xE0));
+}
+
+static uint32_t fsw_loadpak_surface_ptr(uint32_t surface)
+{
+    uint32_t virt_base = MEM32(0x5FA374);
+
+    if (surface < virt_base && fsw_loadpak_va_is_valid(virt_base)) {
+        return virt_base + surface;
+    }
+    return surface;
+}
+
+static const char *fsw_loadpak_crc_name(uint32_t crc)
+{
+    switch (crc) {
+    case 0x9C7F2F31u: return "SHL_STARTMENU_LOGO";
+    case 0x08DF3B9Eu: return "SHL_LISTBOX_BACKGROUND";
+    case 0x7858C80Bu: return "SHL_LISTBOX_SCROLLBAR";
+    case 0x4F79DCE9u: return "SHL_LISTBOX_TriangleUp";
+    case 0xF670A259u: return "SHL_LISTBOX_TriangleDown";
+    case 0x99D7384Au: return "SHL_BACKGROUND";
+    case 0x022C9C62u: return "SHL_BLACK";
+    case 0x2FE54457u: return "loadingbg";
+    case 0xFB9B25BDu: return "loadingscan";
+    default: return NULL;
+    }
+}
+
+static void fsw_loadpak_log_texture_tables(const char *phase)
+{
+    static int log_count;
+    uint32_t surface_count;
+    uint32_t surface_table;
+    uint32_t fixup_count;
+    uint32_t fixup_table;
+    uint32_t i;
+
+    if (log_count++ >= 4) {
+        return;
+    }
+
+    surface_count = MEM32(0x6081CC);
+    surface_table = MEM32(0x608148);
+    fixup_count = MEM32(0x608158);
+    fixup_table = MEM32(0x6080D4);
+    fprintf(stderr,
+            "[FSW/Load] %s texture tables surfaces=%u table=%08X fixups=%u table=%08X phys_base=%08X\n",
+            phase, surface_count, surface_table, fixup_count, fixup_table, MEM32(0x5FA370));
+
+    if (surface_table >= 0x00010000u && surface_table < 0x04000000u) {
+        uint32_t limit = surface_count < 160 ? surface_count : 160;
+        for (i = 0; i < limit; i++) {
+            uint32_t crc = MEM32(surface_table + i * 8);
+            uint32_t surface = MEM32(surface_table + i * 8 + 4);
+            const char *name = fsw_loadpak_crc_name(crc);
+            fprintf(stderr, "[FSW/Load]   surface[%02u] crc=%08X ptr=%08X%s%s\n",
+                    i, crc, surface, name ? " " : "", name ? name : "");
+        }
+    }
+
+    if (fixup_table >= 0x00010000u && fixup_table < 0x04000000u) {
+        uint32_t limit = fixup_count < 16 ? fixup_count : 16;
+        for (i = 0; i < limit; i++) {
+            uint32_t entry = fixup_table + i * 0x14;
+            fprintf(stderr,
+                    "[FSW/Load]   fixup[%02u] flags=%08X ptr=%08X w/h?=%08X/%08X extra=%08X\n",
+                    i, MEM32(entry), MEM32(entry + 4), MEM32(entry + 8),
+                    MEM32(entry + 0xC), MEM32(entry + 0x10));
+        }
+    }
+}
 
 static void fsw_loadpak_sleep_alertable(void)
 {
@@ -84,16 +629,71 @@ static void fsw_loadpak_read_compressed(uint32_t dst, uint32_t stream, uint32_t 
                                         uint32_t raw_size, uint32_t compressed_size,
                                         uint8_t use_copy)
 {
-    uint32_t saved_esp = esp;
-    PUSH32(esp, use_copy ? 1u : 0u);
-    PUSH32(esp, compressed_size);
-    PUSH32(esp, raw_size);
-    PUSH32(esp, offset);
-    PUSH32(esp, stream);
-    PUSH32(esp, dst);
-    PUSH32(esp, 0);
-    fn_002AD1E0_ReadCompressedPAK();
-    esp = saved_esp;
+    uint8_t *compressed;
+    uint32_t temp_va;
+    uint32_t copied = 0;
+    uint32_t chunk_size = 0x4000;
+    z_stream zs;
+    int ret;
+
+    (void)use_copy;
+
+    if (dst == 0 || raw_size == 0 || compressed_size == 0) {
+        return;
+    }
+
+    compressed = (uint8_t *)malloc(compressed_size);
+    temp_va = xbox_HeapAlloc(chunk_size, 16);
+    if (compressed == NULL || !fsw_loadpak_va_is_valid(temp_va)) {
+        fprintf(stderr,
+                "[FSW/Load] compressed read allocation failed dst=%08X raw=%08X comp=%08X temp=%08X\n",
+                (unsigned)dst, (unsigned)raw_size, (unsigned)compressed_size, (unsigned)temp_va);
+        free(compressed);
+        return;
+    }
+
+    while (copied < compressed_size) {
+        uint32_t chunk = compressed_size - copied;
+        if (chunk > chunk_size) {
+            chunk = chunk_size;
+        }
+        fsw_loadpak_stream_read(stream, temp_va, offset + copied, chunk);
+        memcpy(compressed + copied, (const void *)XBOX_PTR(temp_va), chunk);
+        copied += chunk;
+    }
+
+    memset(&zs, 0, sizeof(zs));
+    zs.next_in = compressed;
+    zs.avail_in = compressed_size;
+    zs.next_out = (Bytef *)XBOX_PTR(dst);
+    zs.avail_out = raw_size;
+
+    ret = inflateInit2(&zs, 15);
+    if (ret == Z_OK) {
+        ret = inflate(&zs, Z_FINISH);
+        inflateEnd(&zs);
+    }
+
+    if (ret != Z_STREAM_END) {
+        memset(&zs, 0, sizeof(zs));
+        zs.next_in = compressed;
+        zs.avail_in = compressed_size;
+        zs.next_out = (Bytef *)XBOX_PTR(dst);
+        zs.avail_out = raw_size;
+        if (inflateInit2(&zs, -15) == Z_OK) {
+            ret = inflate(&zs, Z_FINISH);
+            inflateEnd(&zs);
+        }
+    }
+
+    if (ret != Z_STREAM_END || zs.total_out != raw_size) {
+        fprintf(stderr,
+                "[FSW/Load] compressed inflate mismatch dst=%08X raw=%08X comp=%08X ret=%d out=%lu\n",
+                (unsigned)dst, (unsigned)raw_size, (unsigned)compressed_size, ret,
+                (unsigned long)zs.total_out);
+    }
+
+    free(compressed);
 }
 
 static uint32_t fsw_loadpak_align_800(uint32_t value)
@@ -128,16 +728,36 @@ static void fsw_loadpak_relocate_header(uint32_t base)
     MEM32(0x60825C) += base;
 }
 
+static uint32_t fsw_loadpak_translate_image_offset(uint32_t offset)
+{
+    uint32_t virt_base = MEM32(0x5FA374);
+    uint32_t virt_size = MEM32(0x6081E4);
+    uint32_t phys_base = MEM32(0x5FA370);
+    uint32_t phys_size = MEM32(0x6081D8);
+
+    if (offset < virt_size) {
+        return virt_base + offset;
+    }
+    offset -= virt_size;
+    if (offset < phys_size) {
+        return phys_base + offset;
+    }
+    return 0;
+}
+
 static void fsw_loadpak_apply_relocations(void)
 {
-    uint32_t base = MEM32(0x5FA374);
-    uint32_t table = MEM32(0x60825C);
-    uint32_t count = MEM32(0x608260);
+    static uint32_t logged;
 
-    for (uint32_t i = 0; i < count; i++) {
-        uint32_t offset = MEM32(table + i * 4);
-        uint32_t target = base + offset;
-        MEM32(target) += base;
+    /*
+     * 0x60825C is consumed by LocationSetup after InitLevel. It is not a
+     * relocation table; treating it as one corrupts texture/object data.
+     */
+    if (!logged) {
+        fprintf(stderr,
+                "[FSW/Load] relocation pass disabled: location table=%08X size_or_count=%08X\n",
+                (unsigned)MEM32(0x60825C), (unsigned)MEM32(0x608260));
+        logged = 1;
     }
 }
 
@@ -903,6 +1523,10 @@ loc_002A9E5E:
     ebp = 0; /* xor self */
     (void)0; /* cmp eax, ebp - flags set for next jcc */
     MEM32(esp + 4) = ebp;
+    if (eax > 0 && !fsw_loadpak_va_range_is_valid(MEM32(0x608134), eax * 0x18u)) {
+        fsw_loadpak_log_bad_abk("bad animation-bank table", MEM32(0x608134), eax, esp);
+        goto loc_002A9EEC;
+    }
     if (CMP_LE(eax, ebp)) goto loc_002A9EEC; /* jle: less or equal (signed <=) */
 
 loc_002A9E6D:
@@ -913,11 +1537,23 @@ loc_002A9E6D:
 loc_002A9E70:
     eax = MEM32(0x608134);
     ecx = eax + ebp;
+    if (!fsw_loadpak_va_range_is_valid(ecx, 0x18)) {
+        fsw_loadpak_log_bad_abk("bad entry pointer", ecx, eax, ebp);
+        goto loc_002A9ED3;
+    }
     eax = MEM32(ecx + 0x14);
     if (TEST_Z(eax, eax)) goto loc_002A9E86; /* je: equal / zero */
 
 loc_002A9E7F:
+    if (!fsw_loadpak_va_range_is_valid(eax, 0x10)) {
+        fsw_loadpak_log_bad_abk("bad animation source", ecx, eax, MEM32(ecx + 0xC));
+        goto loc_002A9ED3;
+    }
+    {
+        uint32_t saved_ecx = ecx;
     PUSH32(esp, 0); fn_00115C90_AnimationSet_Load(); /* call 0x00115C90 */
+        ecx = saved_ecx;
+    }
 
 loc_002A9E84:
     goto loc_002A9EC1;
@@ -926,6 +1562,10 @@ loc_002A9E86:
     eax = MEM32(ecx + 0xC);
     esi = 0; /* xor self */
     if (CMP_LE(eax & eax, 0)) goto loc_002A9EC1; /* jle: less or equal (signed <=) */
+    if (eax > 0x10000u || !fsw_loadpak_va_range_is_valid(MEM32(ecx + 0x10), eax * 0x2Cu)) {
+        fsw_loadpak_log_bad_abk("bad animation table", ecx, MEM32(ecx + 0x10), eax);
+        goto loc_002A9ED3;
+    }
 
 loc_002A9E8F:
     edi = MEM32(0x5FA370);
@@ -936,6 +1576,10 @@ loc_002A9E8F:
 
 loc_002A9EA0:
     eax = MEM32(ecx + 0x10);
+    if (!fsw_loadpak_va_range_is_valid(edx + eax, 0x2C)) {
+        fsw_loadpak_log_bad_abk("bad animation row", ecx, edx + eax, edx);
+        goto loc_002A9ED3;
+    }
     if (TEST_Z(MEM8(edx + eax + 0x19), 0x10)) goto loc_002A9EB6; /* je: equal / zero */
 
 loc_002A9EAA:
@@ -1201,19 +1845,31 @@ loc_002AA05C:
     /* nop */
 
 loc_002AA060:
+    if (!fsw_loadpak_object_vtable_is_valid(esi, 4)) goto loc_002AA085;
     eax = MEM32(esi);
     ecx = esi;
     { uint32_t _icall_esp = g_esp;
+    uint32_t _saved_esi = esi;
+    uint32_t _saved_ebx = ebx;
     PUSH32(esp, 0); RECOMP_ICALL_SAFE(MEM32(eax), _icall_esp); /* indirect call */
+    esi = _saved_esi;
+    ebx = _saved_ebx;
     }
 
 loc_002AA066:
     edi = eax;
+    if (!fsw_loadpak_object_vtable_is_valid(edi, 0x18)) goto loc_002AA07E;
     edx = MEM32(edi);
     { uint32_t _icall_esp = g_esp;
+    uint32_t _saved_esi = esi;
+    uint32_t _saved_edi = edi;
+    uint32_t _saved_ebx = ebx;
     PUSH32(esp, ebx);
     ecx = edi;
     PUSH32(esp, 0); RECOMP_ICALL_SAFE(MEM32(edx + 0x14), _icall_esp); /* indirect call */
+    esi = _saved_esi;
+    edi = _saved_edi;
+    ebx = _saved_ebx;
     }
 
 loc_002AA070:
@@ -1221,15 +1877,22 @@ loc_002AA070:
     if ((MEM32(edi + 8) != 0)) goto loc_002AA07E; /* jne: not equal / not zero */
 
 loc_002AA075:
+    if (!fsw_loadpak_object_vtable_is_valid(edi, 0x14)) goto loc_002AA07E;
     eax = MEM32(edi);
     { uint32_t _icall_esp = g_esp;
+    uint32_t _saved_esi = esi;
+    uint32_t _saved_ebx = ebx;
     PUSH32(esp, 1);
     ecx = edi;
     PUSH32(esp, 0); RECOMP_ICALL_SAFE(MEM32(eax + 0x10), _icall_esp); /* indirect call */
+    esi = _saved_esi;
+    ebx = _saved_ebx;
     }
 
 loc_002AA07E:
+    if (!fsw_loadpak_va_range_is_valid(esi, 0x1C)) goto loc_002AA085;
     esi = MEM32(esi + 0x18);
+    if (esi != 0 && !fsw_loadpak_va_range_is_valid(esi, 0x1C)) esi = 0;
     if (TEST_NZ(esi, esi)) goto loc_002AA060; /* jne: not equal / not zero */
 
 loc_002AA085:
@@ -1243,14 +1906,22 @@ loc_002AA093:
     if (TEST_Z(esi, esi)) goto loc_002AA0CA; /* je: equal / zero */
 
 loc_002AA097:
+    if (!fsw_loadpak_object_vtable_is_valid(esi, 0x20)) goto loc_002AA0CA;
     edx = MEM32(esi);
     { uint32_t _icall_esp = g_esp;
+    uint32_t _saved_esi = esi;
+    uint32_t _saved_edi = edi;
+    uint32_t _saved_ebx = ebx;
     PUSH32(esp, edi);
     ecx = esi;
     PUSH32(esp, 0); RECOMP_ICALL_SAFE(MEM32(edx + 0x1C), _icall_esp); /* indirect call */
+    esi = _saved_esi;
+    edi = _saved_edi;
+    ebx = _saved_ebx;
     }
 
 loc_002AA09F:
+    if (!fsw_loadpak_va_range_is_valid(edi, 0x1C) || !fsw_loadpak_va_range_is_valid(esi, 0x1C)) goto loc_002AA0CA;
     edi = MEM32(edi + 0x18);
     (void)0; /* test edi, edi - flags set for next jcc */
     esi = MEM32(esi + 0x18);
@@ -1260,11 +1931,16 @@ loc_002AA0A9:
     goto loc_002AA0CA;
 
 loc_002AA0AB:
+    if (!fsw_loadpak_object_vtable_is_valid(esi, 0x18)) goto loc_002AA0CA;
     eax = MEM32(esi);
     { uint32_t _icall_esp = g_esp;
+    uint32_t _saved_esi = esi;
+    uint32_t _saved_ebx = ebx;
     PUSH32(esp, ebx);
     ecx = esi;
     PUSH32(esp, 0); RECOMP_ICALL_SAFE(MEM32(eax + 0x14), _icall_esp); /* indirect call */
+    esi = _saved_esi;
+    ebx = _saved_ebx;
     }
 
 loc_002AA0B3:
@@ -1280,6 +1956,11 @@ loc_002AA0C0:
     if (TEST_NZ(esi, esi)) goto loc_002AA0C0; /* jne: not equal / not zero */
 
 loc_002AA0CA:
+    if (!fsw_loadpak_va_range_is_valid(ebx, 0xC8)) {
+        fprintf(stderr, "[FSW/LoadMesh] invalid loaded mesh root=%08X\n", ebx);
+        ebx = 0;
+        goto loc_002AA123;
+    }
     eax = MEM32(0x5CE2D0);
     ecx = MEM32(ebx + 0xC0);
     (void)0; /* test ecx, ecx - flags set for next jcc */
@@ -1288,6 +1969,12 @@ loc_002AA0CA:
     if (TEST_Z(ecx, ecx)) goto loc_002AA0F7; /* je: equal / zero */
 
 loc_002AA0E1:
+    if (!fsw_loadpak_va_range_is_valid(ecx, 4) ||
+        !fsw_loadpak_va_range_is_valid(MEM32(ecx), 8)) {
+        fprintf(stderr, "[FSW/LoadMesh] skipping root cull query mesh=%08X query=%08X vtbl=%08X\n",
+                ebx, ecx, fsw_loadpak_va_range_is_valid(ecx, 4) ? MEM32(ecx) : 0);
+        goto loc_002AA0F7;
+    }
     edx = MEM32(0x613B18);
     { uint32_t _icall_esp = g_esp;
     PUSH32(esp, ecx);
@@ -1311,15 +1998,25 @@ loc_002AA0FE:
     edi = edi;
 
 loc_002AA100:
+    if (!fsw_loadpak_va_range_is_valid(esi, 0x1C)) goto loc_002AA10F;
     PUSH32(esp, edi);
     ecx = esi;
     PUSH32(esp, 0); fn_00128280_ZeroObject_SetCullFlags(); /* call 0x00128280 */
 
 loc_002AA108:
+    if (!fsw_loadpak_va_range_is_valid(esi, 0x1C)) {
+        fprintf(stderr, "[FSW/LoadMesh] ending cull child walk invalid node=%08X\n", esi);
+        goto loc_002AA10F;
+    }
     esi = MEM32(esi + 0x18);
     if (TEST_NZ(esi, esi)) goto loc_002AA100; /* jne: not equal / not zero */
 
 loc_002AA10F:
+    if (!fsw_loadpak_object_vtable_is_valid(ebx, 0x20)) {
+        fprintf(stderr, "[FSW/LoadMesh] skipping world/sphere update invalid root object=%08X\n", ebx);
+        ebx = 0;
+        goto loc_002AA123;
+    }
     PUSH32(esp, 1);
     ecx = ebx;
     PUSH32(esp, 0); fn_00127070_ZeroObject_UpdateWorldMatrix(); /* call 0x00127070 */
@@ -1843,11 +2540,25 @@ loc_002AA4CA:
 void fn_002AA4D0_RegisterHKDescriptors(void)
 {
     uint32_t ebp;
+    uint32_t saved_esp;
+    uint32_t saved_ebx;
+    uint32_t hk0_count;
+    uint32_t hk1_count;
+    uint32_t hk2_count;
+    uint32_t hk0_table;
+    uint32_t hk1_table;
+    uint32_t hk2_table;
     int _flags = 0; /* fallback flag var */
     ebp = g_seh_ebp; /* fpo_leaf: inherit caller's frame */
 
 loc_002AA4D0:
     eax = MEM32(0x6081A0);
+    hk0_count = eax;
+    hk1_count = MEM32(0x6081A4);
+    hk2_count = MEM32(0x6081A8);
+    hk0_table = MEM32(0x60811C);
+    hk1_table = MEM32(0x608120);
+    hk2_table = MEM32(0x608124);
     esp = esp - 0xC;
     PUSH32(esp, ebx);
     PUSH32(esp, ebp);
@@ -1866,34 +2577,43 @@ loc_002AA4E4:
     /* nop */
 
 loc_002AA4F0:
-    eax = MEM32(0x60811C);
+    eax = hk0_table;
     esi = edi + eax;
     MEM32(esp + 0x10) = esi;
     PUSH32(esp, 0); fn_0021DAA0_CHavokManager_Get(); /* call 0x0021DAA0 */
 
 loc_002AA501:
     edx = MEM32(esi + 0x5C);
+    saved_esp = esp;
     PUSH32(esp, ecx);
     ecx = esp;
     MEM32(ecx) = edx;
     PUSH32(esp, 0); fn_0021B500_CHavokManager_GetMeshDescriptor(); /* call 0x0021B500 */
+    esp = saved_esp;
 
 loc_002AA50E:
+    if (!fsw_loadpak_va_range_is_valid(eax, 0x24)) {
+        goto loc_002AA51D;
+    }
     esi = esi + 0x58;
+    saved_esp = esp;
+    saved_ebx = ebx;
     PUSH32(esp, esi);
     ecx = esp + 0x14;
     PUSH32(esp, ecx);
     PUSH32(esp, eax);
     PUSH32(esp, 0); fn_000366F0_PAVCUITexture_ZeroTree_Insert(); /* call 0x000366F0 */
+    ebx = saved_ebx;
+    esp = saved_esp;
 
 loc_002AA51D:
-    eax = MEM32(0x6081A0);
+    eax = hk0_count;
     ebx++;
     edi = edi + 0x60;
     if (CMP_L(ebx, eax)) goto loc_002AA4F0; /* jl: less (signed <) */
 
 loc_002AA52A:
-    eax = MEM32(0x6081A4);
+    eax = hk1_count;
     ebx = 0; /* xor self */
     if (CMP_LE(eax, ebp)) goto loc_002AA57E; /* jle: less or equal (signed <=) */
 
@@ -1904,35 +2624,44 @@ loc_002AA535:
     /* nop */
 
 loc_002AA540:
-    edx = MEM32(0x608120);
+    edx = hk1_table;
     esi = edi + edx;
     MEM32(esp + 0x10) = esi;
     PUSH32(esp, 0); fn_0021DAA0_CHavokManager_Get(); /* call 0x0021DAA0 */
 
 loc_002AA552:
     edx = MEM32(esi + 0x6C);
+    saved_esp = esp;
     PUSH32(esp, ecx);
     ecx = esp;
     MEM32(ecx) = edx;
     PUSH32(esp, 0); fn_0021B500_CHavokManager_GetMeshDescriptor(); /* call 0x0021B500 */
+    esp = saved_esp;
 
 loc_002AA55F:
+    if (!fsw_loadpak_va_range_is_valid(eax, 0x24)) {
+        goto loc_002AA56E;
+    }
+    saved_esp = esp;
+    saved_ebx = ebx;
     PUSH32(esp, esi);
     ecx = esp + 0x14;
     PUSH32(esp, ecx);
     eax = eax + 0xC;
     PUSH32(esp, eax);
     PUSH32(esp, 0); fn_000366F0_PAVCUITexture_ZeroTree_Insert(); /* call 0x000366F0 */
+    ebx = saved_ebx;
+    esp = saved_esp;
 
 loc_002AA56E:
     MEM32(esi + 0x6C) = ebp;
-    eax = MEM32(0x6081A4);
+    eax = hk1_count;
     ebx++;
     edi = edi + 0x70;
     if (CMP_L(ebx, eax)) goto loc_002AA540; /* jl: less (signed <) */
 
 loc_002AA57E:
-    eax = MEM32(0x6081A8);
+    eax = hk2_count;
     ebx = 0; /* xor self */
     if (CMP_LE(eax, ebp)) goto loc_002AA5E8; /* jle: less or equal (signed <=) */
 
@@ -1943,34 +2672,43 @@ loc_002AA589:
     /* nop */
 
 loc_002AA590:
-    edx = MEM32(0x608124);
+    edx = hk2_table;
     esi = edi + edx;
     MEM32(esp + 0x10) = esi;
     PUSH32(esp, 0); fn_0021DAA0_CHavokManager_Get(); /* call 0x0021DAA0 */
 
 loc_002AA5A2:
     edx = MEM32(esi + 0x94);
+    saved_esp = esp;
     PUSH32(esp, ecx);
     ecx = esp;
     MEM32(ecx) = edx;
     PUSH32(esp, 0); fn_0021B500_CHavokManager_GetMeshDescriptor(); /* call 0x0021B500 */
+    esp = saved_esp;
 
 loc_002AA5B2:
+    if (!fsw_loadpak_va_range_is_valid(eax, 0x24)) {
+        goto loc_002AA5D2;
+    }
     ecx = MEM32(esi + 4);
     edx = MEM32(esi);
     MEM32(esp + 0x18) = ecx;
     ecx = esp + 0x14;
     MEM32(esp + 0x14) = edx;
+    saved_esp = esp;
+    saved_ebx = ebx;
     PUSH32(esp, ecx);
     edx = esp + 0x14;
     PUSH32(esp, edx);
     eax = eax + 0x18;
     PUSH32(esp, eax);
     PUSH32(esp, 0); fn_000365E0_PAVZeroHavokCSDescriptor_ZeroTree_Insert(); /* call 0x000365E0 */
+    ebx = saved_ebx;
+    esp = saved_esp;
 
 loc_002AA5D2:
     MEM32(esi + 0x94) = ebp;
-    eax = MEM32(0x6081A8);
+    eax = hk2_count;
     ebx++;
     edi = edi + 0x98;
     if (CMP_L(ebx, eax)) goto loc_002AA590; /* jl: less (signed <) */
@@ -2360,6 +3098,11 @@ loc_002AA998:
 void fn_002AA9A0_ConstructObjects(void)
 {
     uint32_t ebp;
+    uint32_t construct_local_esp = 0;
+    uint32_t saved_ebx;
+    uint32_t saved_ebp;
+    uint32_t saved_esi;
+    uint32_t saved_edi;
     int _flags = 0; /* fallback flag var */
     ebp = g_seh_ebp; /* fpo_leaf: inherit caller's frame */
 
@@ -2378,6 +3121,7 @@ loc_002AA9A0:
     ebp = 0; /* xor self */
     (void)0; /* cmp eax, ebx - flags set for next jcc */
     PUSH32(esp, edi);
+    construct_local_esp = esp;
     if (CMP_LE(eax, ebx)) goto loc_002AAA27; /* jle: less or equal (signed <=) */
 
 loc_002AA9C9:
@@ -2591,6 +3335,7 @@ loc_002AAB8C:
     /* nop */
 
 loc_002AAB90:
+    fsw_loadpak_restore_construct_stack(construct_local_esp, "XBRenderCookie placement new");
     edx = MEM32(0x6080F8);
     eax = esi;
     eax = (uint32_t)((int32_t)eax * (int32_t)0x4C);
@@ -2607,10 +3352,20 @@ loc_002AABA5:
     if (CMP_EQ(eax, ebx)) goto loc_002AABBE; /* je: equal / zero */
 
 loc_002AABB8:
+    fsw_loadpak_restore_construct_stack(construct_local_esp, "XBRenderCookie ctor");
+    saved_ebx = ebx;
+    saved_ebp = ebp;
+    saved_esi = esi;
+    saved_edi = edi;
     PUSH32(esp, eax);
     PUSH32(esp, 0); fn_00145450_0XBRenderCookie_QAE_PAVCLoadData_Z(); /* call 0x00145450 */
 
 loc_002AABBE:
+    fsw_loadpak_restore_construct_stack(construct_local_esp, "XBRenderCookie ctor return");
+    ebx = saved_ebx;
+    ebp = saved_ebp;
+    esi = saved_esi;
+    edi = saved_edi;
     MEM32(esp + 0x28) = edi;
     eax = MEM32(0x60817C);
     esi++;
@@ -2619,6 +3374,7 @@ loc_002AABBE:
     if (CMP_L(esi, eax)) goto loc_002AAB90; /* jl: less (signed <) */
 
 loc_002AABD0:
+    fsw_loadpak_ensure_scene_storage("after render-cookie objects");
     eax = MEM32(0x608180);
     edi = 0; /* xor self */
     if (CMP_LE(eax, ebx)) goto loc_002AAC11; /* jle: less or equal (signed <=) */
@@ -3107,6 +3863,19 @@ loc_002AB143:
     if (TEST_NZ(LO8(edx), 1)) goto loc_002AB1A2; /* jne: not equal / not zero */
 
 loc_002AB151:
+    if (!fsw_loadpak_object_vtable_is_valid(ecx, 0x0C)) {
+        static uint32_t construct_icall_warn_count;
+        if (construct_icall_warn_count < 16 || (construct_icall_warn_count % 256) == 0) {
+            fprintf(stderr,
+                    "[FSW/Load] ConstructObjects skipping invalid child object entry=%08X object=%08X vtbl=%08X warn=%u\n",
+                    (unsigned)esi,
+                    (unsigned)ecx,
+                    (unsigned)(fsw_loadpak_va_range_is_valid(ecx, 4) ? MEM32(ecx) : 0),
+                    (unsigned)(construct_icall_warn_count + 1));
+        }
+        construct_icall_warn_count++;
+        goto loc_002AB1A2;
+    }
     eax = MEM32(ecx);
     edi = MEM32(0x613E94);
     edx = esp + 0x1C;
@@ -3116,6 +3885,7 @@ loc_002AB151:
     }
 
 loc_002AB161:
+    if (!fsw_loadpak_va_range_is_valid(eax, 4)) goto loc_002AB1A2;
     if (CMP_NE(MEM32(eax), edi)) goto loc_002AB1A2; /* jne: not equal / not zero */
 
 loc_002AB165:
@@ -3193,6 +3963,14 @@ loc_002AB1E0:
     esp = esp & 0xFFFFFFF8u;
     esp = esp - 0x6C;
     eax = MEM32(0x6081AC);
+    fprintf(stderr, "[FSW/Lighting] SetupLighting begin count=%u table=%08X esp=%08X\n",
+            (unsigned)eax, MEM32(0x608128), esp);
+    if (eax > 0x100u || (eax > 0 && !fsw_loadpak_va_range_is_valid(MEM32(0x608128), eax * 0x24u))) {
+        fprintf(stderr, "[FSW/Lighting] clamping corrupt dynamic light table count=%u table=%08X\n",
+                (unsigned)eax, MEM32(0x608128));
+        eax = 0;
+        MEM32(0x6081AC) = 0;
+    }
     PUSH32(esp, ebx);
     PUSH32(esp, esi);
     ebx = 0; /* xor self */
@@ -3245,6 +4023,8 @@ loc_002AB286:
     if (CMP_L(ebx, eax)) goto loc_002AB200; /* jl: less (signed <) */
 
 loc_002AB297:
+    fprintf(stderr, "[FSW/Lighting] dynamic lights complete created=%u esp=%08X\n",
+            (unsigned)ebx, esp);
     xmm0 = MEMF(0x60820C); /* movss */
     eax = 0; /* xor self */
     ecx = 0x1A;
@@ -3262,11 +4042,14 @@ loc_002AB297:
     PUSH32(esp, 0); fn_00284E40_CSceneManager_Get(); /* call 0x00284E40 */
 
 loc_002AB2E9:
+    fprintf(stderr, "[FSW/Lighting] before static ambient CreateLight esp=%08X scene=%08X desc=%08X\n",
+            esp, eax, esp + 0x10);
     ecx = eax;
     eax = esp + 0x10;
     PUSH32(esp, 0); fn_00284880_CSceneManager_CreateLight(); /* call 0x00284880 */
 
 loc_002AB2F4:
+    fprintf(stderr, "[FSW/Lighting] after static ambient CreateLight esp=%08X eax=%08X\n", esp, eax);
     xmm0 = MEMF(0x60821C); /* movss */
     edx = MEM32(0x60822C);
     eax = 0; /* xor self */
@@ -3290,11 +4073,14 @@ loc_002AB2F4:
     PUSH32(esp, 0); fn_00284E40_CSceneManager_Get(); /* call 0x00284E40 */
 
 loc_002AB363:
+    fprintf(stderr, "[FSW/Lighting] before directional CreateLight esp=%08X scene=%08X desc=%08X\n",
+            esp, eax, esp + 0x10);
     ecx = eax;
     eax = esp + 0x10;
     PUSH32(esp, 0); fn_00284880_CSceneManager_CreateLight(); /* call 0x00284880 */
 
 loc_002AB36E:
+    fprintf(stderr, "[FSW/Lighting] after directional CreateLight esp=%08X eax=%08X\n", esp, eax);
     xmm0 = MEMF(0x608238); /* movss */
     xmm1 = MEMF(0x608248); /* movss */
     eax = 0; /* xor self */
@@ -3356,6 +4142,7 @@ loc_002AB420:
     MEM32(esp + 0x68) = edx;
     MEM32(esp + 0x6C) = eax;
     MEM32(esp + 0x70) = ecx;
+    sub_002AB43D(); return; /* fallthrough 0x002AB43D */
 
 }
 
@@ -3371,6 +4158,7 @@ void sub_002AB43D(void)
     ebp = g_seh_ebp; /* fpo_leaf: inherit caller's frame */
 
 loc_002AB43D:
+    fprintf(stderr, "[FSW/Lighting] before final CreateLight esp=%08X desc=%08X\n", esp, esp + 0x10);
     PUSH32(esp, 0); fn_00284E40_CSceneManager_Get(); /* call 0x00284E40 */
 
 loc_002AB442:
@@ -3379,6 +4167,7 @@ loc_002AB442:
     PUSH32(esp, 0); fn_00284880_CSceneManager_CreateLight(); /* call 0x00284880 */
 
 loc_002AB44D:
+    fprintf(stderr, "[FSW/Lighting] after final CreateLight esp=%08X eax=%08X\n", esp, eax);
     POP32(esp, edi);
     POP32(esp, esi);
     POP32(esp, ebx);
@@ -3421,6 +4210,11 @@ void fn_002AB470_RegisterFonts(void)
 
 loc_002AB470:
     eax = MEM32(0x5FA5AC);
+    if (g_fsw_loadpak_font_log_count < 32) {
+        fprintf(stderr, "[FSW/Load] RegisterFonts start locale=%u font_count=%u font_table=%08X\n",
+                eax, MEM32(0x6081C4), MEM32(0x608140));
+        g_fsw_loadpak_font_log_count++;
+    }
     esp = esp - 0xA0;
     PUSH32(esp, ebx);
     PUSH32(esp, ebp);
@@ -3535,6 +4329,7 @@ void sub_002AB52E(void)
     int _flags = 0; /* fallback flag var */
     int _fpu_cmp = 0; /* FPU compare result: -1/0/1 */
     float xmm0;
+    uint32_t saved_esi;
     double _fp_stack[8];
     int _fp_top = 0;
     #define fp_push(v) (_fp_stack[--_fp_top & 7] = (v))
@@ -3544,6 +4339,11 @@ void sub_002AB52E(void)
     #define fp_st1() _fp_stack[(_fp_top + 1) & 7]
 
 loc_002AB52E:
+    if (g_fsw_loadpak_font_log_count < 32) {
+        fprintf(stderr, "[FSW/Load] RegisterFonts default branch locale=%u font_count=%u font_table=%08X\n",
+                MEM32(0x5FA5AC), MEM32(0x6081C4), MEM32(0x608140));
+        g_fsw_loadpak_font_log_count++;
+    }
     eax = MEM32(0x5FA8E8);
     ecx = MEM32(eax + 0xD0);
     (void)0; /* cmp ecx, ebx - flags set for next jcc */
@@ -3573,8 +4373,14 @@ loc_002AB557:
     PUSH32(esp, 0); fn_001343F0_CUIFont_InitFontSys(); /* call 0x001343F0 */
 
 loc_002AB56F:
+    ebx = 0; /* CUIFont_InitFontSys preserves ebx in the original ABI. */
     eax = MEM32(0x6081C4);
     esi = 0; /* xor self */
+    if (g_fsw_loadpak_font_log_count < 32) {
+        fprintf(stderr, "[FSW/Load] RegisterFonts after InitFontSys font_count=%u font_table=%08X root=%08X mode=%u\n",
+                eax, MEM32(0x608140), MEM32(0x5D0CDC), MEM32(0x5FA890));
+        g_fsw_loadpak_font_log_count++;
+    }
     if (CMP_LE(eax, ebx)) { sub_002AB5A0(); return; } /* jle: less or equal (signed <=) */
 
 loc_002AB57A:
@@ -3584,6 +4390,11 @@ loc_002AB580:
     PUSH32(esp, ecx);
     ecx = MEM32(0x608140);
     edx = MEM32(ecx + esi * 4);
+    saved_esi = esi;
+    if (g_fsw_loadpak_font_log_count < 64) {
+        fprintf(stderr, "[FSW/Load] RegisterFonts create[%u]=%08X\n", esi, edx);
+        g_fsw_loadpak_font_log_count++;
+    }
     eax = esp;
     MEM32(eax) = edx;
     PUSH32(esp, 0); fn_00134160_CUIFont_CreateFont(); /* call 0x00134160 */
@@ -3591,6 +4402,8 @@ loc_002AB580:
 loc_002AB593:
     eax = MEM32(0x6081C4);
     esp = esp + 4;
+    esi = saved_esi;
+    ebx = 0; /* CUIFont_CreateFont preserves ebx/esi in the original ABI. */
     esi++;
     if (CMP_L(esi, eax)) goto loc_002AB580; /* jl: less (signed <) */
 
@@ -4386,6 +5199,9 @@ loc_002ABBE7:
 void fn_002ABC00_InitLevel(void)
 {
     uint32_t ebp;
+    uint32_t saved_construct_esp;
+    uint32_t saved_scene_esp;
+    uint32_t saved_header[0x8B];
     int _flags = 0; /* fallback flag var */
     ebp = g_seh_ebp; /* fpo_leaf: inherit caller's frame */
 
@@ -4402,9 +5218,11 @@ loc_002ABC00:
     PUSH32(esp, esi);
     PUSH32(esp, edi);
     MEM32(esp + 0xBC) = eax;
+    fsw_loadpak_log_init_step("before FixupTextures");
     PUSH32(esp, 0); fn_002A9F00_FixupTextures(); /* call 0x002A9F00 */
 
 loc_002ABC30:
+    fsw_loadpak_log_init_step("after FixupTextures");
     eax = MEM32(0x6081CC);
     ebx = 0; /* xor self */
     esi = 0; /* xor self */
@@ -4416,6 +5234,7 @@ loc_002ABC3D:
 loc_002ABC40:
     eax = MEM32(0x608148);
     edx = MEM32(eax + esi * 8 + 4);
+    edx = fsw_loadpak_surface_ptr(edx);
     ecx = MEM32(0x5FA8E8);
     eax = MEM32(eax + esi * 8);
     { uint32_t _icall_esp = g_esp;
@@ -4434,24 +5253,60 @@ loc_002ABC61:
     if (CMP_L(esi, eax)) goto loc_002ABC40; /* jl: less (signed <) */
 
 loc_002ABC6B:
+    if (!fsw_loadpak_va_range_is_valid(MEM32(0x643B60u + 0xDC), 0x10) ||
+        MEM32(0x643B60u + 0xE0) > 0x2000u) {
+        fprintf(stderr,
+                "[FSW/Scene] InitLevel repairing SceneManager setup before objects entries=%08X count=%u esp=%08X\n",
+                (unsigned)MEM32(0x643B60u + 0xDC),
+                (unsigned)MEM32(0x643B60u + 0xE0),
+                (unsigned)esp);
+        saved_scene_esp = esp;
+        PUSH32(esp, 0); fn_00284E40_CSceneManager_Get(); /* call 0x00284E40 */
+        ecx = eax;
+        PUSH32(esp, 0); fn_00282BE0_CSceneManager_Setup(); /* call 0x00282BE0 */
+        if (esp != saved_scene_esp) {
+            fprintf(stderr, "[FSW/Scene] InitLevel repaired SceneManager setup esp %08X -> %08X\n",
+                    (unsigned)esp, (unsigned)saved_scene_esp);
+            esp = saved_scene_esp;
+        }
+        fsw_loadpak_ensure_scene_storage("InitLevel setup repair");
+        fsw_loadpak_log_init_step("after SceneManager_Setup");
+    }
+    fsw_loadpak_ensure_scene_storage("InitLevel pre-objects");
+    fsw_loadpak_log_init_step("before ConstructObjects");
+    saved_construct_esp = esp;
+    memcpy(saved_header, (const void *)XBOX_PTR(0x608040u), sizeof(saved_header));
     PUSH32(esp, 0); fn_002AA9A0_ConstructObjects(); /* call 0x002AA9A0 */
 
 loc_002ABC70:
+    if (esp != saved_construct_esp) {
+        fprintf(stderr, "[FSW/Load] ConstructObjects repaired esp %08X -> %08X and restored PAK header\n",
+                (unsigned)esp, (unsigned)saved_construct_esp);
+        esp = saved_construct_esp;
+        memcpy((void *)XBOX_PTR(0x608040u), saved_header, sizeof(saved_header));
+    }
+    fsw_loadpak_repair_scene_after_objects("after ConstructObjects");
+    fsw_loadpak_log_init_step("after ConstructObjects");
     PUSH32(esp, 0); fn_002A9E50_RegisterABKs(); /* call 0x002A9E50 */
 
 loc_002ABC75:
+    fsw_loadpak_log_init_step("after RegisterABKs");
     PUSH32(esp, 0); fn_002AA4D0_RegisterHKDescriptors(); /* call 0x002AA4D0 */
 
 loc_002ABC7A:
+    fsw_loadpak_log_init_step("after RegisterHKDescriptors");
     PUSH32(esp, 0); fn_002AB470_RegisterFonts(); /* call 0x002AB470 */
 
 loc_002ABC7F:
+    fsw_loadpak_log_init_step("after RegisterFonts");
     PUSH32(esp, 0); fn_002A9C00_RegisterSoundBanks(); /* call 0x002A9C00 */
 
 loc_002ABC84:
+    fsw_loadpak_log_init_step("after RegisterSoundBanks");
     PUSH32(esp, 0); fn_002A9D30_RegisterMeshes(); /* call 0x002A9D30 */
 
 loc_002ABC89:
+    fsw_loadpak_log_init_step("after RegisterMeshes");
     eax = MEM32(0x60825C);
     PUSH32(esp, eax);
     PUSH32(esp, 0); fn_001928E0_LocationSetup(); /* call 0x001928E0 */
@@ -4885,6 +5740,7 @@ void fn_002AC0B0_InitShell(void)
 loc_002AC0B0:
     PUSH32(esp, esi);
     PUSH32(esp, 0); fn_002A9F00_FixupTextures(); /* call 0x002A9F00 */
+    fsw_loadpak_log_texture_tables("InitShell");
 
 loc_002AC0B6:
     eax = MEM32(0x6081CC);
@@ -4894,6 +5750,7 @@ loc_002AC0B6:
 loc_002AC0C1:
     eax = MEM32(0x608148);
     edx = MEM32(eax + esi * 8 + 4);
+    edx = fsw_loadpak_surface_ptr(edx);
     ecx = MEM32(0x5FA8E8);
     eax = MEM32(eax + esi * 8);
     { uint32_t _icall_esp = g_esp;
@@ -5938,6 +6795,9 @@ loc_002ACF54:
     PUSH32(esp, 0); fn_00026120_1ZeroRenderDescriptor_UAE_XZ(); /* call 0x00026120 */
 
 loc_002ACF68:
+#ifdef XBOXRECOMP_VULKAN_GRAPHICS
+    fsw_loading_bar_draw_vulkan();
+#endif
     (void)0; /* cmp MEM8(0x5D9668), LO8(ebx) - flags set for next jcc */
     POP32(esp, edi);
     POP32(esp, ebp);
@@ -8281,18 +9141,6 @@ loc_002AE1C4:
     }
 
     MEM32(0x5D968C) = body_offset;
-    fprintf(stderr, "[FSW/Load] before reloc base=%08X table=%08X count=%u memfs=%08X/%08X crcslot=%08X\n",
-            (unsigned)MEM32(0x5FA374), (unsigned)MEM32(0x60825C),
-            (unsigned)MEM32(0x608260), (unsigned)MEM32(0x608204),
-            (unsigned)MEM32(0x608208), (unsigned)MEM32(0x608264));
-    fsw_loadpak_apply_relocations();
-    fprintf(stderr, "[FSW/Load] after reloc base=%08X table=%08X count=%u memfs=%08X/%08X crcslot=%08X\n",
-            (unsigned)MEM32(0x5FA374), (unsigned)MEM32(0x60825C),
-            (unsigned)MEM32(0x608260), (unsigned)MEM32(0x608204),
-            (unsigned)MEM32(0x608208), (unsigned)MEM32(0x608264));
-    fsw_loadpak_relocate_memfs(MEM32(0x608204), virt_base, virt_size);
-    fsw_loadpak_relocate_memfs(MEM32(0x608208), virt_base, virt_size);
-
     if (changed) {
         phys_base = MEM32(0x5FA370);
         phys_size = MEM32(0x6081D8);
@@ -8303,6 +9151,22 @@ loc_002AE1C4:
             fsw_loadpak_read_direct(stream, phys_base, body_offset, phys_size, use_copy);
         }
     }
+
+    fprintf(stderr, "[FSW/Load] before reloc virt=%08X/%08X phys=%08X/%08X table=%08X count=%u memfs=%08X/%08X crcslot=%08X\n",
+            (unsigned)MEM32(0x5FA374), (unsigned)MEM32(0x6081E4),
+            (unsigned)MEM32(0x5FA370), (unsigned)MEM32(0x6081D8),
+            (unsigned)MEM32(0x60825C), (unsigned)MEM32(0x608260),
+            (unsigned)MEM32(0x608204), (unsigned)MEM32(0x608208),
+            (unsigned)MEM32(0x608264));
+    fsw_loadpak_apply_relocations();
+    fprintf(stderr, "[FSW/Load] after reloc virt=%08X/%08X phys=%08X/%08X table=%08X count=%u memfs=%08X/%08X crcslot=%08X\n",
+            (unsigned)MEM32(0x5FA374), (unsigned)MEM32(0x6081E4),
+            (unsigned)MEM32(0x5FA370), (unsigned)MEM32(0x6081D8),
+            (unsigned)MEM32(0x60825C), (unsigned)MEM32(0x608260),
+            (unsigned)MEM32(0x608204), (unsigned)MEM32(0x608208),
+            (unsigned)MEM32(0x608264));
+    fsw_loadpak_relocate_memfs(MEM32(0x608204), virt_base, virt_size);
+    fsw_loadpak_relocate_memfs(MEM32(0x608208), virt_base, virt_size);
 
     if ((MEM32(stream) & 0xFFFFFFC0u) == 0) {
         saved_esp = esp;
@@ -8439,6 +9303,12 @@ loc_002AE747:
 
 loc_002AE77C:
     edi = MEM32(esp + 0x44);
+    if (edi == 0) {
+        edi = fsw_loadpak_find_wld_crc();
+        MEM32(esp + 0x44) = edi;
+    }
+    fprintf(stderr, "[FSW/LoadWLD] opening crc=%08X file=%08X flags=%08X esp=%08X\n",
+            (unsigned)edi, (unsigned)(esp + 0x14), (unsigned)eax, (unsigned)esp);
     PUSH32(esp, eax);
     PUSH32(esp, ecx);
     eax = esp;
@@ -8448,6 +9318,18 @@ loc_002AE77C:
     PUSH32(esp, 0); fn_00123950_ZeroFile_OpenFile(); /* call 0x00123950 */
 
 loc_002AE790:
+    if (MEM32(esp + 0x10) == 0xFFFFFFFFu && MEM32(esp + 0x30) == 0 && edi != 0) {
+        fsw_loadpak_open_crc_memfile(esp + 0xC, edi);
+    }
+    fprintf(stderr,
+            "[FSW/LoadWLD] open result file=%08X status=%08X memfile=%08X size=%08X pos=%08X remain=%08X esp=%08X\n",
+            (unsigned)(esp + 0xC),
+            (unsigned)MEM32(esp + 0x10),
+            (unsigned)MEM32(esp + 0x30),
+            (unsigned)(fsw_loadpak_va_range_is_valid(MEM32(esp + 0x30), 0x10) ? MEM32(MEM32(esp + 0x30) + 8) : 0),
+            (unsigned)(fsw_loadpak_va_range_is_valid(MEM32(esp + 0x30), 0x10) ? MEM32(MEM32(esp + 0x30) + 0xC) : 0),
+            (unsigned)(fsw_loadpak_va_range_is_valid(MEM32(esp + 0x30), 0x10) ? MEM32(MEM32(esp + 0x30) + 4) : 0),
+            (unsigned)esp);
     MEM32(esp + 0x3C) = ebx;
     if (CMP_GE(MEM32(esp + 0x10), ebx)) { sub_002AE7C9(); return; } /* jge: greater or equal (signed >=) */
 

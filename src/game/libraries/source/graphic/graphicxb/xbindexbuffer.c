@@ -7,6 +7,28 @@
 #define RECOMP_GENERATED_CODE
 #include "recomp_funcs.h"
 #include <math.h>
+#include <stdio.h>
+
+static int fsw_xbindex_va_range_is_valid(uint32_t va, uint32_t size)
+{
+    if (va < 0x00010000u || va >= 0x04000000u) {
+        return 0;
+    }
+    if (size > 0x04000000u || va > 0x04000000u - size) {
+        return 0;
+    }
+    return 1;
+}
+
+static void fsw_xbindex_warn_bad_dynamic(uint32_t tree, uint32_t index, uint32_t ptr)
+{
+    static int warn_count;
+    if (warn_count < 16) {
+        fprintf(stderr, "[FSW/XBIndex] skip invalid dynamic entry tree=%08X index=%u ptr=%08X\n",
+                tree, index, ptr);
+    }
+    warn_count++;
+}
 
 /**
  * fn_00138B00_1XBIndexBufferTree_QAE_XZ
@@ -594,6 +616,10 @@ void fn_00138F10_XBIndexBufferTree_ResetDynamic(void)
     ebp = g_seh_ebp; /* fpo_leaf: inherit caller's frame */
 
 loc_00138F10:
+    if (!fsw_xbindex_va_range_is_valid(esi, 0x410)) {
+        fsw_xbindex_warn_bad_dynamic(esi, 0xFFFFFFFFu, 0);
+        esp += 4; return; /* ret */
+    }
     PUSH32(esp, 0xFFFFFFFFu);
     PUSH32(esp, 0x40422E);
     eax = MEM32(0);
@@ -619,6 +645,10 @@ loc_00138F40:
     if (TEST_Z(eax, eax)) goto loc_00138F64; /* je: equal / zero */
 
 loc_00138F47:
+    if (!fsw_xbindex_va_range_is_valid(eax - 4, 4)) {
+        fsw_xbindex_warn_bad_dynamic(esi, edi, eax);
+        goto loc_00138F64;
+    }
     ecx = MEM32(eax + -4);
     ebp = eax + -4;
     PUSH32(esp, 0x138BA0);
@@ -689,6 +719,10 @@ loc_00138FDC:
 
 loc_00138FE6:
     ecx = MEM32(edi + -4);
+    if (!fsw_xbindex_va_range_is_valid(ecx, 4)) {
+        fsw_xbindex_warn_bad_dynamic(esi, ebp, ecx);
+        goto loc_00138FEF;
+    }
     PUSH32(esp, ecx);
     PUSH32(esp, 0); fn_001293F0_3_YAXPAX_Z(); /* call 0x001293F0 */
 

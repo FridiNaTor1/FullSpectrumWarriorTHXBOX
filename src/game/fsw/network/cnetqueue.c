@@ -13,6 +13,17 @@ static int cnetqueue_va_is_valid(uint32_t va)
     return va >= 0x00010000u && va < 0x04000000u;
 }
 
+static int cnetqueue_va_range_is_valid(uint32_t va, uint32_t size)
+{
+    if (!cnetqueue_va_is_valid(va)) {
+        return 0;
+    }
+    if (size > 0x04000000u || va > 0x04000000u - size) {
+        return 0;
+    }
+    return 1;
+}
+
 /**
  * fn_00032970_0CNetCommandSetNode_CNetQueue_QAE_XZ
  * Symbol: ??0CNetCommandSetNode@CNetQueue@@QAE@XZ
@@ -1238,6 +1249,10 @@ loc_002750F0:
     (void)0; /* test eax, eax - flags set for next jcc */
     PUSH32(esp, esi);
     if (TEST_Z(eax, eax)) goto loc_00275135; /* je: equal / zero */
+    if (!cnetqueue_va_range_is_valid(eax - 4, 4)) {
+        MEM32(ebx + 4) = 0;
+        goto loc_00275135;
+    }
 
 loc_0027510E:
     ecx = MEM32(eax + -4);

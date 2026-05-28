@@ -8,6 +8,11 @@
 #include "recomp_funcs.h"
 #include <math.h>
 
+static int fsw_cell_edge_va_range_is_valid(uint32_t va, uint32_t size)
+{
+    return va >= 0x00010000u && va < 0x04000000u && size <= 0x04000000u - va;
+}
+
 /**
  * fn_000235F0_CAICellEdge_IsParent
  * Symbol: ?IsParent@CAICellEdge@@UAE_NPAVCAICell@@@Z
@@ -43,10 +48,25 @@ void fn_00023610_0ZeroPlane_QAE_ABVZeroVector3_00_Z(void)
 
 loc_00023610:
     esp = esp - 0x38;
-    xmm0 = MEMF(eax); /* movss */
     PUSH32(esp, ebx);
     PUSH32(esp, esi);
     esi = MEM32(esp + 0x44);
+    if (!fsw_cell_edge_va_range_is_valid(eax, 0xC) ||
+        !fsw_cell_edge_va_range_is_valid(ecx, 0xC) ||
+        !fsw_cell_edge_va_range_is_valid(esi, 0xC)) {
+        if (fsw_cell_edge_va_range_is_valid(edi, 0x10)) {
+            MEMF(edi) = 0.0f;
+            MEMF(edi + 4) = 0.0f;
+            MEMF(edi + 8) = 1.0f;
+            MEMF(edi + 0xC) = 0.0f;
+        }
+        eax = edi;
+        POP32(esp, esi);
+        POP32(esp, ebx);
+        esp = esp + 0x38;
+        esp += 8; return; /* ret 4 */
+    }
+    xmm0 = MEMF(eax); /* movss */
     xmm0 = xmm0 - MEMF(esi); /* subss */
     MEMF(esp + 8) = xmm0; /* movss */
     xmm0 = MEMF(eax + 4); /* movss */

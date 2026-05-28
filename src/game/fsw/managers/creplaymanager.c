@@ -8,6 +8,17 @@
 #include "recomp_funcs.h"
 #include <math.h>
 
+static int creplay_va_range_is_valid(uint32_t va, uint32_t size)
+{
+    if (va < 0x00010000u || va >= 0x04000000u) {
+        return 0;
+    }
+    if (size > 0x04000000u || va > 0x04000000u - size) {
+        return 0;
+    }
+    return 1;
+}
+
 /**
  * fn_0002F0C0_CReplayHeader_Sign
  * Symbol: ?Sign@CReplayHeader@@QAEXXZ
@@ -1540,40 +1551,30 @@ loc_00298525:
  */
 void fn_00298530_CReplayData_SetShellVariables(void)
 {
-    int _flags = 0; /* fallback flag var */
-    int _cf = 0; /* carry flag */
+    uint32_t replay = eax;
+    uint32_t source = ebx;
+    uint32_t copy_size = 0xC0;
 
-loc_00298530:
-    (void)0; /* test ebx, ebx - flags set for next jcc */
-    PUSH32(esp, edi);
-    edi = eax;
-    SET_LO8(eax, MEM8(edi + 0xC));
-    if (TEST_Z(ebx, ebx)) { sub_0029856D(); return; } /* je: equal / zero */
+    if (!creplay_va_range_is_valid(replay, 0xD0)) {
+        esp += 4; return; /* ret */
+    }
 
-loc_0029853A:
+    if (source == 0) {
+        MEM8(replay + 0xC) = MEM8(replay + 0xC) & 0xFE;
+        esp += 4; return; /* ret */
+    }
+
     PUSH32(esp, esi);
-    esi = MEM32(0x5FA338);
-    SET_LO8(eax, LO8(eax) | 1);
-    MEM8(edi + 0xC) = LO8(eax);
+    MEM8(replay + 0xC) = MEM8(replay + 0xC) | 1;
     PUSH32(esp, 0); fn_002B7910_CCampaignManager_IsVSMultiplayer(); /* call 0x002B7910 */
-
-loc_0029854B:
-    SET_LO8(eax, (uint32_t)(-(int32_t)LO8(eax)));
-    esi = ebx;
-    eax = _cf ? 0xFFFFFFFF : 0; /* sbb self (CF extend) */
-    eax = eax & 4;
-    eax = eax + 0xC0;
-    edi = edi + 0xD;
-    ecx = eax;
-    ecx = ecx >> 2;
-    memcpy((void*)XBOX_PTR(edi), (void*)XBOX_PTR(esi), ecx * 4);
-    esi += ecx * 4; edi += ecx * 4; ecx = 0; /* rep movsd */
-    ecx = eax;
-    ecx = ecx & 3;
-    memcpy((void*)XBOX_PTR(edi), (void*)XBOX_PTR(esi), ecx);
-    esi += ecx; edi += ecx; ecx = 0; /* rep movsb */
+    if ((LO8(eax) != 0)) {
+        copy_size += 4;
+    }
+    if (creplay_va_range_is_valid(source, copy_size) &&
+        creplay_va_range_is_valid(replay + 0xD, copy_size)) {
+        memcpy((void*)XBOX_PTR(replay + 0xD), (void*)XBOX_PTR(source), copy_size);
+    }
     POP32(esp, esi);
-    POP32(esp, edi);
     esp += 4; return; /* ret */
 
 }

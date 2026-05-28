@@ -8,6 +8,11 @@
 #include "recomp_funcs.h"
 #include <math.h>
 
+static int fsw_xhv_va_is_valid(uint32_t va)
+{
+    return va >= 0x00010000u && va < 0x04000000u;
+}
+
 /**
  * fn_000625D5_0CXHVEngine_XHVNamespace_QAE_XZ
  * Symbol: ??0CXHVEngine@XHVNamespace@@QAE@XZ
@@ -984,6 +989,12 @@ void fn_00062895_XHVNamespace_CXHVEngine_SetPlaybackPriority(void)
 
 loc_00062895:
     eax = MEM32(esp + 4);
+    if (!fsw_xhv_va_is_valid(eax + 0x4C) ||
+        !fsw_xhv_va_is_valid(MEM32(eax + 0x48) + 4) ||
+        !fsw_xhv_va_is_valid(MEM32(MEM32(eax + 0x48)) + 0x5C)) {
+        eax = 0x80004005u;
+        esp += 28; return; /* ret 24 */
+    }
     (void)0; /* cmp MEM32(eax + 0x48), 0 - flags set for next jcc */
     PUSH32(esp, esi);
     PUSH32(esp, edi);

@@ -7,6 +7,27 @@
 #define RECOMP_GENERATED_CODE
 #include "recomp_funcs.h"
 #include <math.h>
+#include <stdio.h>
+
+static int fsw_airstrike_va_range_is_valid(uint32_t va, uint32_t size)
+{
+    if (va < 0x00010000u || va >= 0x04000000u) {
+        return 0;
+    }
+    if (size > 0x04000000u || va > 0x04000000u - size) {
+        return 0;
+    }
+    return 1;
+}
+
+static void fsw_airstrike_warn_skip_attach(uint32_t child, uint32_t prop)
+{
+    static int warn_count;
+    if (warn_count < 16) {
+        fprintf(stderr, "[FSW/Airstrike] skip helicopter attach child=%08X prop=%08X\n", child, prop);
+    }
+    warn_count++;
+}
 
 /**
  * fn_000356E0_CParticleHelicopterWind_SetStart
@@ -429,6 +450,12 @@ loc_003A48C7:
 
 loc_003A48D0:
     ecx = MEM32(esi + 0x8C);
+    if (!fsw_airstrike_va_range_is_valid(eax, 0x1C) ||
+        !fsw_airstrike_va_range_is_valid(ecx, 4) ||
+        !fsw_airstrike_va_range_is_valid(MEM32(ecx), 0x18)) {
+        fsw_airstrike_warn_skip_attach(eax, ecx);
+        goto loc_003A48FE;
+    }
     edx = MEM32(ecx);
     { uint32_t _icall_esp = g_esp;
     PUSH32(esp, eax);

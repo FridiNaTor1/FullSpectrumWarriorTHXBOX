@@ -7,6 +7,15 @@
 #define RECOMP_GENERATED_CODE
 #include "recomp_funcs.h"
 #include <math.h>
+#include <stdio.h>
+
+static const char *fsw_audio_guest_cstr(uint32_t va)
+{
+    if (va < 0x10000u || va >= 0x80000000u) {
+        return "<invalid>";
+    }
+    return (const char *)XBOX_PTR(va);
+}
 
 /**
  * fn_0004B690_IXACTEngine_Release
@@ -3664,6 +3673,18 @@ void fn_001D1EA0_CSoundEngineXACT_LoadWaveBank(void)
     ebp = g_seh_ebp; /* fpo_leaf: inherit caller's frame */
 
 loc_001D1EA0:
+    {
+        static uint32_t log_count;
+        uint32_t path_va = MEM32(esp + 4);
+        if (log_count < 16) {
+            fprintf(stderr, "[FSW/Audio] bypass LoadWaveBank path=%s\n",
+                    fsw_audio_guest_cstr(path_va));
+            log_count++;
+        }
+    }
+    SET_LO8(eax, 1);
+    esp += 16; return; /* ret 12 */
+
     PUSH32(esp, 0xFFFFFFFFu);
     PUSH32(esp, 0x409062);
     eax = MEM32(0);
@@ -4488,6 +4509,17 @@ void fn_001D2370_CSoundEngineXACT_Update(void)
     #define fp_st1() _fp_stack[(_fp_top + 1) & 7]
 
 loc_001D2370:
+    {
+        static uint32_t log_count;
+        if (log_count < 8) {
+            fprintf(stderr, "[FSW/Audio] bypass SoundEngineXACT::Update dt_bits=%08X\n",
+                    (unsigned)MEM32(esp + 4));
+            log_count++;
+        }
+    }
+    SET_LO8(eax, 1);
+    esp += 8; return; /* ret 4 */
+
     { uint32_t _icall_esp = g_esp;
     PUSH32(esp, ecx);
     PUSH32(esp, ebx);
@@ -4834,6 +4866,18 @@ void fn_001D25B0_CSoundEngineXACT_LoadSoundBank(void)
     ebp = g_seh_ebp; /* fpo_leaf: inherit caller's frame */
 
 loc_001D25B0:
+    {
+        static uint32_t log_count;
+        uint32_t path_va = MEM32(esp + 4);
+        if (log_count < 16) {
+            fprintf(stderr, "[FSW/Audio] bypass LoadSoundBank path=%s\n",
+                    fsw_audio_guest_cstr(path_va));
+            log_count++;
+        }
+    }
+    SET_LO8(eax, 1);
+    esp += 8; return; /* ret 4 */
+
     PUSH32(esp, 0xFFFFFFFFu);
     PUSH32(esp, 0x40ABD2);
     eax = MEM32(0);

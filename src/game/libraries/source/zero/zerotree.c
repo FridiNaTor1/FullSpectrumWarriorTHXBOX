@@ -8,6 +8,17 @@
 #include "recomp_funcs.h"
 #include <math.h>
 
+static int zerotree_va_range_is_valid(uint32_t va, uint32_t size)
+{
+    if (va < 0x00010000u || va >= 0x04000000u) {
+        return 0;
+    }
+    if (size > 0x04000000u || va > 0x04000000u - size) {
+        return 0;
+    }
+    return 1;
+}
+
 /**
  * fn_001266E0_RedBlackNode_RemoveAllLow
  * Symbol: ?RemoveAllLow@RedBlackNode@@QAEXXZ
@@ -22,7 +33,9 @@ void fn_001266E0_RedBlackNode_RemoveAllLow(void)
 loc_001266E0:
     PUSH32(esp, esi);
     esi = ecx;
+    if (!zerotree_va_range_is_valid(esi, 0x14)) goto loc_00126727;
     ecx = MEM32(esi + 8);
+    if (!zerotree_va_range_is_valid(ecx, 0x14)) ecx = 0;
     if (TEST_Z(ecx, ecx)) goto loc_001266EF; /* je: equal / zero */
 
 loc_001266EA:
@@ -30,6 +43,7 @@ loc_001266EA:
 
 loc_001266EF:
     ecx = MEM32(esi + 0xC);
+    if (!zerotree_va_range_is_valid(ecx, 0x14)) ecx = 0;
     if (TEST_Z(ecx, ecx)) goto loc_001266FB; /* je: equal / zero */
 
 loc_001266F6:
@@ -298,7 +312,9 @@ void fn_00126830_RedBlackNode_RemoveAll(void)
 loc_00126830:
     PUSH32(esp, esi);
     esi = eax;
+    if (!zerotree_va_range_is_valid(esi, 0x14)) goto loc_0012688D;
     eax = MEM32(esi + 0x10);
+    if (!zerotree_va_range_is_valid(eax, 0x14)) eax = 0;
     if (TEST_Z(eax, eax)) goto loc_00126849; /* je: equal / zero */
 
 loc_0012683A:
@@ -307,10 +323,12 @@ loc_0012683A:
 loc_00126840:
     esi = eax;
     eax = MEM32(esi + 0x10);
+    if (!zerotree_va_range_is_valid(eax, 0x14)) eax = 0;
     if (TEST_NZ(eax, eax)) goto loc_00126840; /* jne: not equal / not zero */
 
 loc_00126849:
     ecx = MEM32(esi + 8);
+    if (!zerotree_va_range_is_valid(ecx, 0x14)) ecx = 0;
     if (TEST_Z(ecx, ecx)) goto loc_00126855; /* je: equal / zero */
 
 loc_00126850:
@@ -318,6 +336,7 @@ loc_00126850:
 
 loc_00126855:
     ecx = MEM32(esi + 0xC);
+    if (!zerotree_va_range_is_valid(ecx, 0x14)) ecx = 0;
     if (TEST_Z(ecx, ecx)) goto loc_00126861; /* je: equal / zero */
 
 loc_0012685C:
@@ -688,6 +707,10 @@ void fn_00126AE0_RedBlackNode_InsertFixup(void)
     ebp = g_seh_ebp; /* fpo_leaf: inherit caller's frame */
 
 loc_00126AE0:
+    if (!zerotree_va_range_is_valid(eax, 0x14) ||
+        !zerotree_va_range_is_valid(MEM32(esp + 4), 4)) {
+        esp += 8; return; /* ret 4 */
+    }
     PUSH32(esp, ebx);
     PUSH32(esp, ebp);
     ebp = MEM32(esp + 0xC);
@@ -704,11 +727,14 @@ loc_00126AF4:
     /* nop */
 
 loc_00126B00:
+    if (!zerotree_va_range_is_valid(eax, 0x14)) goto loc_00126CAD;
     edx = MEM32(eax + 0x10);
+    if (!zerotree_va_range_is_valid(edx, 0x14)) goto loc_00126CAD;
     if (TEST_NZ(MEM8(edx + 4), LO8(ebx))) goto loc_00126CAD; /* jne: not equal / not zero */
 
 loc_00126B0C:
     esi = MEM32(edx + 0x10);
+    if (!zerotree_va_range_is_valid(esi, 0x14)) goto loc_00126CAD;
     ecx = MEM32(esi + 8);
     if (CMP_NE(edx, ecx)) goto loc_00126BE7; /* jne: not equal / not zero */
 

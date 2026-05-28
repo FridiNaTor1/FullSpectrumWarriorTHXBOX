@@ -7,6 +7,116 @@
 #define RECOMP_GENERATED_CODE
 #include "recomp_funcs.h"
 #include <math.h>
+#include <stdio.h>
+#include <string.h>
+
+extern uint32_t xbox_HeapAlloc(uint32_t size, uint32_t alignment);
+
+static int hkworld_va_range_is_valid(uint32_t va, uint32_t size)
+{
+    if (size == 0) {
+        return va >= 0x00010000u && va < 0x04000000u;
+    }
+    if (va < 0x00010000u || va >= 0x04000000u || va + size < va) {
+        return 0;
+    }
+    return va + size <= 0x04000000u;
+}
+
+static void hkworld_ensure_listener_array(uint32_t array, uint32_t needed)
+{
+    uint32_t old_data;
+    uint32_t old_size;
+    uint32_t old_flags;
+    uint32_t capacity;
+    uint32_t new_data;
+
+    if (!hkworld_va_range_is_valid(array, 0xC)) {
+        return;
+    }
+    old_data = MEM32(array);
+    old_size = MEM32(array + 4);
+    old_flags = MEM32(array + 8);
+    capacity = old_flags & 0x3FFFFFFFu;
+    if (capacity >= needed && hkworld_va_range_is_valid(old_data, capacity * 4u)) {
+        return;
+    }
+    if (capacity < needed) {
+        capacity = needed;
+    }
+    if (capacity == 0) {
+        capacity = 1;
+    }
+    new_data = xbox_HeapAlloc(capacity * 4u, 16);
+    if (!hkworld_va_range_is_valid(new_data, capacity * 4u)) {
+        return;
+    }
+    if (old_size != 0 && hkworld_va_range_is_valid(old_data, old_size * 4u)) {
+        memcpy((void *)XBOX_PTR(new_data), (const void *)XBOX_PTR(old_data), old_size * 4u);
+    }
+    MEM32(array) = new_data;
+    MEM32(array + 8) = (old_flags & 0x40000000u) | capacity;
+}
+
+static int hkworld_operation_queue_is_plausible(uint32_t queue)
+{
+    uint32_t data;
+    uint32_t size;
+    uint32_t flags;
+    uint32_t capacity;
+
+    if (!hkworld_va_range_is_valid(queue, 0x10)) {
+        return 0;
+    }
+    data = MEM32(queue);
+    size = MEM32(queue + 4);
+    flags = MEM32(queue + 8);
+    capacity = flags & 0x3FFFFFFFu;
+    if (size > capacity || capacity > 0x100000u) {
+        return 0;
+    }
+    if (capacity != 0 && !hkworld_va_range_is_valid(data, capacity * 0x10u)) {
+        return 0;
+    }
+    return 1;
+}
+
+static uint32_t hkworld_get_or_repair_operation_queue(uint32_t world, const char *reason)
+{
+    uint32_t queue;
+
+    if (!hkworld_va_range_is_valid(world + 0x80, 4)) {
+        return 0;
+    }
+    queue = MEM32(world + 0x80);
+    if (hkworld_operation_queue_is_plausible(queue)) {
+        return queue;
+    }
+
+    queue = xbox_HeapAlloc(0x10, 16);
+    if (!hkworld_va_range_is_valid(queue, 0x10)) {
+        return 0;
+    }
+    MEM32(queue) = 0;
+    MEM32(queue + 4) = 0;
+    MEM32(queue + 8) = 0x80000000u;
+    MEM32(queue + 0xC) = world;
+    MEM32(world + 0x80) = queue;
+
+    {
+        static uint32_t repair_count;
+        if (repair_count < 8 || (repair_count % 64) == 0) {
+            fprintf(stderr,
+                    "[FSW/Havok] repaired world operation queue world=%08X queue=%08X reason=%s count=%u\n",
+                    (unsigned)world,
+                    (unsigned)queue,
+                    reason ? reason : "?",
+                    (unsigned)(repair_count + 1));
+        }
+        repair_count++;
+    }
+    return queue;
+}
 
 /**
  * fn_000AC3C0_GhkShapeCollectionFilter_UAEPAXI_Z
@@ -626,7 +736,11 @@ loc_000AC790:
     eax = MEM32(esp + 4);
     PUSH32(esp, esi);
     esi = ecx;
-    ecx = MEM32(esi + 0x80);
+    ecx = hkworld_get_or_repair_operation_queue(esi, "world-queueOperation");
+    if (TEST_Z(ecx, ecx)) {
+        POP32(esp, esi);
+        esp += 8; return; /* ret 4 */
+    }
     PUSH32(esp, eax);
     PUSH32(esp, 0); fn_000BA430_hkWorldOperationQueue_queueOperation(); /* call 0x000BA430 */
 
@@ -1949,7 +2063,11 @@ loc_000AD0E5:
     edx = MEM32(edi);
     ecx = edi;
     { uint32_t _icall_esp = g_esp;
+    uint32_t _saved_esi = esi;
+    uint32_t _saved_edi = edi;
     PUSH32(esp, 0); RECOMP_ICALL_SAFE(MEM32(edx + 0xC), _icall_esp); /* indirect call */
+    esi = _saved_esi;
+    edi = _saved_edi;
     }
 
 loc_000AD0EC:
@@ -2054,6 +2172,7 @@ loc_000AD1A1:
     esp = esp + 8;
 
 loc_000AD1A4:
+    hkworld_ensure_listener_array(esi, MEM32(esi + 4) + 1u);
     ecx = MEM32(esi + 4);
     edx = MEM32(esi);
     eax = MEM32(esp + 8);
@@ -2092,6 +2211,7 @@ loc_000AD1E1:
     esp = esp + 8;
 
 loc_000AD1E4:
+    hkworld_ensure_listener_array(esi, MEM32(esi + 4) + 1u);
     ecx = MEM32(esi + 4);
     edx = MEM32(esi);
     eax = MEM32(esp + 8);
@@ -2130,6 +2250,7 @@ loc_000AD221:
     esp = esp + 8;
 
 loc_000AD224:
+    hkworld_ensure_listener_array(esi, MEM32(esi + 4) + 1u);
     ecx = MEM32(esi + 4);
     edx = MEM32(esi);
     eax = MEM32(esp + 8);
@@ -2168,6 +2289,7 @@ loc_000AD261:
     esp = esp + 8;
 
 loc_000AD264:
+    hkworld_ensure_listener_array(esi, MEM32(esi + 4) + 1u);
     ecx = MEM32(esi + 4);
     edx = MEM32(esi);
     eax = MEM32(esp + 8);
@@ -3729,7 +3851,13 @@ loc_000AE3CA:
     MEM32(esp + 0x18) = eax;
     eax = esp + 0x14;
     MEM8(esp + 0x1C) = LO8(ecx);
-    ecx = MEM32(edi + 0x80);
+    ecx = hkworld_get_or_repair_operation_queue(edi, "updateCollisionFilterOnEntity");
+    if (TEST_Z(ecx, ecx)) {
+        POP32(esp, edi);
+        POP32(esp, ebx);
+        esp = esp + 0x834;
+        esp += 16; return; /* ret 12 */
+    }
     PUSH32(esp, eax);
     MEM8(esp + 0x18) = 0x12;
     MEM8(esp + 0x21) = LO8(edx);
@@ -7562,6 +7690,11 @@ void sub_000B027C(void)
     int _flags = 0; /* fallback flag var */
 
 loc_000B027C:
+    if (!hkworld_va_range_is_valid(esi, 8)) {
+        esi = 0;
+        sub_000B0287();
+        return;
+    }
     if (CMP_EQ(MEM16(esi + 4), 0)) { sub_000B0287(); return; } /* je: equal / zero */
 
 loc_000B0283:
@@ -7582,7 +7715,13 @@ void sub_000B0287(void)
     ebp = g_seh_ebp; /* fpo_leaf: inherit caller's frame */
 
 loc_000B0287:
+    if (!hkworld_va_range_is_valid(edi + 0x7C, 4)) {
+        POP32(esp, edi);
+        POP32(esp, esi);
+        esp += 20; return; /* ret 16 */
+    }
     ecx = MEM32(edi + 0x78);
+    if (!hkworld_va_range_is_valid(ecx, 8)) goto loc_000B02A2;
     if (CMP_EQ(MEM16(ecx + 4), 0)) goto loc_000B02A2; /* je: equal / zero */
 
 loc_000B0291:
@@ -7599,7 +7738,12 @@ loc_000B029C:
 loc_000B02A2:
     (void)0; /* test esi, esi - flags set for next jcc */
     MEM32(edi + 0x78) = esi;
-    if (TEST_Z(esi, esi)) { sub_000B02AE(); return; } /* je: equal / zero */
+    if (TEST_Z(esi, esi)) {
+        eax = 0;
+        POP32(esp, edi);
+        POP32(esp, esi);
+        esp += 20; return; /* ret 16 */
+    } /* je: equal / zero */
 
 loc_000B02A9:
     eax = esi + 0xC;

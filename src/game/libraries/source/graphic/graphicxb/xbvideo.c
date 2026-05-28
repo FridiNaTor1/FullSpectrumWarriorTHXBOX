@@ -7,6 +7,425 @@
 #define RECOMP_GENERATED_CODE
 #include "recomp_funcs.h"
 #include <math.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <stdint.h>
+
+extern uint32_t xbox_HeapAlloc(uint32_t size, uint32_t alignment);
+
+typedef struct FswSurfaceRegistryEntry {
+    uint32_t crc;
+    uint32_t surface;
+} FswSurfaceRegistryEntry;
+
+static FswSurfaceRegistryEntry g_fsw_xbvideo_surfaces[4096];
+static uint32_t g_fsw_xbvideo_surface_count;
+static uint32_t g_fsw_xbvideo_default_color_surface;
+static uint32_t g_fsw_xbvideo_default_depth_surface;
+uint32_t g_fsw_xbvideo_global_video;
+uint32_t g_fsw_xbvideo_global_vtable;
+
+void fsw_xbvideo_ensure_default_render_surfaces(uint32_t video, const char *reason);
+
+static void fsw_xbvideo_register_surface(uint32_t crc, uint32_t surface)
+{
+    for (uint32_t i = 0; i < g_fsw_xbvideo_surface_count; i++) {
+        if (g_fsw_xbvideo_surfaces[i].crc == crc) {
+            g_fsw_xbvideo_surfaces[i].surface = surface;
+            return;
+        }
+    }
+    if (g_fsw_xbvideo_surface_count < (uint32_t)(sizeof(g_fsw_xbvideo_surfaces) / sizeof(g_fsw_xbvideo_surfaces[0]))) {
+        g_fsw_xbvideo_surfaces[g_fsw_xbvideo_surface_count].crc = crc;
+        g_fsw_xbvideo_surfaces[g_fsw_xbvideo_surface_count].surface = surface;
+        g_fsw_xbvideo_surface_count++;
+    }
+}
+
+uint32_t fsw_xbvideo_find_surface(uint32_t crc)
+{
+    for (uint32_t i = 0; i < g_fsw_xbvideo_surface_count; i++) {
+        if (g_fsw_xbvideo_surfaces[i].crc == crc) {
+            return g_fsw_xbvideo_surfaces[i].surface;
+        }
+    }
+    return 0;
+}
+
+static const char *fsw_xbvideo_crc_name(uint32_t crc)
+{
+    switch (crc) {
+    case 0x9C7F2F31u: return "SHL_STARTMENU_LOGO";
+    case 0x08DF3B9Eu: return "SHL_LISTBOX_BACKGROUND";
+    case 0x7858C80Bu: return "SHL_LISTBOX_SCROLLBAR";
+    case 0x4F79DCE9u: return "SHL_LISTBOX_TriangleUp";
+    case 0xF670A259u: return "SHL_LISTBOX_TriangleDown";
+    case 0x99D7384Au: return "SHL_BACKGROUND";
+    case 0x022C9C62u: return "SHL_BLACK";
+    case 0x2FE54457u: return "loadingbg";
+    case 0xFB9B25BDu: return "loadingscan";
+    default: return NULL;
+    }
+}
+
+static int fsw_xbvideo_should_log_crc(uint32_t crc)
+{
+    static uint32_t log_count;
+    if (fsw_xbvideo_crc_name(crc) != NULL) {
+        return 1;
+    }
+    if (log_count < 200) {
+        log_count++;
+        return 1;
+    }
+    return 0;
+}
+
+static int fsw_xbvideo_va_is_valid(uint32_t va)
+{
+    return va >= 0x00010000u && va < 0x04000000u;
+}
+
+static int fsw_xbvideo_va_range_is_valid(uint32_t va, uint32_t size)
+{
+    return va > 0x00010000u && va < 0x04000000u && size <= 0x04000000u - va;
+}
+
+static int fsw_xbvideo_vtable_is_valid(uint32_t vtable)
+{
+    return vtable >= 0x00400000u && vtable < 0x00700000u;
+}
+
+static int fsw_xbvideo_video_is_valid(uint32_t video)
+{
+    return fsw_xbvideo_va_range_is_valid(video, 0x7140) &&
+           fsw_xbvideo_vtable_is_valid(MEM32(video));
+}
+
+static int fsw_xbvideo_render_segment_is_valid(uint32_t segment)
+{
+    return fsw_xbvideo_va_range_is_valid(segment, 0xC4) &&
+           fsw_xbvideo_vtable_is_valid(MEM32(segment));
+}
+
+static uint32_t fsw_xbvideo_restore_video(uint32_t video, const char *reason)
+{
+    static uint32_t log_count;
+
+    if (fsw_xbvideo_video_is_valid(video)) {
+        fsw_xbvideo_ensure_default_render_surfaces(video, reason);
+        return video;
+    }
+
+    if (fsw_xbvideo_va_range_is_valid(video, 4) &&
+        video == g_fsw_xbvideo_global_video &&
+        fsw_xbvideo_vtable_is_valid(g_fsw_xbvideo_global_vtable)) {
+        if (log_count < 32 || (log_count % 120) == 0) {
+            fprintf(stderr, "[FSW/XBVideo] restoring video vtable reason=%s video=%08X old=%08X new=%08X\n",
+                    reason, (unsigned)video, (unsigned)MEM32(video),
+                    (unsigned)g_fsw_xbvideo_global_vtable);
+        }
+        log_count++;
+        MEM32(video) = g_fsw_xbvideo_global_vtable;
+        fsw_xbvideo_ensure_default_render_surfaces(video, reason);
+        return video;
+    }
+
+    if (fsw_xbvideo_video_is_valid(g_fsw_xbvideo_global_video)) {
+        if (log_count < 32 || (log_count % 120) == 0) {
+            fprintf(stderr, "[FSW/XBVideo] restoring video object reason=%s old=%08X cached=%08X\n",
+                    reason, (unsigned)video, (unsigned)g_fsw_xbvideo_global_video);
+        }
+        log_count++;
+        fsw_xbvideo_ensure_default_render_surfaces(g_fsw_xbvideo_global_video, reason);
+        return g_fsw_xbvideo_global_video;
+    }
+
+    if (log_count < 32 || (log_count % 120) == 0) {
+        fprintf(stderr, "[FSW/XBVideo] no valid video object reason=%s old=%08X cached=%08X cached_vtbl=%08X\n",
+                reason, (unsigned)video, (unsigned)g_fsw_xbvideo_global_video,
+                (unsigned)g_fsw_xbvideo_global_vtable);
+    }
+    log_count++;
+    return 0;
+}
+
+static void fsw_xbvideo_zero_block(uint32_t va, uint32_t size)
+{
+    uint32_t i;
+
+    if (!fsw_xbvideo_va_range_is_valid(va, size)) {
+        return;
+    }
+
+    for (i = 0; i < size; i += 4) {
+        MEM32(va + i) = 0;
+    }
+}
+
+static uint32_t fsw_xbvideo_create_default_surface(uint32_t width, uint32_t height)
+{
+    uint32_t surface = xbox_HeapAlloc(0xC4, 16);
+    uint32_t src_desc = xbox_HeapAlloc(0x14, 16);
+    uint32_t dst_a = xbox_HeapAlloc(0x14, 16);
+    uint32_t dst_b = xbox_HeapAlloc(0x14, 16);
+    uint32_t dst_c = xbox_HeapAlloc(0x14, 16);
+
+    if (!fsw_xbvideo_va_range_is_valid(surface, 0xC4) ||
+        !fsw_xbvideo_va_range_is_valid(src_desc, 0x14) ||
+        !fsw_xbvideo_va_range_is_valid(dst_a, 0x14) ||
+        !fsw_xbvideo_va_range_is_valid(dst_b, 0x14) ||
+        !fsw_xbvideo_va_range_is_valid(dst_c, 0x14)) {
+        return 0;
+    }
+
+    fsw_xbvideo_zero_block(surface, 0xC4);
+    fsw_xbvideo_zero_block(src_desc, 0x14);
+    fsw_xbvideo_zero_block(dst_a, 0x14);
+    fsw_xbvideo_zero_block(dst_b, 0x14);
+    fsw_xbvideo_zero_block(dst_c, 0x14);
+
+    MEM32(surface) = 0x55FFC4u;
+    MEM32(surface + 8) = 1;
+    MEM32(surface + 0x18) = width;
+    MEM32(surface + 0x1C) = height;
+    MEM32(surface + 0x20) = width * 4;
+    MEM32(surface + 0x5C) = dst_a;
+    MEM32(surface + 0x60) = dst_b;
+    MEM32(surface + 0x64) = src_desc;
+    MEM32(surface + 0x68) = dst_c;
+    MEM32(surface + 0x80) = 0;
+    MEMF(surface + 0xB0) = 0.0f;
+    MEMF(surface + 0xB4) = 0.0f;
+    MEMF(surface + 0xB8) = 1.0f;
+    MEMF(surface + 0xBC) = 1.0f;
+
+    MEM32(src_desc + 4) = width * 4;
+    MEM32(src_desc + 8) = 0;
+    MEM32(src_desc + 0x10) = ((height - 1) << 12) | (width - 1);
+    return surface;
+}
+
+void fsw_xbvideo_ensure_default_render_surfaces(uint32_t video, const char *reason)
+{
+    static uint32_t log_count = 0;
+
+    if (!fsw_xbvideo_va_range_is_valid(video, 0x70AC)) {
+        return;
+    }
+
+    if (!fsw_xbvideo_va_range_is_valid(g_fsw_xbvideo_default_color_surface, 0xC4)) {
+        g_fsw_xbvideo_default_color_surface = fsw_xbvideo_create_default_surface(640, 480);
+    }
+    if (!fsw_xbvideo_va_range_is_valid(g_fsw_xbvideo_default_depth_surface, 0xC4)) {
+        g_fsw_xbvideo_default_depth_surface = fsw_xbvideo_create_default_surface(640, 480);
+    }
+
+    if (!fsw_xbvideo_va_range_is_valid(MEM32(video + 0xD0), 0xC4)) {
+        MEM32(video + 0xD0) = g_fsw_xbvideo_default_color_surface;
+    }
+    if (!fsw_xbvideo_va_range_is_valid(MEM32(video + 0x6C0C), 0xC4)) {
+        MEM32(video + 0x6C0C) = g_fsw_xbvideo_default_color_surface;
+    }
+    if (!fsw_xbvideo_va_range_is_valid(MEM32(video + 0x6C10), 0xC4)) {
+        MEM32(video + 0x6C10) = g_fsw_xbvideo_default_depth_surface;
+    }
+    if (!fsw_xbvideo_va_range_is_valid(MEM32(video + 0x70A4), 0xC4)) {
+        MEM32(video + 0x70A4) = g_fsw_xbvideo_default_color_surface;
+    }
+    if (!fsw_xbvideo_va_range_is_valid(MEM32(video + 0x70A8), 0xC4)) {
+        MEM32(video + 0x70A8) = g_fsw_xbvideo_default_color_surface;
+    }
+
+    if (log_count < 16 || (log_count % 120) == 0) {
+        fprintf(stderr, "[FSW/XBVideo] default render surfaces reason=%s video=%08X color=%08X depth=%08X count=%u\n",
+                reason, (unsigned)video, (unsigned)g_fsw_xbvideo_default_color_surface,
+                (unsigned)g_fsw_xbvideo_default_depth_surface, (unsigned)(log_count + 1));
+    }
+    log_count++;
+}
+
+static uint8_t fsw_xbvideo_expand5(uint32_t v) { return (uint8_t)((v << 3) | (v >> 2)); }
+static uint8_t fsw_xbvideo_expand6(uint32_t v) { return (uint8_t)((v << 2) | (v >> 4)); }
+
+static uint16_t fsw_xbvideo_rd16(const uint8_t *p)
+{
+    return (uint16_t)p[0] | ((uint16_t)p[1] << 8);
+}
+
+static uint32_t fsw_xbvideo_rd32(const uint8_t *p)
+{
+    return (uint32_t)p[0] | ((uint32_t)p[1] << 8) | ((uint32_t)p[2] << 16) | ((uint32_t)p[3] << 24);
+}
+
+static uint32_t fsw_xbvideo_bgra(uint8_t a, uint8_t r, uint8_t g, uint8_t b)
+{
+    return ((uint32_t)a << 24) | ((uint32_t)r << 16) | ((uint32_t)g << 8) | (uint32_t)b;
+}
+
+static void fsw_xbvideo_decode_565(uint16_t c, uint8_t *r, uint8_t *g, uint8_t *b)
+{
+    *r = fsw_xbvideo_expand5((c >> 11) & 31);
+    *g = fsw_xbvideo_expand6((c >> 5) & 63);
+    *b = fsw_xbvideo_expand5(c & 31);
+}
+
+static void fsw_xbvideo_decode_dxt_block(uint32_t *dst, uint32_t width, uint32_t height,
+                                         uint32_t bx, uint32_t by, const uint8_t *src,
+                                         uint32_t fmt)
+{
+    uint8_t alpha[8] = {255,255,255,255,255,255,255,255};
+    uint32_t alpha_bits = 0;
+    uint32_t color_offset = 0;
+    uint32_t colors[4];
+    uint8_t r0, g0, b0, r1, g1, b1;
+    uint16_t c0;
+    uint16_t c1;
+    uint32_t bits;
+
+    if (fmt == 0x0F) {
+        alpha[0] = src[0];
+        alpha[1] = src[1];
+        if (alpha[0] > alpha[1]) {
+            for (uint32_t i = 1; i < 7; i++) {
+                alpha[i + 1] = (uint8_t)(((7 - i) * alpha[0] + i * alpha[1]) / 7);
+            }
+        } else {
+            for (uint32_t i = 1; i < 5; i++) {
+                alpha[i + 1] = (uint8_t)(((5 - i) * alpha[0] + i * alpha[1]) / 5);
+            }
+            alpha[6] = 0;
+            alpha[7] = 255;
+        }
+        for (uint32_t i = 0; i < 6; i++) {
+            alpha_bits |= (uint32_t)src[2 + i] << (8 * i);
+        }
+        color_offset = 8;
+    } else if (fmt == 0x0E) {
+        color_offset = 8;
+    }
+
+    c0 = fsw_xbvideo_rd16(src + color_offset);
+    c1 = fsw_xbvideo_rd16(src + color_offset + 2);
+    fsw_xbvideo_decode_565(c0, &r0, &g0, &b0);
+    fsw_xbvideo_decode_565(c1, &r1, &g1, &b1);
+    colors[0] = fsw_xbvideo_bgra(255, r0, g0, b0);
+    colors[1] = fsw_xbvideo_bgra(255, r1, g1, b1);
+    if (c0 > c1 || fmt != 0x0C) {
+        colors[2] = fsw_xbvideo_bgra(255, (uint8_t)((2 * r0 + r1) / 3), (uint8_t)((2 * g0 + g1) / 3), (uint8_t)((2 * b0 + b1) / 3));
+        colors[3] = fsw_xbvideo_bgra(255, (uint8_t)((r0 + 2 * r1) / 3), (uint8_t)((g0 + 2 * g1) / 3), (uint8_t)((b0 + 2 * b1) / 3));
+    } else {
+        colors[2] = fsw_xbvideo_bgra(255, (uint8_t)((r0 + r1) / 2), (uint8_t)((g0 + g1) / 2), (uint8_t)((b0 + b1) / 2));
+        colors[3] = fsw_xbvideo_bgra(0, 0, 0, 0);
+    }
+    bits = fsw_xbvideo_rd32(src + color_offset + 4);
+
+    for (uint32_t py = 0; py < 4; py++) {
+        for (uint32_t px = 0; px < 4; px++) {
+            uint32_t x = bx * 4 + px;
+            uint32_t y = by * 4 + py;
+            uint32_t pi = py * 4 + px;
+            uint32_t ci;
+            uint8_t a = 255;
+            if (x >= width || y >= height) {
+                continue;
+            }
+            ci = (bits >> (2 * pi)) & 3;
+            if (fmt == 0x0F) {
+                a = alpha[(alpha_bits >> (3 * pi)) & 7];
+            } else if (fmt == 0x0E) {
+                a = (uint8_t)((src[pi / 2] >> ((pi & 1) ? 4 : 0)) & 0xF);
+                a = (uint8_t)((a << 4) | a);
+            } else if (fmt == 0x0C && c0 <= c1 && ci == 3) {
+                a = 0;
+            }
+            dst[y * width + x] = (colors[ci] & 0x00FFFFFFu) | ((uint32_t)a << 24);
+        }
+    }
+}
+
+static void fsw_xbvideo_dump_surface(uint32_t crc, uint32_t surface)
+{
+    static uint32_t dump_count;
+    uint32_t width;
+    uint32_t height;
+    uint32_t texreg;
+    uint32_t data;
+    uint32_t fmt;
+    uint32_t block_size;
+    uint32_t *dst;
+    char path[128];
+    FILE *fp;
+
+    if (getenv("FSW_TH_DUMP_SHELL_TEXTURES") == NULL || dump_count >= 192) {
+        return;
+    }
+    if (!fsw_xbvideo_va_is_valid(surface + 0x60)) {
+        return;
+    }
+    width = MEM32(surface + 0x18);
+    height = MEM32(surface + 0x1C);
+    if (width == 0 || height == 0 || width > 2048 || height > 2048) {
+        return;
+    }
+    texreg = MEM32(surface + 0x5C);
+    {
+        uint32_t virt_base = MEM32(0x5FA374);
+        if (fsw_xbvideo_va_is_valid(virt_base) && texreg < virt_base && texreg < 0x01000000u) {
+            texreg += virt_base;
+        }
+    }
+    if (!fsw_xbvideo_va_is_valid(texreg + 0x10)) {
+        return;
+    }
+    data = MEM32(texreg + 4);
+    {
+        uint32_t phys_base = MEM32(0x5FA370);
+        if (fsw_xbvideo_va_is_valid(phys_base) && data < phys_base && data < 0x02000000u) {
+            data += phys_base;
+        }
+    }
+    fmt = (MEM32(texreg + 0x0C) >> 8) & 0xFF;
+    if (!fsw_xbvideo_va_is_valid(data) || (fmt != 0x0C && fmt != 0x0E && fmt != 0x0F)) {
+        return;
+    }
+
+    dst = (uint32_t *)calloc((size_t)width * height, sizeof(uint32_t));
+    if (dst == NULL) {
+        return;
+    }
+    block_size = (fmt == 0x0C) ? 8u : 16u;
+    {
+        const uint8_t *src = (const uint8_t *)XBOX_PTR(data);
+        uint32_t blocks_x = (width + 3) / 4;
+        uint32_t blocks_y = (height + 3) / 4;
+        for (uint32_t by = 0; by < blocks_y; by++) {
+            for (uint32_t bx = 0; bx < blocks_x; bx++) {
+                fsw_xbvideo_decode_dxt_block(dst, width, height, bx, by,
+                                             src + (by * blocks_x + bx) * block_size, fmt);
+            }
+        }
+    }
+
+    snprintf(path, sizeof(path), "/tmp/fsw_surface_%03u_%08X_%ux%u.ppm",
+             dump_count, crc, width, height);
+    fp = fopen(path, "wb");
+    if (fp != NULL) {
+        fprintf(fp, "P6\n%u %u\n255\n", width, height);
+        for (uint32_t i = 0; i < width * height; i++) {
+            uint8_t rgb[3] = {
+                (uint8_t)((dst[i] >> 16) & 0xFF),
+                (uint8_t)((dst[i] >> 8) & 0xFF),
+                (uint8_t)(dst[i] & 0xFF),
+            };
+            fwrite(rgb, 1, sizeof(rgb), fp);
+        }
+        fclose(fp);
+        fprintf(stderr, "[FSW/XBVideo] dumped surface %s fmt=%02X data=%08X\n", path, fmt, data);
+        dump_count++;
+    }
+    free(dst);
+}
 
 /**
  * fn_00033B30_ZeroVideo_GetPixelsFormats
@@ -1793,6 +2212,28 @@ void fn_000512F0_UZeroRenderItem_ZeroDynArrayBase_SetCount(void)
     float xmm0;
 
 loc_000512F0:
+    if (!fsw_xbvideo_va_range_is_valid(esi, 8)) {
+        fprintf(stderr, "[FSW/D3D] RenderItem SetCount skipped invalid array=%08X target=%08X\n",
+                (unsigned)esi, (unsigned)edi);
+        esp += 8; return; /* ret 4 */
+    }
+    {
+        int32_t current_count = (int32_t)(int16_t)MEM16(esi + 4);
+        int32_t capacity = (int32_t)(int16_t)MEM16(esi + 6);
+        uint32_t data = MEM32(esi);
+        if (edi > 0x200u || current_count < 0 || current_count > 0x200 ||
+            capacity < 0 || capacity > 0x200 ||
+            (current_count > 0 && !fsw_xbvideo_va_range_is_valid(data, (uint32_t)current_count * 0x24u))) {
+            fprintf(stderr, "[FSW/D3D] RenderItem SetCount reset corrupt array=%08X data=%08X count=%d cap=%d target=%u\n",
+                    (unsigned)esi, (unsigned)data, current_count, capacity, (unsigned)edi);
+            MEM32(esi) = 0;
+            MEM16(esi + 4) = 0;
+            MEM16(esi + 6) = 0;
+            if (edi == 0 || edi > 0x200u) {
+                esp += 8; return; /* ret 4 */
+            }
+        }
+    }
     eax = (uint32_t)(int32_t)SMEM16(esi + 4);
     if (CMP_GE(eax, edi)) goto loc_00051399; /* jge: greater or equal (signed >=) */
 
@@ -1832,6 +2273,11 @@ loc_0005133E:
     if (CMP_EQ(eax, ebx)) goto loc_0005138D; /* je: equal / zero */
 
 loc_00051345:
+    if (!fsw_xbvideo_va_range_is_valid(eax, 0x24)) {
+        fprintf(stderr, "[FSW/D3D] RenderItem SetCount skipped invalid placement dst=%08X array=%08X target=%u\n",
+                (unsigned)eax, (unsigned)esi, (unsigned)edi);
+        goto loc_0005138D;
+    }
     xmm0 = MEMF(0x561574); /* movss */
     MEM32(eax + 4) = ebx;
     MEM32(eax + 8) = ebx;
@@ -4316,7 +4762,16 @@ void fn_00139A50_XBVideo_ClearVertexShaderInput(void)
     int _flags = 0; /* fallback flag var */
 
 loc_00139A50:
+    if (!fsw_xbvideo_va_is_valid(ecx + 0x7124)) {
+        fprintf(stderr, "[FSW/D3D] ClearVertexShaderInput invalid video=%08X\n", (unsigned)ecx);
+        esp += 4; return; /* ret */
+    }
     eax = MEM32(ecx + 0x7124);
+    if (eax > 0x10) {
+        fprintf(stderr, "[FSW/D3D] ClearVertexShaderInput clamping count video=%08X count=%u\n",
+                (unsigned)ecx, (unsigned)eax);
+        eax = 0x10;
+    }
     PUSH32(esp, edi);
     edi = 0; /* xor self */
     edx = 0; /* xor self */
@@ -4332,9 +4787,17 @@ loc_00139A67:
     if (CMP_EQ(eax, edi)) goto loc_00139A84; /* je: equal / zero */
 
 loc_00139A6D:
+    if (!fsw_xbvideo_va_is_valid(eax + 8)) {
+        fprintf(stderr, "[FSW/D3D] ClearVertexShaderInput dropping invalid slot=%08X index=%u\n",
+                (unsigned)eax, (unsigned)edx);
+        goto loc_00139A78;
+    }
     ebx = MEM32(0x4E133C);
     MEM32(eax + 8) = ebx;
+
+loc_00139A78:
     eax = MEM32(ecx + 0x7124);
+    if (eax > 0x10) eax = 0x10;
     edx++;
     esi = esi + 4;
     if (CMP_B(edx, eax)) goto loc_00139A67; /* jb: below (unsigned <) */
@@ -5290,6 +5753,15 @@ void fn_0013A180_XBVideo_UseSurface(void)
     int _flags = 0; /* fallback flag var */
 
 loc_0013A180:
+    if (!fsw_xbvideo_va_range_is_valid(ecx, 0x6E40) ||
+        !fsw_xbvideo_va_range_is_valid(MEM32(ecx + 0x6D30), 0x18)) {
+        fprintf(stderr, "[FSW/XBVideo] UseSurface skipped invalid video=%08X tree=%08X crc=%08X\n",
+                (unsigned)ecx,
+                (unsigned)(fsw_xbvideo_va_range_is_valid(ecx, 0x6D34) ? MEM32(ecx + 0x6D30) : 0),
+                (unsigned)MEM32(esp + 4));
+        eax = 0;
+        esp += 8; return; /* ret 4 */
+    }
     { uint32_t _icall_esp = g_esp;
     PUSH32(esp, esi);
     PUSH32(esp, edi);
@@ -5308,6 +5780,14 @@ loc_0013A19E:
     if (TEST_NZ(eax, eax)) { sub_0013A1BD(); return; } /* jne: not equal / not zero */
 
 loc_0013A1A2:
+    if (!fsw_xbvideo_va_range_is_valid(esi, 4) ||
+        !fsw_xbvideo_va_range_is_valid(MEM32(esi), 0x18)) {
+        fprintf(stderr, "[FSW/XBVideo] UseSurface fallback skipped invalid tree=%08X vtbl=%08X\n",
+                (unsigned)esi,
+                (unsigned)(fsw_xbvideo_va_range_is_valid(esi, 4) ? MEM32(esi) : 0));
+        eax = 0;
+        goto loc_0013A1B8;
+    }
     { uint32_t _icall_esp = g_esp;
     PUSH32(esp, ecx);
     ecx = MEM32(edi + 0x6E3C);
@@ -5358,9 +5838,40 @@ loc_0013A1BD:
 void fn_0013A1D0_XBVideo_UseSurface(void)
 {
     int _flags = 0; /* fallback flag var */
+    uint32_t fsw_requested_crc = MEM32(esp + 4);
+    const char *fsw_requested_name = fsw_xbvideo_crc_name(fsw_requested_crc);
+    uint32_t fsw_registered_surface = fsw_xbvideo_find_surface(fsw_requested_crc);
+
+    if (fsw_registered_surface != 0) {
+        if (fsw_xbvideo_va_is_valid(fsw_registered_surface)) {
+            MEM32(fsw_registered_surface + 8) = MEM32(fsw_registered_surface + 8) + 1;
+        }
+        eax = fsw_registered_surface;
+        if (fsw_requested_name || fsw_xbvideo_should_log_crc(fsw_requested_crc)) {
+            fprintf(stderr, "[FSW/XBVideo] UseSurface native crc=%08X%s%s surface=%08X s_crc=%08X s_w=%u s_h=%u s_tex=%08X\n",
+                    fsw_requested_crc,
+                    fsw_requested_name ? " " : "",
+                    fsw_requested_name ? fsw_requested_name : "",
+                    eax,
+                    fsw_xbvideo_va_is_valid(eax) ? MEM32(eax + 0x0C) : 0,
+                    fsw_xbvideo_va_is_valid(eax) ? MEM32(eax + 0x18) : 0,
+                    fsw_xbvideo_va_is_valid(eax) ? MEM32(eax + 0x1C) : 0,
+                    fsw_xbvideo_va_is_valid(eax) ? MEM32(eax + 0x5C) : 0);
+        }
+        esp += 12; return; /* ret 8 */
+    }
 
 loc_0013A1D0:
     eax = MEM32(esp + 8);
+    if (!fsw_xbvideo_va_range_is_valid(ecx, 0x6E40) ||
+        !fsw_xbvideo_va_range_is_valid(MEM32(ecx + 0x6D30), 0x24)) {
+        fprintf(stderr, "[FSW/XBVideo] UseSurfaceDesc skipped invalid video=%08X tree=%08X crc=%08X\n",
+                (unsigned)ecx,
+                (unsigned)(fsw_xbvideo_va_range_is_valid(ecx, 0x6D34) ? MEM32(ecx + 0x6D30) : 0),
+                (unsigned)fsw_requested_crc);
+        eax = 0;
+        esp += 12; return; /* ret 8 */
+    }
     { uint32_t _icall_esp = g_esp;
     PUSH32(esp, esi);
     PUSH32(esp, edi);
@@ -5384,6 +5895,15 @@ loc_0013A1F7:
     if (TEST_Z(edi, edi)) goto loc_0013A214; /* je: equal / zero */
 
 loc_0013A201:
+    if (!fsw_xbvideo_va_range_is_valid(esi, 4) ||
+        !fsw_xbvideo_va_range_is_valid(MEM32(esi), 0x18)) {
+        fprintf(stderr, "[FSW/XBVideo] UseSurfaceDesc fallback skipped invalid tree=%08X vtbl=%08X crc=%08X\n",
+                (unsigned)esi,
+                (unsigned)(fsw_xbvideo_va_range_is_valid(esi, 4) ? MEM32(esi) : 0),
+                (unsigned)fsw_requested_crc);
+        eax = 0;
+        goto loc_0013A214;
+    }
     { uint32_t _icall_esp = g_esp;
     PUSH32(esp, ecx);
     eax = esp;
@@ -5400,6 +5920,18 @@ loc_0013A211:
     MEM32(eax + 8) = MEM32(eax + 8) + 1;
 
 loc_0013A214:
+    if (fsw_requested_name || fsw_xbvideo_should_log_crc(fsw_requested_crc)) {
+        int fsw_result_valid = fsw_xbvideo_va_is_valid(eax);
+        fprintf(stderr, "[FSW/XBVideo] UseSurface crc=%08X%s%s result=%08X r_crc=%08X r_w=%u r_h=%u r_tex=%08X\n",
+                fsw_requested_crc,
+                fsw_requested_name ? " " : "",
+                fsw_requested_name ? fsw_requested_name : "",
+                eax,
+                fsw_result_valid ? MEM32(eax + 0x0C) : 0,
+                fsw_result_valid ? MEM32(eax + 0x18) : 0,
+                fsw_result_valid ? MEM32(eax + 0x1C) : 0,
+                fsw_result_valid ? MEM32(eax + 0x5C) : 0);
+    }
     POP32(esp, edi);
     POP32(esp, esi);
     esp += 12; return; /* ret 8 */
@@ -5443,6 +5975,28 @@ loc_0013A234:
  */
 void fn_0013A240_XBVideo_AddSurface(void)
 {
+    uint32_t fsw_crc = MEM32(esp + 4);
+    uint32_t fsw_surface = MEM32(esp + 8);
+    const char *fsw_name = fsw_xbvideo_crc_name(fsw_crc);
+
+    if (fsw_surface != 0) {
+        fsw_xbvideo_register_surface(fsw_crc, fsw_surface);
+        fsw_xbvideo_dump_surface(fsw_crc, fsw_surface);
+    }
+
+    if (fsw_name || fsw_xbvideo_should_log_crc(fsw_crc)) {
+        int fsw_surface_valid = fsw_xbvideo_va_is_valid(fsw_surface);
+        fprintf(stderr, "[FSW/XBVideo] AddSurface crc=%08X%s%s surface=%08X surf_crc=%08X w=%u h=%u fmtidx=%08X d3d=%08X\n",
+                fsw_crc,
+                fsw_name ? " " : "",
+                fsw_name ? fsw_name : "",
+                fsw_surface,
+                fsw_surface_valid ? MEM32(fsw_surface + 0x0C) : 0,
+                fsw_surface_valid ? MEM32(fsw_surface + 0x18) : 0,
+                fsw_surface_valid ? MEM32(fsw_surface + 0x1C) : 0,
+                fsw_surface_valid ? MEM32(fsw_surface + 0xAC) : 0,
+                fsw_surface_valid ? MEM32(fsw_surface + 0x5C) : 0);
+    }
 
 loc_0013A240:
     eax = MEM32(esp + 8);
@@ -6081,6 +6635,9 @@ loc_0013A861:
  */
 void fn_0013A870_XBVideo_SubmitCallback(void)
 {
+    uint32_t video;
+    uint32_t object;
+    uint32_t sort_key;
 
 loc_0013A870:
     { uint32_t _icall_esp = g_esp;
@@ -6088,6 +6645,8 @@ loc_0013A870:
     PUSH32(esp, edi);
     edi = MEM32(esp + 0xC);
     esi = ecx;
+    video = esi;
+    object = edi;
     eax = MEM32(esi);
     ecx = edi + 0xB0;
     PUSH32(esp, ecx);
@@ -6096,20 +6655,36 @@ loc_0013A870:
     }
 
 loc_0013A889:
-    PUSH32(esp, eax);
-    eax = esi + 0x4A60;
+    sort_key = eax;
+    esi = video;
+    edi = object;
+    PUSH32(esp, sort_key);
+    eax = video + 0x4A60;
     PUSH32(esp, 0); fn_00053850_ZeroBucket_Add(); /* call 0x00053850 */
 
 loc_0013A895:
-    MEM32(eax) = edi;
+    esi = video;
+    edi = object;
+    if (!fsw_xbvideo_va_range_is_valid(eax, 0x24)) {
+        static uint32_t warned_bad_submit_item;
+        if (warned_bad_submit_item < 8) {
+            fprintf(stderr, "[FSW/XBVideo] SubmitCallback skipped invalid render item=%08X video=%08X object=%08X key=%08X\n",
+                    (unsigned)eax, (unsigned)video, (unsigned)object, (unsigned)sort_key);
+            warned_bad_submit_item++;
+        }
+        POP32(esp, edi);
+        POP32(esp, esi);
+        esp += 12; return; /* ret 8 */
+    }
+    MEM32(eax) = object;
     MEM16(eax + 0x18) = 0xFFFF;
-    edx = MEM32(esi + 0x15C);
+    edx = MEM32(video + 0x15C);
     MEM32(eax + 4) = edx;
-    SET_LO16(ecx, MEM16(esi + 0x4A24));
+    SET_LO16(ecx, MEM16(video + 0x4A24));
     MEM16(eax + 0x1A) = LO16(ecx);
-    edx = MEM32(esi + 0x6728);
+    edx = MEM32(video + 0x6728);
     MEM32(eax + 0x20) = edx;
-    ecx = MEM32(esi + 0x164);
+    ecx = MEM32(video + 0x164);
     POP32(esp, edi);
     MEM32(eax + 0x1C) = ecx;
     POP32(esp, esi);
@@ -6132,6 +6707,21 @@ void fn_0013A8D0_XBVideo_CopyTexture(void)
     ebp = g_seh_ebp; /* fpo_leaf: inherit caller's frame */
 
 loc_0013A8D0:
+    if (!fsw_xbvideo_va_is_valid(ecx + 0x70B8) &&
+        fsw_xbvideo_va_is_valid(g_fsw_xbvideo_global_video + 0x70B8)) {
+        fprintf(stderr, "[FSW/D3D] CopyTexture restoring video object old=%08X cached=%08X\n",
+                (unsigned)ecx, (unsigned)g_fsw_xbvideo_global_video);
+        ecx = g_fsw_xbvideo_global_video;
+    }
+    if (!fsw_xbvideo_va_is_valid(ecx + 0x70B8) ||
+        !fsw_xbvideo_va_is_valid(MEM32(ecx + 0x70AC) + 0x50)) {
+        fprintf(stderr, "[FSW/D3D] CopyTexture skipped invalid video=%08X desc=%08X dst=%08X src=%08X\n",
+                (unsigned)ecx,
+                (unsigned)(fsw_xbvideo_va_is_valid(ecx + 0x70AC) ? MEM32(ecx + 0x70AC) : 0),
+                (unsigned)MEM32(esp + 4),
+                (unsigned)MEM32(esp + 8));
+        esp += 20; return; /* ret 16 */
+    }
     PUSH32(esp, 0xFFFFFFFFu);
     PUSH32(esp, 0x40300B);
     eax = MEM32(0);
@@ -7462,6 +8052,7 @@ loc_0013B5F3:
  */
 void sub_0013B5F9(void)
 {
+    uint32_t xbvideo_self = esi;
     int _flags = 0; /* fallback flag var */
     float xmm0, xmm1, xmm2, xmm3;
     double _fp_stack[8];
@@ -7671,6 +8262,7 @@ loc_0013B769:
     }
 
 loc_0013B930:
+    esi = xbvideo_self;
     eax = MEM32(esi);
     ecx = esi;
     { uint32_t _icall_esp = g_esp;
@@ -7678,6 +8270,7 @@ loc_0013B930:
     }
 
 loc_0013B93A:
+    esi = xbvideo_self;
     eax = MEM32(esp + 0x144);
     edx = MEM32(esi);
     { uint32_t _icall_esp = g_esp;
@@ -7688,6 +8281,7 @@ loc_0013B93A:
     }
 
 loc_0013B94D:
+    esi = xbvideo_self;
     eax = MEM32(esi + 0x70AC);
     edx = MEM32(esi);
     { uint32_t _icall_esp = g_esp;
@@ -7700,6 +8294,7 @@ loc_0013B94D:
     }
 
 loc_0013B969:
+    esi = xbvideo_self;
     edx = MEM32(esi);
     ecx = esi;
     { uint32_t _icall_esp = g_esp;
@@ -7707,6 +8302,7 @@ loc_0013B969:
     }
 
 loc_0013B973:
+    esi = xbvideo_self;
     eax = MEM32(esi + 0x70AC);
     ecx = MEM32(0x5FA8E4);
     MEM32(eax + 0x30) = ecx;
@@ -8893,6 +9489,7 @@ void fn_0013C2C0_XBVideo_CreateMaterial(void)
 {
     uint32_t ebp;
     int _flags = 0; /* fallback flag var */
+    uint32_t material = 0;
     ebp = g_seh_ebp; /* fpo_leaf: inherit caller's frame */
 
 loc_0013C2C0:
@@ -9128,6 +9725,7 @@ loc_0013C463:
 
 loc_0013C465:
     esi = eax;
+    material = esi;
     if (TEST_Z(esi, esi)) goto loc_0013C477; /* je: equal / zero */
 
 loc_0013C46B:
@@ -9140,6 +9738,9 @@ loc_0013C46B:
     }
 
 loc_0013C477:
+    if (material != 0) {
+        esi = material;
+    }
     eax = esi;
     POP32(esp, esi);
     esp = esp + 0x30;
@@ -9289,6 +9890,10 @@ loc_0013C533:
     MEM32(edi + 0x70BC) = eax;
     MEM32(edi + 0x70AC) = eax;
     MEM32(edi + 0x70B0) = eax;
+    g_fsw_xbvideo_global_video = edi;
+    g_fsw_xbvideo_global_vtable = MEM32(edi);
+    MEM32(0x5FA8E8) = edi;
+    fsw_xbvideo_ensure_default_render_surfaces(edi, "construct");
     eax = edi;
     POP32(esp, esi);
     esp += 4; return; /* ret */
@@ -10758,14 +11363,89 @@ loc_0013D383:
 void fn_0013D390_XBVideo_MySetVertexShaderInputDirect(void)
 {
     uint32_t ebp;
+    uint32_t cookie;
+    uint32_t input_layout;
+    uint32_t stream_count;
+    uint32_t stream_desc;
+    uint32_t max_stream_index;
     int _flags = 0; /* fallback flag var */
     ebp = g_seh_ebp; /* fpo_leaf: inherit caller's frame */
 
 loc_0013D390:
+    ebx = fsw_xbvideo_restore_video(ebx, "shader-input-direct");
+    if (!fsw_xbvideo_video_is_valid(ebx)) {
+        static uint32_t log_count;
+        if (log_count < 32 || (log_count % 240) == 0) {
+            fprintf(stderr, "[FSW/XBVideo] ShaderInput skipped invalid video=%08X\n", (unsigned)ebx);
+        }
+        log_count++;
+        esp += 8; return; /* ret 4 */
+    }
     ecx = MEM32(ebx + 0x7124);
     esp = esp - 0xC0;
     PUSH32(esp, ebp);
     ebp = MEM32(esp + 0xC8);
+    cookie = ebp;
+    if (!fsw_xbvideo_va_range_is_valid(cookie, 0x4C)) {
+        static uint32_t log_count;
+        if (log_count < 64 || (log_count % 240) == 0) {
+            fprintf(stderr, "[FSW/XBVideo] ShaderInput skipped invalid cookie video=%08X cookie=%08X\n",
+                    (unsigned)ebx, (unsigned)cookie);
+        }
+        log_count++;
+        POP32(esp, ebp);
+        esp = esp + 0xC0;
+        esp += 8; return; /* ret 4 */
+    }
+    stream_count = MEM32(cookie + 0x10);
+    input_layout = MEM32(cookie + 0x40);
+    if (stream_count > 16 ||
+        !fsw_xbvideo_va_range_is_valid(input_layout, 0xDC)) {
+        static uint32_t log_count;
+        if (log_count < 64 || (log_count % 240) == 0) {
+            fprintf(stderr, "[FSW/XBVideo] ShaderInput skipped invalid layout cookie=%08X layout=%08X count=%u mode=%08X\n",
+                    (unsigned)cookie, (unsigned)input_layout,
+                    (unsigned)stream_count, (unsigned)MEM32(cookie + 0x48));
+        }
+        log_count++;
+        POP32(esp, ebp);
+        esp = esp + 0xC0;
+        esp += 8; return; /* ret 4 */
+    }
+    max_stream_index = 0;
+    for (uint32_t layout_offset = 0; layout_offset <= 0xD0; layout_offset += 0x10) {
+        uint32_t stream_index = MEM32(input_layout + layout_offset);
+        if (stream_index > max_stream_index) {
+            max_stream_index = stream_index;
+        }
+    }
+    if (stream_count == 0 || max_stream_index >= stream_count) {
+        static uint32_t log_count;
+        if (log_count < 64 || (log_count % 240) == 0) {
+            fprintf(stderr, "[FSW/XBVideo] ShaderInput skipped out-of-range stream index cookie=%08X layout=%08X count=%u max=%u\n",
+                    (unsigned)cookie, (unsigned)input_layout,
+                    (unsigned)stream_count, (unsigned)max_stream_index);
+        }
+        log_count++;
+        POP32(esp, ebp);
+        esp = esp + 0xC0;
+        esp += 8; return; /* ret 4 */
+    }
+    for (uint32_t stream_index = 0; stream_index < stream_count; stream_index++) {
+        stream_desc = MEM32(cookie + 0x18 + stream_index * 0xC);
+        if (!fsw_xbvideo_va_range_is_valid(stream_desc, 8)) {
+            static uint32_t log_count;
+            if (log_count < 64 || (log_count % 240) == 0) {
+                fprintf(stderr, "[FSW/XBVideo] ShaderInput skipped invalid stream descriptor cookie=%08X index=%u desc=%08X count=%u\n",
+                        (unsigned)cookie, (unsigned)stream_index,
+                        (unsigned)stream_desc, (unsigned)stream_count);
+            }
+            log_count++;
+            POP32(esp, ebp);
+            esp = esp + 0xC0;
+            esp += 8; return; /* ret 4 */
+        }
+    }
     (void)0; /* cmp MEM32(ebp + 0x48), 0xFFFFFFFFu - flags set for next jcc */
     PUSH32(esp, esi);
     esi = MEM32(ebp + 0x40);
@@ -11902,6 +12582,10 @@ loc_0013E011:
 void fn_0013E030_XBVideo_InternalUpdate(void)
 {
     uint32_t ebp;
+    uint32_t material;
+    uint32_t stage;
+    uint32_t state_offset;
+    uint64_t state_addr;
     int _flags = 0; /* fallback flag var */
 
 loc_0013E030:
@@ -11909,6 +12593,51 @@ loc_0013E030:
     ebp = esp;
     esp = esp & 0xFFFFFFF0u;
     esp = esp - 0xA8;
+    ebx = fsw_xbvideo_restore_video(ebx, "internal-update");
+    material = MEM32(ebp + 8);
+    if (!fsw_xbvideo_video_is_valid(ebx) ||
+        !fsw_xbvideo_va_range_is_valid(material, 0x120)) {
+        static uint32_t log_count;
+        if (log_count < 64 || (log_count % 240) == 0) {
+            fprintf(stderr, "[FSW/XBVideo] InternalUpdate skipped invalid video/material video=%08X material=%08X a=%08X b=%08X\n",
+                    (unsigned)ebx, (unsigned)material,
+                    (unsigned)MEM32(ebp + 0xC), (unsigned)MEM32(ebp + 0x10));
+        }
+        log_count++;
+        esp = ebp;
+        POP32(esp, ebp);
+        esp += 16; return; /* ret 12 */
+    }
+    stage = MEM32(ebx + 0x4A28);
+    if (stage > 6) {
+        static uint32_t log_count;
+        if (log_count < 32 || (log_count % 240) == 0) {
+            fprintf(stderr, "[FSW/XBVideo] InternalUpdate skipped invalid stage video=%08X stage=%u material=%08X\n",
+                    (unsigned)ebx, (unsigned)stage, (unsigned)material);
+        }
+        log_count++;
+        esp = ebp;
+        POP32(esp, ebp);
+        esp += 16; return; /* ret 12 */
+    }
+    state_offset = (uint32_t)((int32_t)MEM32(stage * 8 + 0x5CE2E4) *
+                              (int32_t)MEM32(ebp + 0x10)) +
+                   MEM32(stage * 8 + 0x5CE2E0);
+    state_addr = (uint64_t)material + (uint64_t)state_offset * 4u + 0x30u;
+    if (state_addr > UINT32_MAX ||
+        !fsw_xbvideo_va_range_is_valid((uint32_t)state_addr, 4) ||
+        !fsw_xbvideo_va_range_is_valid((uint32_t)(state_addr - 0x20u), 4)) {
+        static uint32_t log_count;
+        if (log_count < 64 || (log_count % 240) == 0) {
+            fprintf(stderr, "[FSW/XBVideo] InternalUpdate skipped invalid material state material=%08X stage=%u offset=%u state=%08X\n",
+                    (unsigned)material, (unsigned)stage, (unsigned)state_offset,
+                    (unsigned)(state_addr & 0xFFFFFFFFu));
+        }
+        log_count++;
+        esp = ebp;
+        POP32(esp, ebp);
+        esp += 16; return; /* ret 12 */
+    }
     ecx = MEM32(ebx + 0x4A28);
     eax = MEM32(ecx * 8 + 0x5CE2E4);
     eax = (uint32_t)((int32_t)eax * (int32_t)MEM32(ebp + 0x10));
@@ -12888,18 +13617,51 @@ loc_0013E9D0:
     PUSH32(esp, esi);
     esi = ecx;
     ecx = MEM32(esp + 0xC);
+    fsw_xbvideo_ensure_default_render_surfaces(esi, "set-render-target");
+    if (eax != 0 && !fsw_xbvideo_va_range_is_valid(eax, 0x84) &&
+        fsw_xbvideo_va_range_is_valid(MEM32(esi + 0xD0), 0x84)) {
+        eax = MEM32(esi + 0xD0);
+    }
+    if (ecx != 0 && !fsw_xbvideo_va_range_is_valid(ecx, 0x84) &&
+        fsw_xbvideo_va_range_is_valid(MEM32(esi + 0x6C10), 0x84)) {
+        ecx = MEM32(esi + 0x6C10);
+    }
+    if (eax != 0 && !fsw_xbvideo_va_range_is_valid(eax, 0x84)) {
+        {
+            fprintf(stderr, "[FSW/XBVideo] SetRenderTarget dropping invalid color surface=%08X video=%08X\n",
+                    (unsigned)eax, (unsigned)esi);
+        }
+        eax = 0;
+    }
+    if (ecx != 0 && !fsw_xbvideo_va_range_is_valid(ecx, 0x84)) {
+        {
+            fprintf(stderr, "[FSW/XBVideo] SetRenderTarget dropping invalid depth surface=%08X video=%08X\n",
+                    (unsigned)ecx, (unsigned)esi);
+        }
+        ecx = 0;
+    }
     (void)0; /* cmp eax, ecx - flags set for next jcc */
     PUSH32(esp, edi);
     if (CMP_NE(eax, ecx)) goto loc_0013E9EA; /* jne: not equal / not zero */
 
 loc_0013E9E0:
-    MEM32(eax + 0x80) = 1;
+    if (fsw_xbvideo_va_range_is_valid(eax, 0x84)) {
+        MEM32(eax + 0x80) = 1;
+    }
 
 loc_0013E9EA:
     if (TEST_Z(eax, eax)) { sub_0013E9FA(); return; } /* je: equal / zero */
 
 loc_0013E9EE:
     edx = MEM32(eax + 0x80);
+    if (edx > 7 || !fsw_xbvideo_va_range_is_valid(eax + edx * 4 + 0x64, 4)) {
+        {
+            fprintf(stderr, "[FSW/XBVideo] SetRenderTarget invalid color index surface=%08X index=%u\n",
+                    (unsigned)eax, (unsigned)edx);
+        }
+        edx = 0;
+        MEM32(eax + 0x80) = 0;
+    }
     edi = MEM32(eax + edx * 4 + 0x64);
     g_seh_ebp = ebp; sub_0013E9FC(); return; /* tail jmp 0x0013E9FC */
 
@@ -12939,9 +13701,24 @@ loc_0013EA00:
 
 loc_0013EA0A:
     if (TEST_Z(ecx, ecx)) { sub_0013EA1A(); return; } /* je: equal / zero */
+    if (!fsw_xbvideo_va_range_is_valid(ecx, 0x84)) {
+        {
+            fprintf(stderr, "[FSW/XBVideo] SetRenderTarget dropping invalid depth target=%08X\n",
+                    (unsigned)ecx);
+        }
+        g_seh_ebp = ebp; sub_0013EA1A(); return;
+    }
 
 loc_0013EA0E:
     edx = MEM32(ecx + 0x80);
+    if (edx > 7 || !fsw_xbvideo_va_range_is_valid(ecx + edx * 4 + 0x64, 4)) {
+        {
+            fprintf(stderr, "[FSW/XBVideo] SetRenderTarget invalid depth index surface=%08X index=%u\n",
+                    (unsigned)ecx, (unsigned)edx);
+        }
+        edx = 0;
+        MEM32(ecx + 0x80) = 0;
+    }
     edx = MEM32(ecx + edx * 4 + 0x64);
     g_seh_ebp = ebp; sub_0013EA1C(); return; /* tail jmp 0x0013EA1C */
 
@@ -13210,11 +13987,18 @@ loc_0013EB95:
 void fn_0013EBF0_XBVideo_Reset(void)
 {
     uint32_t ebp;
+    uint32_t fsw_video;
+    static uint32_t fsw_reset_invalid_resource_log_count;
     int _flags = 0; /* fallback flag var */
     int _cf = 0; /* carry flag */
     ebp = g_seh_ebp; /* fpo_leaf: inherit caller's frame */
 
 loc_0013EBF0:
+    fsw_video = fsw_xbvideo_restore_video(esi, "reset");
+    if (fsw_video == 0) {
+        esp += 4; return; /* ret */
+    }
+    esi = fsw_video;
     PUSH32(esp, ebx);
     PUSH32(esp, edi);
     edi = MEM32(esi + 0x6BEC);
@@ -13229,10 +14013,32 @@ loc_0013EBF0:
     eax = eax + 0x11;
     MEM32(esi + 0x6BAC) = eax;
     PUSH32(esp, 0); fn_004D1860_D3DDevice_Reset_4(); /* call 0x004D1860 */
+    esi = fsw_video;
+    fsw_xbvideo_ensure_default_render_surfaces(esi, "reset-post-d3d");
 
 loc_0013EC22:
     edi = MEM32(0x4E37B8);
+    if (!fsw_xbvideo_va_range_is_valid(edi, 0x1A1C)) {
+        if (fsw_reset_invalid_resource_log_count < 16 || (fsw_reset_invalid_resource_log_count % 120) == 0) {
+            fprintf(stderr, "[FSW/XBVideo] Reset skipping invalid D3D global resources d3d=%08X video=%08X\n",
+                    (unsigned)edi, (unsigned)esi);
+        }
+        fsw_reset_invalid_resource_log_count++;
+        MEM32(esi + 0x6C74) = 0;
+        MEM32(esi + 0x6C70) = 0;
+        ecx = 0;
+        goto loc_0013EC8F;
+    }
     ecx = MEM32(edi + 0x1A14);
+    if (!fsw_xbvideo_va_range_is_valid(ecx, 0x18)) {
+        if (fsw_reset_invalid_resource_log_count < 16 || (fsw_reset_invalid_resource_log_count % 120) == 0) {
+            fprintf(stderr, "[FSW/XBVideo] Reset skipping invalid color resource resource=%08X video=%08X\n",
+                    (unsigned)ecx, (unsigned)esi);
+        }
+        fsw_reset_invalid_resource_log_count++;
+        MEM32(esi + 0x6C74) = 0;
+        goto loc_0013EC54;
+    }
     eax = MEM32(ecx);
     if (TEST_NZ(eax, 0xFFFF)) goto loc_0013EC50; /* jne: not equal / not zero */
 
@@ -13247,11 +14053,24 @@ loc_0013EC43:
 loc_0013EC4A:
     PUSH32(esp, eax);
     PUSH32(esp, 0); fn_004D2F30_D3DResource_AddRef_4(); /* call 0x004D2F30 */
+    esi = fsw_video;
 
 loc_0013EC50:
+    esi = fsw_video;
     MEM32(ecx) = MEM32(ecx) + 1;
     MEM32(esi + 0x6C74) = ecx;
+
+loc_0013EC54:
     ecx = MEM32(edi + 0x1A18);
+    if (!fsw_xbvideo_va_range_is_valid(ecx, 0x18)) {
+        if (fsw_reset_invalid_resource_log_count < 16 || (fsw_reset_invalid_resource_log_count % 120) == 0) {
+            fprintf(stderr, "[FSW/XBVideo] Reset skipping invalid depth resource resource=%08X video=%08X\n",
+                    (unsigned)ecx, (unsigned)esi);
+        }
+        fsw_reset_invalid_resource_log_count++;
+        MEM32(esi + 0x6C70) = 0;
+        goto loc_0013EC84;
+    }
     eax = MEM32(ecx);
     if (TEST_NZ(eax, 0xFFFF)) goto loc_0013EC80; /* jne: not equal / not zero */
 
@@ -13266,15 +14085,30 @@ loc_0013EC73:
 loc_0013EC7A:
     PUSH32(esp, eax);
     PUSH32(esp, 0); fn_004D2F30_D3DResource_AddRef_4(); /* call 0x004D2F30 */
+    esi = fsw_video;
 
 loc_0013EC80:
+    esi = fsw_video;
     MEM32(ecx) = MEM32(ecx) + 1;
     MEM32(esi + 0x6C70) = ecx;
+
+loc_0013EC84:
     ecx = MEM32(edi + 0x1A08);
     (void)0; /* test ecx, ecx - flags set for next jcc */
+
+loc_0013EC8F:
     POP32(esp, edi);
     POP32(esp, ebx);
     if (TEST_Z(ecx, ecx)) goto loc_0013ECB8; /* je: equal / zero */
+    if (!fsw_xbvideo_va_range_is_valid(ecx, 0x18)) {
+        if (fsw_reset_invalid_resource_log_count < 16 || (fsw_reset_invalid_resource_log_count % 120) == 0) {
+            fprintf(stderr, "[FSW/XBVideo] Reset skipping invalid aux resource resource=%08X video=%08X\n",
+                    (unsigned)ecx, (unsigned)esi);
+        }
+        fsw_reset_invalid_resource_log_count++;
+        ecx = 0;
+        goto loc_0013ECB8;
+    }
 
 loc_0013EC94:
     eax = MEM32(ecx);
@@ -13291,22 +14125,30 @@ loc_0013ECA9:
 loc_0013ECB0:
     PUSH32(esp, eax);
     PUSH32(esp, 0); fn_004D2F30_D3DResource_AddRef_4(); /* call 0x004D2F30 */
+    esi = fsw_video;
 
 loc_0013ECB6:
     MEM32(ecx) = MEM32(ecx) + 1;
 
 loc_0013ECB8:
+    esi = fsw_video;
     MEM32(esi + 0x6C7C) = ecx;
     eax = MEM32(esi + 0x6C0C);
     PUSH32(esp, 0); fn_00142290_XBSurface_SurfacePtrUpdated(); /* call 0x00142290 */
+    esi = fsw_video;
+    fsw_xbvideo_ensure_default_render_surfaces(esi, "reset-color-updated");
 
 loc_0013ECC9:
     eax = MEM32(esi + 0x6C10);
     PUSH32(esp, 0); fn_00142290_XBSurface_SurfacePtrUpdated(); /* call 0x00142290 */
+    esi = fsw_video;
+    fsw_xbvideo_ensure_default_render_surfaces(esi, "reset-depth-updated");
 
 loc_0013ECD4:
     eax = MEM32(esi + 0x6C1C);
     PUSH32(esp, 0); fn_00142290_XBSurface_SurfacePtrUpdated(); /* call 0x00142290 */
+    esi = fsw_video;
+    fsw_xbvideo_ensure_default_render_surfaces(esi, "reset-target-updated");
 
 loc_0013ECDF:
     eax = esi;
@@ -13391,10 +14233,16 @@ loc_0013ED80:
  */
 void fn_0013EDA0_XBVideo_BeginScene(void)
 {
+    uint32_t fsw_video;
     int _flags = 0; /* fallback flag var */
     float xmm0, xmm1, xmm2;
 
 loc_0013EDA0:
+    fsw_video = fsw_xbvideo_restore_video(ecx, "begin-scene");
+    if (fsw_video == 0) {
+        esp += 4; return; /* ret */
+    }
+    ecx = fsw_video;
     esp = esp - 0x60;
     PUSH32(esp, esi);
     esi = ecx;
@@ -13402,8 +14250,11 @@ loc_0013EDA0:
 
 loc_0013EDAF:
     PUSH32(esp, 0); fn_0013EBF0_XBVideo_Reset(); /* call 0x0013EBF0 */
+    esi = fsw_video;
+    fsw_xbvideo_ensure_default_render_surfaces(esi, "begin-scene-post-reset");
 
 loc_0013EDB4:
+    esi = fsw_video;
     MEM32(esi + 0x70D0) = 0;
     eax = MEM32(0x613A7C);
     ecx = MEM32(eax + 8);
@@ -13414,6 +14265,7 @@ loc_0013EDB4:
     MEM16(esi + 0x4A26) = 0x201;
     MEM16(esi + 0x4A24) = 2;
     PUSH32(esp, 0); fn_00124190_ZeroVideo_SubmitLighting(); /* call 0x00124190 */
+    esi = fsw_video;
 
 loc_0013EDF2:
     xmm0 = MEMF(0x56149C); /* movss */
@@ -13427,6 +14279,7 @@ loc_0013EDF2:
     MEMF(esp + 0x2C) = xmm1; /* movss */
     MEMF(esp + 0x30) = xmm2; /* movss */
     PUSH32(esp, 0); fn_004D4C50_D3DDevice_SetVertexShaderConstant1Fast_8(); /* call 0x004D4C50 */
+    esi = fsw_video;
 
 loc_0013EE33:
     xmm2 = MEMF(0x561D5C); /* movss */
@@ -13437,9 +14290,15 @@ loc_0013EE33:
     MEMF(esp + 0x34) = xmm1; /* movss */
     MEMF(esp + 0x38) = xmm0; /* movss */
     PUSH32(esp, 0); fn_004D4C50_D3DDevice_SetVertexShaderConstant1Fast_8(); /* call 0x004D4C50 */
+    esi = fsw_video;
 
 loc_0013EE61:
+    fsw_xbvideo_ensure_default_render_surfaces(esi, "begin-scene-pre-surface");
     eax = MEM32(esi + 0xD0);
+    if (!fsw_xbvideo_va_range_is_valid(eax, 0xC4)) {
+        eax = g_fsw_xbvideo_default_color_surface;
+        MEM32(esi + 0xD0) = eax;
+    }
     xmm2 = MEMF(0x537708); /* movss */
     eax = eax + 0xB0;
     edx = MEM32(eax);
@@ -13454,6 +14313,7 @@ loc_0013EE61:
     ecx = 0xB2;
     MEMF(esp + 0x20) = xmm2; /* movss */
     PUSH32(esp, 0); fn_004D4C50_D3DDevice_SetVertexShaderConstant1Fast_8(); /* call 0x004D4C50 */
+    esi = fsw_video;
 
 loc_0013EEA3:
     MEMF(esp + 0x50) = xmm1; /* movss */
@@ -13475,16 +14335,19 @@ loc_0013EEA3:
     MEM32(esp + 0x48) = eax;
     MEMF(esp + 0x10) = xmm1; /* movss */
     PUSH32(esp, 0); fn_004D4C50_D3DDevice_SetVertexShaderConstant1Fast_8(); /* call 0x004D4C50 */
+    esi = fsw_video;
 
 loc_0013EF0B:
     edx = esp + 0x44;
     ecx = 0x91;
     PUSH32(esp, 0); fn_004D4C50_D3DDevice_SetVertexShaderConstant1Fast_8(); /* call 0x004D4C50 */
+    esi = fsw_video;
 
 loc_0013EF19:
     edx = esp + 4;
     ecx = 0x92;
     PUSH32(esp, 0); fn_004D4C50_D3DDevice_SetVertexShaderConstant1Fast_8(); /* call 0x004D4C50 */
+    esi = fsw_video;
 
 loc_0013EF27:
     xmm1 = MEMF(esp + 4); /* movss */
@@ -13504,6 +14367,7 @@ loc_0013EF27:
     ecx = 0xBB;
     MEMF(esp + 0x60) = xmm0; /* movss */
     PUSH32(esp, 0); fn_004D4C50_D3DDevice_SetVertexShaderConstant1Fast_8(); /* call 0x004D4C50 */
+    esi = fsw_video;
 
 loc_0013EF95:
     POP32(esp, esi);
@@ -15659,6 +16523,26 @@ loc_00140540:
     PUSH32(esp, ebp);
     PUSH32(esp, edi);
     edi = eax;
+    esi = fsw_xbvideo_restore_video(esi, "render-reflect-item");
+    if (!fsw_xbvideo_video_is_valid(esi) ||
+        !fsw_xbvideo_va_range_is_valid(edi, 0x20) ||
+        !fsw_xbvideo_render_segment_is_valid(MEM32(edi))) {
+        static uint32_t invalid_reflect_count;
+        if (invalid_reflect_count < 12 || (invalid_reflect_count % 240) == 0) {
+            fprintf(stderr,
+                    "[FSW/XBVideo] RenderReflectItem skipped invalid item=%08X segment=%08X video=%08X count=%u\n",
+                    (unsigned)edi,
+                    (unsigned)(fsw_xbvideo_va_range_is_valid(edi, 4) ? MEM32(edi) : 0),
+                    (unsigned)esi,
+                    (unsigned)(invalid_reflect_count + 1));
+        }
+        invalid_reflect_count++;
+        POP32(esp, edi);
+        POP32(esp, ebp);
+        POP32(esp, ebx);
+        esp = esp + 0x18;
+        esp += 4; return; /* ret */
+    }
     eax = MEM32(edi);
     ebx = MEM32(eax + 0xC0);
     edx = MEM32(ebx);
@@ -18449,6 +19333,20 @@ void fn_001421C0_XBVideo_Blit(void)
     ebp = g_seh_ebp; /* fpo_leaf: inherit caller's frame */
 
 loc_001421C0:
+    if (getenv("FSW_TH_FORCE_DIRECT") != NULL) {
+        MEM32(0x5FA8D0) = 0;
+        MEM32(0x5FA8D4) = 0;
+        MEM32(0x5FA8D8) = 0;
+        MEM32(0x5FA728) = 0;
+        MEM32(0x5FA72C) = 0;
+        MEM32(0x5FA730) = 0;
+        MEM32(0x5FA734) = 0;
+        MEM32(0x5FA738) = 0;
+        MEM32(0x5FA73C) = 0;
+        MEM32(0x5FA740) = 0;
+        MEM32(0x5FA744) = 0;
+        esp += 4; return; /* ret */
+    }
     PUSH32(esp, esi);
     eax = 0; /* xor self */
     esi = ecx;

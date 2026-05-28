@@ -7,6 +7,47 @@
 #define RECOMP_GENERATED_CODE
 #include "recomp_funcs.h"
 #include <math.h>
+#include <stdio.h>
+
+extern uint32_t g_fsw_xbvideo_global_video;
+
+static int cphysworld_va_range_is_valid(uint32_t va, uint32_t size)
+{
+    return va >= 0x00010000u && va < 0x04000000u && size <= 0x04000000u - va;
+}
+
+static int cphysworld_video_is_valid(uint32_t video)
+{
+    uint32_t vtable;
+
+    if (!cphysworld_va_range_is_valid(video, 4)) {
+        return 0;
+    }
+
+    vtable = MEM32(video);
+    return vtable >= 0x00400000u && vtable < 0x00700000u;
+}
+
+static uint32_t cphysworld_get_video(void)
+{
+    uint32_t video = MEM32(0x5FA8E8);
+
+    if (cphysworld_video_is_valid(video)) {
+        return video;
+    }
+
+    if (cphysworld_video_is_valid(g_fsw_xbvideo_global_video)) {
+        fprintf(stderr,
+                "[FSW/PhysWorld] restoring video singleton current=%08X cached=%08X vtable=%08X\n",
+                video, g_fsw_xbvideo_global_video, MEM32(g_fsw_xbvideo_global_video));
+        MEM32(0x5FA8E8) = g_fsw_xbvideo_global_video;
+        return g_fsw_xbvideo_global_video;
+    }
+
+    fprintf(stderr, "[FSW/PhysWorld] missing valid video singleton current=%08X cached=%08X\n",
+            video, g_fsw_xbvideo_global_video);
+    return 0;
+}
 
 /**
  * fn_000524F0_CUIFont_UGlyph_ZeroArray_SetCount
@@ -577,7 +618,11 @@ void fn_002179B0_CPhysicalWorld_Evolve(void)
 
 loc_002179B0:
     esp = esp - 0xC;
-    eax = MEM32(0x5FA8E8);
+    eax = cphysworld_get_video();
+    if (eax == 0) {
+        esp = esp + 0xC;
+        esp += 12; return; /* ret 8 */
+    }
     PUSH32(esp, ebx);
     PUSH32(esp, ebp);
     PUSH32(esp, esi);

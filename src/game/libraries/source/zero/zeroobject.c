@@ -7,6 +7,40 @@
 #define RECOMP_GENERATED_CODE
 #include "recomp_funcs.h"
 #include <math.h>
+#include <stdio.h>
+
+static int zeroobject_va_range_is_valid(uint32_t va, uint32_t size)
+{
+    if (size == 0) {
+        return va >= 0x00010000u && va < 0x04000000u;
+    }
+    if (va < 0x00010000u || va >= 0x04000000u || va + size < va) {
+        return 0;
+    }
+    return va + size <= 0x04000000u;
+}
+
+static int zeroobject_object_is_plausible(uint32_t object)
+{
+    uint32_t vtable;
+
+    if (!zeroobject_va_range_is_valid(object, 0xC8)) {
+        return 0;
+    }
+
+    vtable = MEM32(object);
+    return vtable >= 0x00400000u && vtable < 0x00700000u;
+}
+
+static void zeroobject_warn_bad_parent(uint32_t object, uint32_t parent)
+{
+    static int warn_count;
+    if (warn_count < 16) {
+        fprintf(stderr, "[FSW/ZeroObject] stopping world-matrix parent walk object=%08X parent=%08X\n",
+                object, parent);
+    }
+    warn_count++;
+}
 
 /**
  * fn_00053300_0MeshLoader_InternalMeshLoader_IAE_XZ
@@ -486,6 +520,7 @@ void sub_00126F78(void)
 
 loc_00126F78:
     edx = edx & 0xFFFFFFFDu;
+    sub_00126F7B(); return; /* generated split: original code falls through */
 
 }
 
@@ -497,6 +532,7 @@ loc_00126F78:
  */
 void sub_00126F7B(void)
 {
+    uint32_t hidden_parent_iterations = 0;
     int _flags = 0; /* fallback flag var */
 
 loc_00126F7B:
@@ -508,6 +544,14 @@ loc_00126F7F:
     /* nop */
 
 loc_00126F90:
+    if (!zeroobject_va_range_is_valid(eax, 0xCC)) {
+        fprintf(stderr, "[FSW/ZeroObject] stopping SetHidden parent walk invalid object=%08X flags=%08X\n", eax, ecx);
+        goto loc_00126F9D;
+    }
+    if (++hidden_parent_iterations > 1024) {
+        fprintf(stderr, "[FSW/ZeroObject] stopping SetHidden parent walk loop object=%08X flags=%08X\n", eax, ecx);
+        goto loc_00126F9D;
+    }
     MEM32(eax + 0xC8) = MEM32(eax + 0xC8) | ecx;
     eax = MEM32(eax + 0x10);
     if (TEST_NZ(eax, eax)) goto loc_00126F90; /* jne: not equal / not zero */
@@ -578,6 +622,19 @@ void fn_00127000_ZeroObject_SetFlagsRecursive(void)
     int _flags = 0; /* fallback flag var */
 
 loc_00127000:
+    if (!zeroobject_object_is_plausible(ecx)) {
+        static uint32_t invalid_recursive_flags_count = 0;
+        if (invalid_recursive_flags_count < 16 || (invalid_recursive_flags_count % 120) == 0) {
+            fprintf(stderr,
+                    "[FSW/ZeroObject] skipping SetFlagsRecursive invalid object=%08X flags=%08X mask=%08X count=%u\n",
+                    (unsigned)ecx,
+                    (unsigned)MEM32(esp + 4),
+                    (unsigned)MEM32(esp + 8),
+                    (unsigned)(invalid_recursive_flags_count + 1));
+        }
+        invalid_recursive_flags_count++;
+        esp += 12; return; /* ret 8 */
+    }
     PUSH32(esp, ebx);
     ebx = MEM32(esp + 0xC);
     PUSH32(esp, esi);
@@ -594,6 +651,18 @@ loc_00127000:
     if (TEST_Z(esi, esi)) goto loc_00127036; /* je: equal / zero */
 
 loc_00127026:
+    if (!zeroobject_object_is_plausible(esi)) {
+        static uint32_t invalid_recursive_child_count = 0;
+        if (invalid_recursive_child_count < 16 || (invalid_recursive_child_count % 120) == 0) {
+            fprintf(stderr,
+                    "[FSW/ZeroObject] stopping SetFlagsRecursive invalid child=%08X parent=%08X count=%u\n",
+                    (unsigned)esi,
+                    (unsigned)ecx,
+                    (unsigned)(invalid_recursive_child_count + 1));
+        }
+        invalid_recursive_child_count++;
+        goto loc_00127036;
+    }
     PUSH32(esp, ebx);
     PUSH32(esp, edi);
     ecx = esi;
@@ -667,6 +736,10 @@ void fn_00127070_ZeroObject_UpdateWorldMatrix(void)
 
 loc_00127070:
     edx = ecx;
+    if (!zeroobject_va_range_is_valid(edx, 0xCC)) {
+        fprintf(stderr, "[FSW/ZeroObject] skipping UpdateWorldMatrix invalid object=%08X\n", edx);
+        esp += 8; return; /* ret 4 */
+    }
     eax = MEM32(edx + 0x10);
     (void)0; /* test eax, eax - flags set for next jcc */
     PUSH32(esp, esi);
@@ -715,6 +788,7 @@ loc_00127095:
  */
 void sub_001270A7(void)
 {
+    uint32_t world_matrix_child_iterations = 0;
     int _flags = 0; /* fallback flag var */
 
 loc_001270A7:
@@ -732,6 +806,14 @@ loc_001270B6:
     /* nop */
 
 loc_001270C0:
+    if (!zeroobject_va_range_is_valid(esi, 0xCC)) {
+        fprintf(stderr, "[FSW/ZeroObject] ending UpdateWorldMatrix child walk invalid child=%08X parent=%08X\n", esi, edx);
+        goto loc_001270DD;
+    }
+    if (++world_matrix_child_iterations > 1024) {
+        fprintf(stderr, "[FSW/ZeroObject] ending UpdateWorldMatrix child walk loop child=%08X parent=%08X\n", esi, edx);
+        goto loc_001270DD;
+    }
     edx = MEM32(esi + 0xC8);
     edx = edx >> 1;
     if (TEST_NZ(LO8(edx), 1)) goto loc_001270D6; /* jne: not equal / not zero */
@@ -742,6 +824,10 @@ loc_001270CD:
     PUSH32(esp, 0); fn_00127070_ZeroObject_UpdateWorldMatrix(); /* call 0x00127070 */
 
 loc_001270D6:
+    if (!zeroobject_va_range_is_valid(esi, 0x1C)) {
+        fprintf(stderr, "[FSW/ZeroObject] ending UpdateWorldMatrix sibling walk invalid node=%08X\n", esi);
+        goto loc_001270DD;
+    }
     esi = MEM32(esi + 0x18);
     if (TEST_NZ(esi, esi)) goto loc_001270C0; /* jne: not equal / not zero */
 
@@ -923,9 +1009,19 @@ void fn_001271A0_ZeroObject_FindObjectByCRC(void)
 loc_001271A0:
     PUSH32(esp, esi);
     eax = ecx;
-    ecx = MEM32(eax + 0xC);
     PUSH32(esp, edi);
     edi = MEM32(esp + 0xC);
+    if (!zeroobject_object_is_plausible(eax)) {
+        static uint32_t bad_find_root_count = 0;
+        if (bad_find_root_count < 16 || (bad_find_root_count % 128) == 0) {
+            fprintf(stderr,
+                    "[FSW/ZeroObject] FindObjectByCRC invalid root=%08X crc=%08X count=%u\n",
+                    (unsigned)eax, (unsigned)edi, (unsigned)(bad_find_root_count + 1));
+        }
+        bad_find_root_count++;
+        goto loc_001271CD;
+    }
+    ecx = MEM32(eax + 0xC);
     if (CMP_EQ(ecx, edi)) goto loc_001271CF; /* je: equal / zero */
 
 loc_001271AF:
@@ -933,6 +1029,17 @@ loc_001271AF:
     if (TEST_Z(esi, esi)) goto loc_001271CD; /* je: equal / zero */
 
 loc_001271B6:
+    if (!zeroobject_object_is_plausible(esi)) {
+        static uint32_t bad_find_child_count = 0;
+        if (bad_find_child_count < 16 || (bad_find_child_count % 128) == 0) {
+            fprintf(stderr,
+                    "[FSW/ZeroObject] FindObjectByCRC invalid child=%08X parent=%08X crc=%08X count=%u\n",
+                    (unsigned)esi, (unsigned)eax, (unsigned)edi,
+                    (unsigned)(bad_find_child_count + 1));
+        }
+        bad_find_child_count++;
+        goto loc_001271CD;
+    }
     PUSH32(esp, ecx);
     eax = esp;
     ecx = esi;
@@ -1111,6 +1218,10 @@ loc_001272A0:
     esp = esp & 0xFFFFFFF0u;
     esp = esp - 0x44;
     edx = MEM32(eax + 0x10);
+    if (edx != 0 && !zeroobject_object_is_plausible(edx)) {
+        zeroobject_warn_bad_parent(eax, edx);
+        edx = 0;
+    }
     (void)0; /* test edx, edx - flags set for next jcc */
     PUSH32(esp, ebx);
     PUSH32(esp, esi);
@@ -1138,6 +1249,10 @@ loc_001272D4:
     memcpy((void*)XBOX_PTR(edi), (void*)XBOX_PTR(esi), ecx * 4);
     esi += ecx * 4; edi += ecx * 4; ecx = 0; /* rep movsd */
     edx = MEM32(edx + 0x10);
+    if (edx != 0 && !zeroobject_object_is_plausible(edx)) {
+        zeroobject_warn_bad_parent(eax, edx);
+        edx = 0;
+    }
     esp = esp + 0xC;
     if (TEST_NZ(edx, edx)) goto loc_001272C5; /* jne: not equal / not zero */
 
@@ -2627,14 +2742,24 @@ void fn_00128280_ZeroObject_SetCullFlags(void)
 loc_00128280:
     PUSH32(esp, esi);
     esi = ecx;
-    ecx = MEM32(esi + 0xC0);
-    (void)0; /* test ecx, ecx - flags set for next jcc */
     PUSH32(esp, edi);
     edi = MEM32(esp + 0xC);
+    if (!zeroobject_va_range_is_valid(esi, 0xC8)) {
+        fprintf(stderr, "[FSW/ZeroObject] skipping SetCullFlags invalid object=%08X flags=%08X\n", esi, edi);
+        goto loc_001282C4;
+    }
+    ecx = MEM32(esi + 0xC0);
+    (void)0; /* test ecx, ecx - flags set for next jcc */
     MEM32(esi + 0xC4) = edi;
     if (TEST_Z(ecx, ecx)) goto loc_001282AE; /* je: equal / zero */
 
 loc_00128298:
+    if (!zeroobject_va_range_is_valid(ecx, 4) ||
+        !zeroobject_va_range_is_valid(MEM32(ecx), 8)) {
+        fprintf(stderr, "[FSW/ZeroObject] skipping SetCullFlags cull query object=%08X query=%08X vtbl=%08X\n",
+                esi, ecx, zeroobject_va_range_is_valid(ecx, 4) ? MEM32(ecx) : 0);
+        goto loc_001282AE;
+    }
     edx = MEM32(0x613B18);
     { uint32_t _icall_esp = g_esp;
     PUSH32(esp, ecx);
@@ -2655,11 +2780,19 @@ loc_001282AE:
     if (TEST_Z(esi, esi)) goto loc_001282C4; /* je: equal / zero */
 
 loc_001282B5:
+    if (!zeroobject_va_range_is_valid(esi, 0x1C)) {
+        fprintf(stderr, "[FSW/ZeroObject] ending SetCullFlags child walk invalid child=%08X\n", esi);
+        goto loc_001282C4;
+    }
     PUSH32(esp, edi);
     ecx = esi;
     PUSH32(esp, 0); fn_00128280_ZeroObject_SetCullFlags(); /* call 0x00128280 */
 
 loc_001282BD:
+    if (!zeroobject_va_range_is_valid(esi, 0x1C)) {
+        fprintf(stderr, "[FSW/ZeroObject] ending SetCullFlags sibling walk invalid node=%08X\n", esi);
+        goto loc_001282C4;
+    }
     esi = MEM32(esi + 0x18);
     if (TEST_NZ(esi, esi)) goto loc_001282B5; /* jne: not equal / not zero */
 

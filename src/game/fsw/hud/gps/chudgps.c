@@ -7,6 +7,12 @@
 #define RECOMP_GENERATED_CODE
 #include "recomp_funcs.h"
 #include <math.h>
+#include <stdio.h>
+
+static int chudgps_va_range_is_valid(uint32_t va, uint32_t size)
+{
+    return va > 0x00010000u && va < 0x04000000u && size <= 0x04000000u - va;
+}
 
 /**
  * fn_0002A5F0_CHUDActorData_GetAIActor
@@ -300,13 +306,37 @@ loc_0002A711:
  */
 void fn_0004E360_EIterator_ZeroList_K_QAE_AV01_H_Z(void)
 {
+    uint32_t next;
 
 loc_0004E360:
+    if (!chudgps_va_range_is_valid(ecx, 8) || !chudgps_va_range_is_valid(eax, 8)) {
+        fprintf(stderr, "[FSW/ZeroList] iterator skipped invalid state out=%08X iter=%08X\n",
+                (unsigned)eax, (unsigned)ecx);
+        if (chudgps_va_range_is_valid(eax, 8)) {
+            MEM32(eax) = 0;
+            MEM32(eax + 4) = 0;
+        }
+        esp += 4; return; /* ret */
+    }
     edx = MEM32(ecx);
+    if (!chudgps_va_range_is_valid(edx, 8)) {
+        fprintf(stderr, "[FSW/ZeroList] iterator stopped invalid node=%08X iter=%08X\n",
+                (unsigned)edx, (unsigned)ecx);
+        MEM32(ecx) = 0;
+        MEM32(eax) = 0;
+        MEM32(eax + 4) = MEM32(ecx + 4);
+        esp += 4; return; /* ret */
+    }
     PUSH32(esp, esi);
     esi = MEM32(ecx + 4);
     PUSH32(esp, edi);
-    edi = MEM32(edx + 4);
+    next = MEM32(edx + 4);
+    if (next != 0 && !chudgps_va_range_is_valid(next, 8)) {
+        fprintf(stderr, "[FSW/ZeroList] iterator dropping invalid next node=%08X next=%08X\n",
+                (unsigned)edx, (unsigned)next);
+        next = 0;
+    }
+    edi = next;
     MEM32(ecx) = edi;
     POP32(esp, edi);
     MEM32(eax + 4) = esi;

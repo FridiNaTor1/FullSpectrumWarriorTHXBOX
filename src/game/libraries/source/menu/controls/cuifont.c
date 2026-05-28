@@ -6,7 +6,501 @@
 
 #define RECOMP_GENERATED_CODE
 #include "recomp_funcs.h"
+#ifdef XBOXRECOMP_VULKAN_GRAPHICS
+#include "d3d8_vulkan_host.h"
+#include "d3d8_swizzle.h"
+#endif
 #include <math.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+static uint32_t fsw_cuifont_get_log_count;
+static uint32_t fsw_cuifont_create_log_count;
+static uint32_t fsw_cuifont_read_log_count;
+static uint32_t fsw_cuifont_draw_log_count;
+static uint32_t fsw_cuifont_glyph_log_count;
+uint32_t g_fsw_cuifont_current_control;
+uint32_t g_fsw_cuifont_current_matrix;
+
+#ifdef XBOXRECOMP_VULKAN_GRAPHICS
+typedef struct FswCUIFontAtlasCache {
+    uint32_t font;
+    uint32_t width;
+    uint32_t height;
+    uint32_t linear_layout;
+    uint32_t channel;
+    uint32_t *bgra;
+} FswCUIFontAtlasCache;
+
+static FswCUIFontAtlasCache g_fsw_cuifont_atlases[16];
+
+static void fsw_cuifont_dump_atlas(uint32_t font, const uint32_t *bgra, uint32_t width, uint32_t height)
+{
+    char path[128];
+    FILE *f;
+
+    if (getenv("FSW_TH_DUMP_FONT_ATLAS") == NULL || bgra == NULL || width == 0 || height == 0) {
+        return;
+    }
+    snprintf(path, sizeof(path), "/tmp/fsw_font_%08X.ppm", font);
+    f = fopen(path, "wb");
+    if (f == NULL) {
+        return;
+    }
+    fprintf(f, "P6\n%u %u\n255\n", width, height);
+    for (uint32_t i = 0; i < width * height; i++) {
+        uint8_t alpha = (uint8_t)((bgra[i] >> 24) & 0xFF);
+        uint8_t px[3];
+        px[0] = alpha;
+        px[1] = alpha;
+        px[2] = alpha;
+        fwrite(px, 1, sizeof(px), f);
+    }
+    fclose(f);
+    fprintf(stderr, "[FSW/Font] dumped atlas %s\n", path);
+}
+
+static uint32_t fsw_cuifont_decode_p8(uint8_t index, uint32_t channel)
+{
+    static const uint8_t shifts[4] = { 6, 0, 2, 4 };
+    uint8_t alpha = (uint8_t)(((index >> shifts[channel & 3]) & 3) * 85);
+    return ((uint32_t)alpha << 24) | 0x00FFFFFFu;
+}
+#endif
+
+typedef struct FswCUIFontEntry {
+    uint32_t crc;
+    uint32_t font;
+    uint32_t glyph_count;
+    uint32_t glyph_table;
+} FswCUIFontEntry;
+
+static FswCUIFontEntry g_fsw_cuifonts[64];
+
+static int fsw_cuifont_va_is_valid(uint32_t va)
+{
+    return va >= 0x00010000u && va < 0x04000000u;
+}
+
+static void fsw_cuifont_register(uint32_t font)
+{
+    uint32_t crc;
+
+    if (!fsw_cuifont_va_is_valid(font + 0x30)) {
+        return;
+    }
+    crc = MEM32(font);
+    if (crc == 0 || MEM8(font + 0x30) == 0) {
+        return;
+    }
+    for (uint32_t i = 0; i < (uint32_t)(sizeof(g_fsw_cuifonts) / sizeof(g_fsw_cuifonts[0])); i++) {
+        if (g_fsw_cuifonts[i].crc == crc) {
+            g_fsw_cuifonts[i].font = font;
+            if (MEM32(font + 4) != 0) {
+                g_fsw_cuifonts[i].glyph_count = MEM32(font + 4);
+            }
+            if (MEM32(font + 0x20) != 0) {
+                g_fsw_cuifonts[i].glyph_table = MEM32(font + 0x20);
+            }
+            return;
+        }
+        if (g_fsw_cuifonts[i].crc == 0) {
+            g_fsw_cuifonts[i].crc = crc;
+            g_fsw_cuifonts[i].font = font;
+            g_fsw_cuifonts[i].glyph_count = MEM32(font + 4);
+            g_fsw_cuifonts[i].glyph_table = MEM32(font + 0x20);
+            return;
+        }
+    }
+}
+
+static uint32_t fsw_cuifont_find_registered(uint32_t crc)
+{
+    for (uint32_t i = 0; i < (uint32_t)(sizeof(g_fsw_cuifonts) / sizeof(g_fsw_cuifonts[0])); i++) {
+        if (g_fsw_cuifonts[i].crc == crc && fsw_cuifont_va_is_valid(g_fsw_cuifonts[i].font + 0x30) &&
+            MEM8(g_fsw_cuifonts[i].font + 0x30) != 0) {
+            if ((MEM32(g_fsw_cuifonts[i].font + 4) == 0 || MEM32(g_fsw_cuifonts[i].font + 4) > 4096) &&
+                g_fsw_cuifonts[i].glyph_count != 0) {
+                MEM32(g_fsw_cuifonts[i].font + 4) = g_fsw_cuifonts[i].glyph_count;
+            }
+            if (!fsw_cuifont_va_is_valid(MEM32(g_fsw_cuifonts[i].font + 0x20)) &&
+                g_fsw_cuifonts[i].glyph_table != 0) {
+                MEM32(g_fsw_cuifonts[i].font + 0x20) = g_fsw_cuifonts[i].glyph_table;
+            }
+            return g_fsw_cuifonts[i].font;
+        }
+    }
+    return 0;
+}
+
+static uint32_t fsw_cuifont_find_shell_fallback(uint32_t crc)
+{
+    switch (crc) {
+    case 0x00000000u:
+    case 0x510E2B0Fu:
+    case 0x393FD1A2u:
+    case 0xC9EF9119u:
+    case 0x3CB08733u:
+    case 0xEF387422u:
+        return fsw_cuifont_find_registered(0xB17BF420u);
+    default:
+        return 0;
+    }
+}
+
+static uint32_t fsw_cuifont_find_char_record(uint32_t font, uint16_t ch)
+{
+    uint32_t count;
+    uint32_t table;
+
+    if (!fsw_cuifont_va_is_valid(font + 0x24)) {
+        return 0;
+    }
+    count = MEM32(font + 4);
+    table = MEM32(font + 0x20);
+    if (count == 0 || count > 4096 || !fsw_cuifont_va_is_valid(table)) {
+        return 0;
+    }
+    for (uint32_t i = 0; i < count; i++) {
+        uint32_t glyph = table + i * 5;
+        if (!fsw_cuifont_va_is_valid(glyph + 4)) {
+            break;
+        }
+        if (MEM16(glyph) == ch) {
+            return glyph;
+        }
+    }
+    return table;
+}
+
+static uint32_t fsw_cuifont_measure_wide(uint32_t font, uint32_t text, uint32_t scale, int32_t len)
+{
+    uint32_t width = 0;
+    uint32_t limit;
+
+    if (!fsw_cuifont_va_is_valid(text + 1)) {
+        return 0;
+    }
+    if (!fsw_cuifont_va_is_valid(font + 0x24) || MEM32(font + 4) == 0) {
+        uint32_t fallback = fsw_cuifont_find_registered(0xB17BF420u);
+        if (fallback != 0 && fsw_cuifont_va_is_valid(fallback + 0x24) && MEM32(fallback + 4) != 0) {
+            font = fallback;
+        } else {
+            return 0;
+        }
+    }
+
+    if (len < 0) {
+        limit = 0xFFFFFFFFu;
+    } else {
+        limit = (uint32_t)len;
+    }
+    if (limit > 1024) {
+        limit = 1024;
+    }
+
+    for (uint32_t i = 0; i < limit; i++) {
+        uint32_t pos = text + i * 2;
+        uint16_t ch;
+        uint32_t glyph;
+        uint32_t glyph_width;
+
+        if (!fsw_cuifont_va_is_valid(pos + 1)) {
+            break;
+        }
+        ch = MEM16(pos);
+        if (ch == 0) {
+            break;
+        }
+        if (ch == 0x0A) {
+            continue;
+        }
+        if (ch == 0x7B && i + 2 < limit && fsw_cuifont_va_is_valid(pos + 5) &&
+            MEM16(pos + 2) != 0 && MEM16(pos + 4) == 0x7D) {
+            if (scale) {
+                width += (uint32_t)(int32_t)(MEMF(0x5CDC94) * MEMF(0x5614F8));
+            } else {
+                width += 0x10;
+            }
+            i += 2;
+            continue;
+        }
+
+        glyph = fsw_cuifont_find_char_record(font, ch);
+        if (glyph != 0 && fsw_cuifont_va_is_valid(glyph + 4)) {
+            glyph_width = (uint32_t)MEM8(glyph + 4) >> 2;
+            if (scale) {
+                glyph_width = (uint32_t)(int32_t)((float)(int32_t)glyph_width * MEMF(0x5CDC94));
+            }
+            width += glyph_width;
+        }
+    }
+
+    return width;
+}
+
+#ifdef XBOXRECOMP_VULKAN_GRAPHICS
+static const uint32_t *fsw_cuifont_decode_atlas_channel(uint32_t font, uint32_t *out_w, uint32_t *out_h,
+                                                        uint32_t glyph_channel)
+{
+    uint32_t width;
+    uint32_t height;
+    uint32_t pixels;
+    uint32_t use_linear;
+    uint32_t channel = glyph_channel & 3u;
+    const char *channel_env;
+
+    if (!fsw_cuifont_va_is_valid(font + 0x30)) {
+        return NULL;
+    }
+    width = MEM32(font + 0x18);
+    height = MEM32(font + 0x1C);
+    pixels = MEM32(font + 0x28);
+    if (width == 0 || height == 0 || width > 2048 || height > 2048 || !fsw_cuifont_va_is_valid(pixels)) {
+        return NULL;
+    }
+    use_linear = getenv("FSW_TH_FONT_LINEAR") != NULL;
+    channel_env = getenv("FSW_TH_FONT_CHANNEL");
+    if (channel_env != NULL) {
+        channel = (uint32_t)strtoul(channel_env, NULL, 0) & 3u;
+    }
+    for (uint32_t i = 0; i < (uint32_t)(sizeof(g_fsw_cuifont_atlases) / sizeof(g_fsw_cuifont_atlases[0])); i++) {
+        if (g_fsw_cuifont_atlases[i].font == font && g_fsw_cuifont_atlases[i].linear_layout == use_linear &&
+            g_fsw_cuifont_atlases[i].channel == channel && g_fsw_cuifont_atlases[i].bgra) {
+            *out_w = g_fsw_cuifont_atlases[i].width;
+            *out_h = g_fsw_cuifont_atlases[i].height;
+            return g_fsw_cuifont_atlases[i].bgra;
+        }
+    }
+    for (uint32_t i = 0; i < (uint32_t)(sizeof(g_fsw_cuifont_atlases) / sizeof(g_fsw_cuifont_atlases[0])); i++) {
+        if (!g_fsw_cuifont_atlases[i].bgra) {
+            uint32_t *bgra = (uint32_t *)calloc((size_t)width * height, sizeof(uint32_t));
+            uint8_t *linear = (uint8_t *)malloc((size_t)width * height);
+            if (!bgra || !linear) {
+                free(bgra);
+                free(linear);
+                return NULL;
+            }
+            if (use_linear) {
+                memcpy(linear, (const void *)XBOX_PTR(pixels), (size_t)width * height);
+            } else {
+                xbox_unswizzle_rect(linear, (const void *)XBOX_PTR(pixels), width, height, 1);
+            }
+            for (uint32_t p = 0; p < width * height; p++) {
+                bgra[p] = fsw_cuifont_decode_p8(linear[p], channel);
+            }
+            free(linear);
+            g_fsw_cuifont_atlases[i].font = font;
+            g_fsw_cuifont_atlases[i].width = width;
+            g_fsw_cuifont_atlases[i].height = height;
+            g_fsw_cuifont_atlases[i].linear_layout = use_linear;
+            g_fsw_cuifont_atlases[i].channel = channel;
+            g_fsw_cuifont_atlases[i].bgra = bgra;
+            *out_w = width;
+            *out_h = height;
+            fsw_cuifont_dump_atlas(font, bgra, width, height);
+            if (fsw_cuifont_draw_log_count < 16) {
+                fprintf(stderr, "[FSW/Font] decoded draw atlas font=%08X %ux%u pixels=%08X layout=%s channel=%u glyphs=%u row=%u split=%u altrow=%u table=%08X\n",
+                        font, width, height, pixels, use_linear ? "linear" : "swizzled", channel,
+                        fsw_cuifont_va_is_valid(font + 4) ? MEM32(font + 4) : 0,
+                        fsw_cuifont_va_is_valid(font + 0x0C) ? MEM32(font + 0x0C) : 0,
+                        fsw_cuifont_va_is_valid(font + 0x10) ? MEM32(font + 0x10) : 0,
+                        fsw_cuifont_va_is_valid(font + 0x14) ? MEM32(font + 0x14) : 0,
+                        fsw_cuifont_va_is_valid(font + 0x20) ? MEM32(font + 0x20) : 0);
+                fsw_cuifont_draw_log_count++;
+            }
+            return bgra;
+        }
+    }
+    return NULL;
+}
+
+static const uint32_t *fsw_cuifont_decode_atlas(uint32_t font, uint32_t *out_w, uint32_t *out_h)
+{
+    return fsw_cuifont_decode_atlas_channel(font, out_w, out_h, 3);
+}
+
+static int fsw_cuifont_draw_vulkan(uint32_t font, uint32_t text, float x, float y,
+                                   uint32_t color_ptr, uint32_t flags, int32_t len)
+{
+    uint32_t atlas_w = 0;
+    uint32_t atlas_h = 0;
+    const uint32_t *atlas = fsw_cuifont_decode_atlas(font, &atlas_w, &atlas_h);
+    float pen_x = x;
+    float origin_x = x;
+    float char_h;
+    float r = 1.0f;
+    float g = 1.0f;
+    float b = 1.0f;
+    float a = 1.0f;
+    uint32_t limit;
+    uint32_t measured_width;
+
+    if (!atlas || !fsw_cuifont_va_is_valid(text + 1)) {
+        return 0;
+    }
+    if (fsw_cuifont_va_is_valid(color_ptr + 3)) {
+        r = (float)MEM8(color_ptr) / 255.0f;
+        g = (float)MEM8(color_ptr + 1) / 255.0f;
+        b = (float)MEM8(color_ptr + 2) / 255.0f;
+        a = (float)MEM8(color_ptr + 3) / 255.0f;
+        if (r == 0.0f && g == 0.0f && b == 0.0f) {
+            r = g = b = 1.0f;
+        }
+        if (a <= 0.0f) {
+            a = 1.0f;
+        }
+    }
+    char_h = (float)MEM32(font + 8);
+    if (char_h <= 0.0f || char_h > 128.0f) {
+        char_h = 18.0f;
+    }
+    if (fabsf(x) < 0.001f && fabsf(y) < 0.001f &&
+        fsw_cuifont_va_is_valid(g_fsw_cuifont_current_control + 0x44)) {
+        measured_width = fsw_cuifont_measure_wide(font, text, 0, len);
+        x = MEMF(g_fsw_cuifont_current_control + 0x40) - (float)measured_width * 0.5f;
+        y = MEMF(g_fsw_cuifont_current_control + 0x44) - char_h * 0.5f;
+        pen_x = x;
+        origin_x = x;
+    }
+    if ((x < -640.0f || x > 1280.0f || y < -480.0f || y > 960.0f) &&
+        fsw_cuifont_va_is_valid(g_fsw_cuifont_current_matrix + 0x34)) {
+        x = MEMF(g_fsw_cuifont_current_matrix + 0x30);
+        y = MEMF(g_fsw_cuifont_current_matrix + 0x34);
+        pen_x = x;
+        origin_x = x;
+    }
+    if (x >= -320.0f && x <= 320.0f && y >= -240.0f && y <= 240.0f) {
+        x += 320.0f;
+        y += 240.0f;
+        pen_x = x;
+        origin_x = x;
+    }
+    limit = (len < 0) ? 1024u : (uint32_t)len;
+    if (limit > 1024) {
+        limit = 1024;
+    }
+
+    if (fsw_cuifont_draw_log_count < 64) {
+        char preview[65];
+        uint32_t preview_len = 0;
+        for (uint32_t i = 0; i < 64 && i < limit; i++) {
+            uint32_t pos = text + i * 2;
+            uint16_t ch;
+            if (!fsw_cuifont_va_is_valid(pos + 1)) {
+                break;
+            }
+            ch = MEM16(pos);
+            if (ch == 0) {
+                break;
+            }
+            preview[preview_len++] = (ch >= 32 && ch < 127) ? (char)ch : '?';
+        }
+        preview[preview_len] = '\0';
+        fprintf(stderr, "[FSW/Font] native Draw font=%08X text=%08X pos=%.2f,%.2f color=%08X flags=%08X len=%d w0=%04X w1=%04X str=\"%s\"\n",
+                font, text, x, y, color_ptr, flags, len,
+                fsw_cuifont_va_is_valid(text + 1) ? MEM16(text) : 0,
+                fsw_cuifont_va_is_valid(text + 3) ? MEM16(text + 2) : 0,
+                preview);
+        fsw_cuifont_draw_log_count++;
+    }
+
+    for (uint32_t i = 0; i < limit; i++) {
+        uint32_t pos = text + i * 2;
+        uint16_t ch;
+        uint32_t glyph;
+        uint32_t packed;
+        uint32_t glyph_x;
+        uint32_t glyph_row;
+        uint32_t glyph_w;
+        uint32_t glyph_channel;
+        uint32_t cell_h;
+        uint32_t row_count;
+        uint32_t row_h;
+        uint32_t y0_px;
+        uint32_t y1_px;
+        float u0, v0, u1, v1;
+
+        if (!fsw_cuifont_va_is_valid(pos + 1)) {
+            break;
+        }
+        ch = MEM16(pos);
+        if (ch == 0) {
+            break;
+        }
+        if (ch == 0x0A) {
+            pen_x = origin_x;
+            y += char_h;
+            continue;
+        }
+        if (ch == 0x7B && i + 2 < limit && fsw_cuifont_va_is_valid(pos + 5) &&
+            MEM16(pos + 2) != 0 && MEM16(pos + 4) == 0x7D) {
+            ch = MEM16(pos + 2);
+            i += 2;
+        }
+        glyph = fsw_cuifont_find_char_record(font, ch);
+        if (!glyph || !fsw_cuifont_va_is_valid(glyph + 4)) {
+            continue;
+        }
+        packed = MEM16(glyph + 2);
+        glyph_x = packed >> 6;
+        glyph_row = packed & 0x3F;
+        glyph_channel = (ch >= 'A' && ch <= 'Z') ? 2u : 3u;
+        glyph_w = (uint32_t)MEM8(glyph + 4) >> 2;
+        if (glyph_w == 0 || glyph_w > 256) {
+            glyph_w = (uint32_t)(char_h * 0.5f);
+        }
+        if (ch == 0x20) {
+            pen_x += (float)glyph_w;
+            continue;
+        }
+        cell_h = MEM32(font + 0x0C);
+        row_count = MEM32(font + 0x10);
+        row_h = MEM32(font + 0x14);
+        if (getenv("FSW_TH_FONT_GLYPH_LOG") != NULL && fsw_cuifont_glyph_log_count < 80) {
+            fprintf(stderr, "[FSW/FontGlyph] font=%08X ch=%04X glyph=%08X raw=%02X %02X %02X %02X %02X packed=%04X x=%u row=%u w=%u h0=%u h1=%u h2=%u\n",
+                    font, ch, glyph, MEM8(glyph), MEM8(glyph + 1), MEM8(glyph + 2),
+                    MEM8(glyph + 3), MEM8(glyph + 4), packed, glyph_x, glyph_row, glyph_w,
+                    cell_h, row_count, row_h);
+            fsw_cuifont_glyph_log_count++;
+        }
+        if (row_count == 0 || row_count > 128) row_count = 1;
+        if (row_h == 0 || row_h > 256) row_h = (uint32_t)char_h;
+        if (cell_h == 0 || cell_h > 256) cell_h = row_h;
+        y0_px = glyph_row * cell_h;
+        y1_px = y0_px + row_h;
+        if (glyph_x >= atlas_w || y0_px >= atlas_h) {
+            pen_x += (float)glyph_w;
+            continue;
+        }
+        if (glyph_x + glyph_w > atlas_w) glyph_w = atlas_w - glyph_x;
+        if (y1_px > atlas_h) y1_px = atlas_h;
+
+        atlas = fsw_cuifont_decode_atlas_channel(font, &atlas_w, &atlas_h, glyph_channel);
+        if (!atlas) {
+            pen_x += (float)glyph_w;
+            continue;
+        }
+
+        u0 = (float)glyph_x / (float)atlas_w;
+        u1 = (float)(glyph_x + glyph_w) / (float)atlas_w;
+        v0 = (float)y0_px / (float)atlas_h;
+        v1 = (float)y1_px / (float)atlas_h;
+        D3D8VulkanRhwVertex rect[6] = {
+            { pen_x,                  y,          0.02f, 1.0f, r, g, b, a, u0, v0 },
+            { pen_x + (float)glyph_w, y,          0.02f, 1.0f, r, g, b, a, u1, v0 },
+            { pen_x + (float)glyph_w, y + char_h, 0.02f, 1.0f, r, g, b, a, u1, v1 },
+            { pen_x,                  y,          0.02f, 1.0f, r, g, b, a, u0, v0 },
+            { pen_x + (float)glyph_w, y + char_h, 0.02f, 1.0f, r, g, b, a, u1, v1 },
+            { pen_x,                  y + char_h, 0.02f, 1.0f, r, g, b, a, u0, v1 },
+        };
+        d3d8_vulkan_host_draw_rhw(rect, 6, atlas, atlas_w, atlas_h, 0, 0);
+        pen_x += (float)glyph_w;
+    }
+    return 1;
+}
+#endif
 
 /**
  * fn_00052570_G_ZeroArray_SetCount
@@ -277,19 +771,9 @@ void fn_00133230_CUIFont_FindChar(void)
 
 loc_00133230:
     esp = esp - 8;
-    edx = MEM32(esi + 4);
-    PUSH32(esp, 0x133180);
-    ecx = 0; /* xor self */
-    PUSH32(esp, 5);
-    MEM16(esp + 0xA) = LO16(ecx);
-    MEM16(esp + 8) = LO16(eax);
-    eax = MEM32(esi + 0x20);
-    PUSH32(esp, edx);
-    MEM8(esp + 0x10) = LO8(ecx);
-    PUSH32(esp, eax);
-    ecx = esp + 0x10;
-    PUSH32(esp, ecx);
-    PUSH32(esp, 0); fn_0009C024_bsearch(); /* call 0x0009C024 */
+    eax = fsw_cuifont_find_char_record(esi, LO16(eax));
+    esp = esp + 8;
+    esp += 4; return; /* ret */
 
 loc_0013325C:
     esp = esp + 0x14;
@@ -319,13 +803,33 @@ loc_00133270:
     eax = MEM32(0x5FA890);
     (void)0; /* test eax, eax - flags set for next jcc */
     eax = MEM32(0x5D0CDC);
-    if (TEST_NZ(eax, eax)) { sub_00133296(); return; } /* jne: not equal / not zero */
+    edx = MEM32(esp + 4);
+    {
+        uint32_t registered = fsw_cuifont_find_registered(edx);
+        if (!registered) {
+            registered = fsw_cuifont_find_shell_fallback(edx);
+        }
+        if (registered) {
+            eax = registered;
+            if (fsw_cuifont_get_log_count < 96) {
+                fprintf(stderr, "[FSW/Font] GetFont native hit crc=%08X font=%08X glyphs=%u surface=%08X material=%08X\n",
+                        edx, eax, MEM32(eax + 4), MEM32(eax + 0x24), MEM32(eax + 0x2C));
+                fsw_cuifont_get_log_count++;
+            }
+            esp += 4; return; /* ret */
+        }
+    }
+    if (TEST_NZ(eax, eax)) goto loc_00133282; /* jne: not equal / not zero */
 
 loc_0013327E:
     if (TEST_Z(eax, eax)) { sub_001332A3(); return; } /* je: equal / zero */
 
 loc_00133282:
-    edx = MEM32(esp + 4);
+    if (fsw_cuifont_get_log_count < 64) {
+        fprintf(stderr, "[FSW/Font] GetFont request crc=%08X root=%08X\n", edx, eax);
+        fsw_cuifont_get_log_count++;
+    }
+    sub_00133292(); return;
 
 }
 
@@ -348,6 +852,7 @@ loc_0013328D:
 
 loc_0013328F:
     eax = MEM32(eax + 0xC);
+    sub_00133292(); return;
 
 }
 
@@ -381,6 +886,12 @@ loc_00133296:
 
 loc_0013329A:
     eax = MEM32(eax + 0x18);
+    if (fsw_cuifont_get_log_count < 96) {
+        fprintf(stderr, "[FSW/Font] GetFont hit crc=%08X font=%08X valid=%u glyphs=%u surface=%08X material=%08X\n",
+                edx, eax, eax ? MEM8(eax + 0x30) : 0, eax ? MEM32(eax + 4) : 0,
+                eax ? MEM32(eax + 0x24) : 0, eax ? MEM32(eax + 0x2C) : 0);
+        fsw_cuifont_get_log_count++;
+    }
     esp += 4; return; /* ret */
 
 }
@@ -412,6 +923,10 @@ void sub_001332A3(void)
 {
 
 loc_001332A3:
+    if (fsw_cuifont_get_log_count < 96) {
+        fprintf(stderr, "[FSW/Font] GetFont miss crc=%08X\n", edx);
+        fsw_cuifont_get_log_count++;
+    }
     eax = 0; /* xor self */
     esp += 4; return; /* ret */
 
@@ -460,6 +975,20 @@ void fn_001332D0_CUIFont_GetWidth(void)
 loc_001332D0:
     esp = esp - 8;
     if (CMP_EQ(LO16(eax), 0xA)) goto loc_0013330F; /* je: equal / zero */
+
+    {
+        uint32_t glyph = fsw_cuifont_find_char_record(esi, LO16(eax));
+        if (glyph) {
+            eax = ZX8(MEM8(glyph + 4));
+            eax = eax >> 2;
+            if (MEM8(esp + 0xC)) {
+                float scaled = (float)(int32_t)eax * MEMF(0x5CDC94);
+                eax = (int32_t)scaled;
+            }
+            esp = esp + 8;
+            esp += 8; return; /* ret 4 */
+        }
+    }
 
 loc_001332D9:
     ecx = MEM32(esi + 4);
@@ -1326,6 +1855,15 @@ void fn_00133A60_CUIFont_GetWidth(void)
     ebp = g_seh_ebp; /* fpo_leaf: inherit caller's frame */
 
 loc_00133A60:
+    {
+        uint32_t text = eax;
+        uint32_t font = MEM32(esp + 4);
+        uint32_t scale = MEM32(esp + 8);
+        int32_t len = (int32_t)MEM32(esp + 0xC);
+        eax = fsw_cuifont_measure_wide(font, text, scale, len);
+        esp += 16; return; /* ret 12 */
+    }
+
     PUSH32(esp, ebx);
     PUSH32(esp, ebp);
     ebp = MEM32(esp + 0x14);
@@ -1963,6 +2501,11 @@ loc_00133EDA:
     if (CMP_EQ(eax, 1)) goto loc_00133F20; /* je: equal / zero */
 
 loc_00133EF4:
+    if (fsw_cuifont_read_log_count < 64) {
+        fprintf(stderr, "[FSW/Font] Read open/header fail font=%08X crc_arg=%08X open_fd=%08X stream=%08X\n",
+                ebp, MEM32(esp + 0x88), MEM32(esp + 0x20), MEM32(esp + 0x40));
+        fsw_cuifont_read_log_count++;
+    }
     MEM32(esp + 0x7C) = 0xFFFFFFFFu;
     esi = esp + 0x1C;
     MEM32(esp + 0x1C) = edi;
@@ -1980,6 +2523,11 @@ loc_00133F09:
     esp += 12; return; /* ret 8 */
 
 loc_00133F20:
+    if (fsw_cuifont_read_log_count < 64) {
+        fprintf(stderr, "[FSW/Font] Read header font=%08X crc_arg=%08X file_crc=%08X glyphs=%u size=%ux%u\n",
+                ebp, MEM32(esp + 0x88), MEM32(ebp + 4), MEM32(esi), MEM32(ebp + 0x18), MEM32(ebp + 0x1C));
+        fsw_cuifont_read_log_count++;
+    }
     eax = MEM32(esi);
     eax = eax + eax * 4;
     PUSH32(esp, eax);
@@ -2124,6 +2672,11 @@ loc_0013406B:
     if (CMP_NE(eax, ebx)) { sub_001340A2(); return; } /* jne: not equal / not zero */
 
 loc_00134072:
+    if (fsw_cuifont_read_log_count < 96) {
+        fprintf(stderr, "[FSW/Font] Read data/material fail font=%08X crc_arg=%08X file_crc=%08X glyphs=%u surface=%08X material=%08X\n",
+                ebp, MEM32(esp + 0x88), MEM32(ebp + 4), MEM32(ebp + 4), MEM32(ebp + 0x24), MEM32(ebp + 0x2C));
+        fsw_cuifont_read_log_count++;
+    }
     MEM32(esp + 0x7C) = 0xFFFFFFFFu;
     esi = esp + 0x1C;
     MEM32(esp + 0x1C) = 0x560D0C;
@@ -2154,6 +2707,12 @@ void sub_001340A2(void)
     ebp = g_seh_ebp; /* fpo_leaf: inherit caller's frame */
 
 loc_001340A2:
+    if (fsw_cuifont_read_log_count < 96) {
+        fprintf(stderr, "[FSW/Font] Read success font=%08X file_crc=%08X glyphs=%u size=%ux%u surface=%08X material=%08X pixels=%08X\n",
+                ebp, MEM32(ebp + 4), MEM32(ebp + 4), MEM32(ebp + 0x18), MEM32(ebp + 0x1C),
+                MEM32(ebp + 0x24), MEM32(ebp + 0x2C), MEM32(ebp + 0x28));
+        fsw_cuifont_read_log_count++;
+    }
     PUSH32(esp, ebx);
     PUSH32(esp, ebx);
     PUSH32(esp, ebx);
@@ -2205,8 +2764,10 @@ loc_00134109:
  */
 void fn_00134120_0CUIFont_IAE_VCRC_Z(void)
 {
+    uint32_t self;
 
 loc_00134120:
+    self = esi;
     eax = 0; /* xor self */
     ecx = esi + 4;
     MEM32(ecx) = eax;
@@ -2230,8 +2791,8 @@ loc_00134120:
     PUSH32(esp, 0); fn_00133E10_CUIFont_Read(); /* call 0x00133E10 */
 
 loc_00134158:
-    MEM8(esi + 0x30) = LO8(eax);
-    eax = esi;
+    MEM8(self + 0x30) = LO8(eax);
+    eax = self;
     esp += 8; return; /* ret 4 */
 
 }
@@ -2261,6 +2822,10 @@ loc_00134160:
     if (TEST_Z(eax, eax)) { sub_00134196(); return; } /* je: equal / zero */
 
 loc_00134186:
+    if (fsw_cuifont_create_log_count < 64) {
+        fprintf(stderr, "[FSW/Font] CreateFont request crc=%08X root=%08X\n", esi, eax);
+        fsw_cuifont_create_log_count++;
+    }
     ecx = MEM32(eax + 0x14);
     if (CMP_A(ecx, esi)) { sub_001341C4(); return; } /* ja: above (unsigned >) */
 
@@ -2269,13 +2834,23 @@ loc_0013418D:
 
 loc_0013418F:
     eax = MEM32(eax + 0xC);
-
+    sub_00134192(); return;
 }
 
-/* Fallback for unresolved generated target 0x00134186. */
 void sub_00134186(void)
 {
-    recomp_missing_target(0x00134186u);
+    int _flags = 0; /* fallback flag var */
+
+loc_00134186:
+    ecx = MEM32(eax + 0x14);
+    if (CMP_A(ecx, esi)) { sub_001341C4(); return; } /* ja: above (unsigned >) */
+
+loc_0013418D:
+    if (CMP_AE(ecx, esi)) { sub_001341C9(); return; } /* jae: above or equal (unsigned >=) */
+
+loc_0013418F:
+    eax = MEM32(eax + 0xC);
+    sub_00134192(); return;
 }
 
 /**
@@ -2290,6 +2865,7 @@ void sub_00134192(void)
 
 loc_00134192:
     if (TEST_NZ(eax, eax)) { sub_00134186(); return; } /* jne: not equal / not zero */
+    sub_00134196(); return;
 
 }
 
@@ -2325,6 +2901,12 @@ loc_001341B0:
     PUSH32(esp, 0); fn_00134120_0CUIFont_IAE_VCRC_Z(); /* call 0x00134120 */
 
 loc_001341C0:
+    fsw_cuifont_register(eax);
+    if (fsw_cuifont_create_log_count < 96) {
+        fprintf(stderr, "[FSW/Font] CreateFont new crc=%08X font=%08X valid=%u glyphs=%u surface=%08X material=%08X\n",
+                MEM32(eax), eax, MEM8(eax + 0x30), MEM32(eax + 4), MEM32(eax + 0x24), MEM32(eax + 0x2C));
+        fsw_cuifont_create_log_count++;
+    }
     esi = eax;
     g_seh_ebp = ebp; sub_001341E2(); return; /* tail jmp 0x001341E2 */
 
@@ -2362,6 +2944,19 @@ loc_001341C9:
 
 loc_001341CD:
     eax = MEM32(eax + 0x18);
+    if (TEST_Z(eax, eax) || MEM32(eax) != esi) {
+        if (fsw_cuifont_create_log_count < 96) {
+            fprintf(stderr, "[FSW/Font] CreateFont stale hit requested=%08X font=%08X stored=%08X\n",
+                    esi, eax, eax ? MEM32(eax) : 0);
+            fsw_cuifont_create_log_count++;
+        }
+        sub_00134196(); return;
+    }
+    if (fsw_cuifont_create_log_count < 96) {
+        fprintf(stderr, "[FSW/Font] CreateFont hit crc=%08X font=%08X valid=%u glyphs=%u surface=%08X material=%08X\n",
+                esi, eax, MEM8(eax + 0x30), MEM32(eax + 4), MEM32(eax + 0x24), MEM32(eax + 0x2C));
+        fsw_cuifont_create_log_count++;
+    }
     ecx = MEM32(esp + 0xC);
     MEM32(0) = ecx;
     POP32(esp, esi);
@@ -4700,6 +5295,21 @@ void fn_00135F40_CUIFont_Draw(void)
     float xmm0, xmm1, xmm2, xmm3, xmm4, xmm5, xmm6;
 
 loc_00135F40:
+#ifdef XBOXRECOMP_VULKAN_GRAPHICS
+    {
+        uint32_t font = MEM32(esp + 4);
+        uint32_t text = MEM32(esp + 8);
+        float draw_x = MEMF(esp + 0xC);
+        float draw_y = MEMF(esp + 0x10);
+        uint32_t color_ptr = MEM32(esp + 0x14);
+        uint32_t flags = MEM32(esp + 0x18);
+        int32_t len = (int32_t)MEM32(esp + 0x20);
+        if (fsw_cuifont_draw_vulkan(font, text, draw_x, draw_y, color_ptr, flags, len)) {
+            esp += 36; return; /* ret 32 */
+        }
+    }
+#endif
+
     { uint32_t _icall_esp = g_esp;
     PUSH32(esp, ebp);
     ebp = esp;

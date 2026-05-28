@@ -7,6 +7,18 @@
 #define RECOMP_GENERATED_CODE
 #include "recomp_funcs.h"
 #include <math.h>
+#include <stdio.h>
+
+static int chuddesignator_local_va_range_is_valid(uint32_t va, uint32_t size)
+{
+    if (va < 0x00010000u || va >= 0x04000000u) {
+        return 0;
+    }
+    if (size > 0x04000000u || va > 0x04000000u - size) {
+        return 0;
+    }
+    return 1;
+}
 
 /**
  * fn_00029F50_CFactionManager_GetLocalAlpha
@@ -1154,7 +1166,17 @@ void fn_002EBE80_CHUDDesignator_UpdateStatusVehicle(void)
     float xmm0;
 
 loc_002EBE80:
+    if (!chuddesignator_local_va_range_is_valid(esi, 0x4C)) {
+        static int hud_vehicle_designator_logs;
+        if (hud_vehicle_designator_logs < 16) {
+            fprintf(stderr, "[FSW/HUD] skipping vehicle designator invalid designator=%08X\n",
+                    (unsigned)esi);
+            hud_vehicle_designator_logs++;
+        }
+        esp += 16; return; /* ret 12 */
+    }
     eax = MEM32(esi + 0x48);
+    if (!chuddesignator_local_va_range_is_valid(eax, 0xF4)) goto loc_002EBF86;
     if (TEST_Z(eax, eax)) goto loc_002EBF86; /* je: equal / zero */
 
 loc_002EBE8B:
@@ -1164,6 +1186,16 @@ loc_002EBE8B:
 loc_002EBE99:
     eax = ecx;
     edx = MEM32(eax);
+    if (!chuddesignator_local_va_range_is_valid(ecx, 4) ||
+        !chuddesignator_local_va_range_is_valid(edx, 0x8C)) {
+        static int hud_vehicle_status_logs;
+        if (hud_vehicle_status_logs < 16) {
+            fprintf(stderr, "[FSW/HUD] skipping vehicle status invalid actor=%08X vtbl=%08X designator=%08X\n",
+                    (unsigned)ecx, (unsigned)edx, (unsigned)esi);
+            hud_vehicle_status_logs++;
+        }
+        goto loc_002EBF86;
+    }
     { uint32_t _icall_esp = g_esp;
     PUSH32(esp, 0); RECOMP_ICALL_SAFE(MEM32(edx + 0x88), _icall_esp); /* indirect call */
     }
@@ -1181,6 +1213,10 @@ loc_002EBEB1:
 
 loc_002EBEB8:
     eax = MEM32(esi + 0x48);
+    if (!chuddesignator_local_va_range_is_valid(eax, 0xF4)) {
+        POP32(esp, ebx);
+        goto loc_002EBED0;
+    }
     ecx = MEM32(eax + 0xF0);
     (void)0; /* test ecx, ecx - flags set for next jcc */
     POP32(esp, ebx);
@@ -1188,6 +1224,8 @@ loc_002EBEB8:
 
 loc_002EBEC6:
     eax = MEM32(ecx);
+    if (!chuddesignator_local_va_range_is_valid(ecx, 4) ||
+        !chuddesignator_local_va_range_is_valid(eax, 0x8C)) goto loc_002EBED0;
     { uint32_t _icall_esp = g_esp;
     PUSH32(esp, 0); RECOMP_ICALL_SAFE(MEM32(eax + 0x88), _icall_esp); /* indirect call */
     }

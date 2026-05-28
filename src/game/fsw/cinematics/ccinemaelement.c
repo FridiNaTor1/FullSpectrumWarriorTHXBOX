@@ -8,6 +8,17 @@
 #include "recomp_funcs.h"
 #include <math.h>
 
+static int ccinemaelement_va_range_is_valid(uint32_t va, uint32_t size)
+{
+    if (va < 0x00010000u || va >= 0x04000000u) {
+        return 0;
+    }
+    if (size > 0x04000000u || va > 0x04000000u - size) {
+        return 0;
+    }
+    return 1;
+}
+
 /**
  * fn_000417C0_CSpawnManager_VCNodeOwnerPreset_ZeroList_RemoveAll
  * Symbol: ?RemoveAll@?$ZeroList@VCNodeOwnerPreset@CSpawnManager@@@@QAEXXZ
@@ -17,50 +28,49 @@
  */
 void fn_000417C0_CSpawnManager_VCNodeOwnerPreset_ZeroList_RemoveAll(void)
 {
-    int _flags = 0; /* fallback flag var */
+    uint32_t list = esi;
+    unsigned steps = 0;
 
-loc_000417C0:
-    eax = MEM32(esi + 8);
+    if (!ccinemaelement_va_range_is_valid(list, 0xC)) {
+        esp += 4; return; /* ret */
+    }
+
     PUSH32(esp, edi);
     edi = 0; /* xor self */
-    if (CMP_EQ(eax, edi)) goto loc_00041808; /* je: equal / zero */
+    eax = MEM32(list + 8);
+    while (eax != 0) {
+        uint32_t next;
+        uint32_t prev;
 
-loc_000417CA:
-    /* nop */
+        if (!ccinemaelement_va_range_is_valid(eax, 0x10) || ++steps > 4096) {
+            MEM32(list) = 0;
+            MEM32(list + 4) = 0;
+            MEM32(list + 8) = 0;
+            break;
+        }
 
-loc_000417D0:
-    MEM32(esi) = MEM32(esi) - 1;
-    ecx = MEM32(eax + 8);
-    MEM32(esi + 8) = ecx;
-    ecx = MEM32(eax + 0xC);
-    if (CMP_EQ(ecx, edi)) goto loc_000417E5; /* je: equal / zero */
+        if (MEM32(list) != 0) {
+            MEM32(list) = MEM32(list) - 1;
+        }
+        next = MEM32(eax + 8);
+        prev = MEM32(eax + 0xC);
+        MEM32(list + 8) = ccinemaelement_va_range_is_valid(next, 0x10) ? next : 0;
+        if (ccinemaelement_va_range_is_valid(prev, 0x10)) {
+            MEM32(prev + 8) = ccinemaelement_va_range_is_valid(next, 0x10) ? next : 0;
+        }
+        if (ccinemaelement_va_range_is_valid(next, 0x10)) {
+            MEM32(next + 0xC) = ccinemaelement_va_range_is_valid(prev, 0x10) ? prev : 0;
+        }
+        MEM32(eax + 0xC) = edi;
+        MEM32(eax + 8) = edi;
+        PUSH32(esp, eax);
+        PUSH32(esp, 0); fn_001293F0_3_YAXPAX_Z(); /* call 0x001293F0 */
+        esp = esp + 4;
+        eax = MEM32(list + 8);
+    }
 
-loc_000417DF:
-    edx = MEM32(eax + 8);
-    MEM32(ecx + 8) = edx;
-
-loc_000417E5:
-    ecx = MEM32(eax + 8);
-    if (CMP_EQ(ecx, edi)) goto loc_000417F2; /* je: equal / zero */
-
-loc_000417EC:
-    edx = MEM32(eax + 0xC);
-    MEM32(ecx + 0xC) = edx;
-
-loc_000417F2:
-    PUSH32(esp, eax);
-    MEM32(eax + 0xC) = edi;
-    MEM32(eax + 8) = edi;
-    PUSH32(esp, 0); fn_001293F0_3_YAXPAX_Z(); /* call 0x001293F0 */
-
-loc_000417FE:
-    eax = MEM32(esi + 8);
-    esp = esp + 4;
-    if (CMP_NE(eax, edi)) goto loc_000417D0; /* jne: not equal / not zero */
-
-loc_00041808:
-    MEM32(esi + 4) = edi;
-    MEM32(esi + 8) = edi;
+    MEM32(list + 4) = edi;
+    MEM32(list + 8) = edi;
     POP32(esp, edi);
     esp += 4; return; /* ret */
 

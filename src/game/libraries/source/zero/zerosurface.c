@@ -8,6 +8,11 @@
 #include "recomp_funcs.h"
 #include <math.h>
 
+static int zerosurface_va_is_valid(uint32_t va)
+{
+    return va >= 0x00010000u && va < 0x04000000u;
+}
+
 /**
  * fn_00054270_0SurfaceLoader_InternalSurface_QAE_XZ
  * Symbol: ??0SurfaceLoader@InternalSurface@@QAE@XZ
@@ -831,8 +836,11 @@ loc_0011CBBD:
 
 loc_0011CBC0:
     edx = MEM32(esp + 0xC);
+    if (!zerosurface_va_is_valid(edx)) goto loc_0011CC01;
     eax = SX16(LO16(ebx));
+    if (!zerosurface_va_is_valid(edx + eax * 4)) goto loc_0011CBFB;
     eax = MEM32(edx + eax * 4);
+    if (!zerosurface_va_is_valid(eax + 0x10)) goto loc_0011CBFB;
     if (CMP_NE(MEM32(eax + 0x10), esi)) goto loc_0011CBFB; /* jne: not equal / not zero */
 
 loc_0011CBCF:
@@ -846,6 +854,7 @@ loc_0011CBD5:
     /* nop */
 
 loc_0011CBE0:
+    if (!zerosurface_va_is_valid(ecx) || !zerosurface_va_is_valid(edi + ecx)) goto loc_0011CBEF;
     ebp = MEM32(ecx);
     if (CMP_NE(ebp, MEM32(edi + ecx))) goto loc_0011CBEF; /* jne: not equal / not zero */
 
@@ -966,8 +975,9 @@ loc_0011CCDD:
     /* nop */
 
 loc_0011CCF0:
+    if (!zerosurface_va_is_valid(eax)) goto loc_0011CCF9;
     edx = MEM32(eax);
-    if (TEST_Z(edx, edx)) goto loc_0011CCF9; /* je: equal / zero */
+    if (TEST_Z(edx, edx) || !zerosurface_va_is_valid(edx + 8)) goto loc_0011CCF9; /* je: equal / zero */
 
 loc_0011CCF6:
     MEM32(edx + 8) = MEM32(edx + 8) + 1;

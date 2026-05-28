@@ -7,6 +7,14 @@
 #define RECOMP_GENERATED_CODE
 #include "recomp_funcs.h"
 #include <math.h>
+#ifdef XBOXRECOMP_VULKAN_GRAPHICS
+#include <sys/statvfs.h>
+
+static int cdiskspacemanager_va_is_valid(uint32_t va)
+{
+    return va >= 0x00010000u && va < 0x04000000u;
+}
+#endif
 
 /**
  * fn_002B7390_CDiskSpaceManager_HasSpace
@@ -20,6 +28,35 @@ void fn_002B7390_CDiskSpaceManager_HasSpace(void)
     int _flags = 0; /* fallback flag var */
 
 loc_002B7390:
+#ifdef XBOXRECOMP_VULKAN_GRAPHICS
+    {
+        struct statvfs fs;
+        uint64_t free_bytes;
+        uint32_t free_blocks;
+        uint32_t missing_blocks = 0;
+
+        if (cdiskspacemanager_va_is_valid(esi)) {
+            MEM32(esi) = 0;
+        }
+        if (statvfs(".", &fs) == 0) {
+            free_bytes = (uint64_t)fs.f_bavail * (uint64_t)fs.f_frsize;
+            free_blocks = (uint32_t)(free_bytes >> 14);
+            if (free_blocks >= edi) {
+                SET_LO8(eax, 1);
+                esp += 4; return; /* ret */
+            }
+            missing_blocks = edi - free_blocks;
+            if (missing_blocks > 0xC350u) {
+                missing_blocks = 0xC350u;
+            }
+        }
+        if (cdiskspacemanager_va_is_valid(esi)) {
+            MEM32(esi) = missing_blocks;
+        }
+        SET_LO8(eax, 0);
+        esp += 4; return; /* ret */
+    }
+#endif
     esp = esp - 0x18;
     eax = esp + 8;
     PUSH32(esp, eax);

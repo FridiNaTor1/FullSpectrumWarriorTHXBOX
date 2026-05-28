@@ -7,6 +7,40 @@
 #define RECOMP_GENERATED_CODE
 #include "recomp_funcs.h"
 #include <math.h>
+#include <stdio.h>
+
+static int hudteamdatamanager_va_range_is_valid(uint32_t va, uint32_t size)
+{
+    if (size == 0) {
+        return va >= 0x00010000u && va < 0x04000000u;
+    }
+    if (va < 0x00010000u || va >= 0x04000000u || va + size < va) {
+        return 0;
+    }
+    return va + size <= 0x04000000u;
+}
+
+static void hudteamdatamanager_repair_head(uint32_t head, const char *where)
+{
+    uint32_t prev;
+    uint32_t next;
+
+    if (!hudteamdatamanager_va_range_is_valid(head, 0xC)) {
+        return;
+    }
+
+    prev = MEM32(head + 4);
+    next = MEM32(head + 8);
+    if (prev == 0 || next == 0 ||
+        !hudteamdatamanager_va_range_is_valid(prev, 0xC) ||
+        !hudteamdatamanager_va_range_is_valid(next, 0xC)) {
+        fprintf(stderr, "[FSW/HUD] repairing HUDTeamDataManager list head=%08X where=%s prev=%08X next=%08X\n",
+                head, where, prev, next);
+        MEM32(head) = 0;
+        MEM32(head + 4) = head;
+        MEM32(head + 8) = head;
+    }
+}
 
 /**
  * fn_0002C5D0_0HUDTeamData_QAE_XZ
@@ -137,6 +171,7 @@ loc_002CC600:
     (void)0; /* test eax, eax - flags set for next jcc */
     PUSH32(esp, ebp);
     ebp = MEM32(esp + 8);
+    hudteamdatamanager_repair_head(ebx, "RegisterTeam");
     if (TEST_NZ(eax, eax)) { sub_002CC61A(); return; } /* jne: not equal / not zero */
 
 loc_002CC60E:
@@ -256,6 +291,7 @@ loc_002CC6B0:
 void fn_002CC6C0_HUDTeamDataManager_Update(void)
 {
     uint32_t ebp;
+    uint32_t hudteam_update_steps = 0;
     int _flags = 0; /* fallback flag var */
     ebp = g_seh_ebp; /* fpo_leaf: inherit caller's frame */
 
@@ -263,6 +299,11 @@ loc_002CC6C0:
     PUSH32(esp, ebx);
     PUSH32(esp, ebp);
     ebp = MEM32(esp + 0xC);
+    if (!hudteamdatamanager_va_range_is_valid(ebp, 0xC)) {
+        fprintf(stderr, "[FSW/HUD] skipping HUDTeamDataManager_Update invalid manager=%08X\n", ebp);
+        goto loc_002CC707;
+    }
+    hudteamdatamanager_repair_head(ebp, "Update");
     ebx = MEM32(ebp + 8);
     if (CMP_EQ(ebx, ebp)) goto loc_002CC707; /* je: equal / zero */
 
@@ -272,6 +313,19 @@ loc_002CC6CD:
     /* nop */
 
 loc_002CC6D0:
+    if (++hudteam_update_steps > 1024 ||
+        !hudteamdatamanager_va_range_is_valid(ebx, 0xC) ||
+        !hudteamdatamanager_va_range_is_valid(MEM32(ebx), 0x74)) {
+        fprintf(stderr, "[FSW/HUD] stopping HUDTeamDataManager_Update list node=%08X data=%08X steps=%u\n",
+                ebx,
+                hudteamdatamanager_va_range_is_valid(ebx, 4) ? MEM32(ebx) : 0,
+                hudteam_update_steps);
+        if (hudteamdatamanager_va_range_is_valid(ebp, 0xC)) {
+            MEM32(ebp + 4) = ebp;
+            MEM32(ebp + 8) = ebp;
+        }
+        goto loc_002CC705;
+    }
     esi = MEM32(ebx);
     edi = MEM32(esi + 0x6C);
     PUSH32(esp, 0); fn_00355430_CAIManager_Get(); /* call 0x00355430 */

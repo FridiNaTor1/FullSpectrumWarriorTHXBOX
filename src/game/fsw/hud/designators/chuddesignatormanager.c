@@ -7,6 +7,18 @@
 #define RECOMP_GENERATED_CODE
 #include "recomp_funcs.h"
 #include <math.h>
+#include <stdio.h>
+
+static int chuddesignator_va_range_is_valid(uint32_t va, uint32_t size)
+{
+    if (size == 0) {
+        return va >= 0x00010000u && va < 0x04000000u;
+    }
+    if (va < 0x00010000u || va >= 0x04000000u || va + size < va) {
+        return 0;
+    }
+    return va + size <= 0x04000000u;
+}
 
 /**
  * fn_0002A1D0_0CHUDDesignatorAnim_QAE_XZ
@@ -238,6 +250,10 @@ void fn_0002A380_4CHUDDesignatorAnim_QAEAAV0_ABV0_Z(void)
 {
 
 loc_0002A380:
+    if (!chuddesignator_va_range_is_valid(eax, 0x40) || !chuddesignator_va_range_is_valid(ecx, 0x40)) {
+        fprintf(stderr, "[FSW/HUD] skipping CHUDDesignatorAnim copy dst=%08X src=%08X\n", eax, ecx);
+        esp += 4; return; /* ret */
+    }
     edx = MEM32(ecx);
     MEM32(eax) = edx;
     edx = MEM32(ecx + 4);
@@ -1429,12 +1445,23 @@ loc_002EB7F5:
 void fn_002EB800_CHUDDesignatorManager_Update(void)
 {
     uint32_t ebp;
+    uint32_t designator_count;
     int _flags = 0; /* fallback flag var */
     ebp = g_seh_ebp; /* fpo_leaf: inherit caller's frame */
 
 loc_002EB800:
     PUSH32(esp, ebp);
     ebp = MEM32(esp + 8);
+    if (!chuddesignator_va_range_is_valid(ebp, 0x149C)) {
+        fprintf(stderr, "[FSW/HUD] skipping invalid CHUDDesignatorManager_Update manager=%08X\n", ebp);
+        goto loc_002EB8DF;
+    }
+    designator_count = MEM32(ebp + 0x1498);
+    if (designator_count > 65) {
+        fprintf(stderr, "[FSW/HUD] clearing invalid CHUDDesignatorManager count manager=%08X count=%08X\n",
+                ebp, designator_count);
+        MEM32(ebp + 0x1498) = 0;
+    }
     eax = MEM32(ebp + 0x1498);
     (void)0; /* test eax, eax - flags set for next jcc */
     MEM32(esp + 8) = 0;
@@ -1505,6 +1532,11 @@ loc_002EB87A:
     ecx = ebx;
     eax = edi;
     esi = esi - 0x50;
+    if (!chuddesignator_va_range_is_valid(edi, 0x50) || !chuddesignator_va_range_is_valid(ebx, 0x50)) {
+        fprintf(stderr, "[FSW/HUD] skipping CHUDDesignatorManager anim compact dst=%08X src=%08X manager=%08X count=%08X\n",
+                edi, ebx, ebp, MEM32(ebp + 0x1498));
+        goto loc_002EB8C2;
+    }
     PUSH32(esp, 0); fn_0002A380_4CHUDDesignatorAnim_QAEAAV0_ABV0_Z(); /* call 0x0002A380 */
 
 loc_002EB8AA:

@@ -7,6 +7,7 @@
 #define RECOMP_GENERATED_CODE
 #include "recomp_funcs.h"
 #include <math.h>
+#include <stdio.h>
 
 /**
  * fn_001D4010_Update_Light_Model
@@ -1079,6 +1080,8 @@ void fn_001D48A0_Load_Sky(void)
     ebp = g_seh_ebp; /* fpo_leaf: inherit caller's frame */
 
 loc_001D48A0:
+    fprintf(stderr, "[FSW/SkyHorizon] Load_Sky begin path=%08X esp=%08X eax=%08X\n",
+            (unsigned)eax, (unsigned)esp, (unsigned)eax);
     PUSH32(esp, esi);
     PUSH32(esp, edi);
     PUSH32(esp, 0);
@@ -1097,25 +1100,36 @@ loc_001D48B5:
 
 loc_001D48C6:
     esp = esp + 0x20;
+    fprintf(stderr, "[FSW/SkyHorizon] Load_Sky after path setup skyfile=%s esp=%08X\n",
+            (const char *)XBOX_PTR(0x5F30E8), (unsigned)esp);
     PUSH32(esp, 0); fn_001D6EB0_CSkyDomeEnvironment_Get(); /* call 0x001D6EB0 */
 
 loc_001D48CE:
     edi = eax;
+    fprintf(stderr, "[FSW/SkyHorizon] Load_Sky before patch scatter sky=%08X esp=%08X\n",
+            (unsigned)edi, (unsigned)esp);
     PUSH32(esp, 0); fn_001D6700_CSkyDomeEnvironment_patchScatterObjects(); /* call 0x001D6700 */
 
 loc_001D48D5:
+    fprintf(stderr, "[FSW/SkyHorizon] Load_Sky before ProcessConfig path=%08X callback=%08X esp=%08X\n",
+            (unsigned)esi, (unsigned)0x1D4450, (unsigned)esp);
     PUSH32(esp, esi);
     esi = 0x1D4450;
     PUSH32(esp, 0); fn_003C4DC0_ProcessConfig(); /* call 0x003C4DC0 */
 
 loc_001D48E0:
+    fprintf(stderr, "[FSW/SkyHorizon] Load_Sky after ProcessConfig esp=%08X eax=%08X\n",
+            (unsigned)esp, (unsigned)eax);
     esp = esp + 4;
+    fprintf(stderr, "[FSW/SkyHorizon] Load_Sky before SkyFlat_Build esp=%08X\n", (unsigned)esp);
     PUSH32(esp, 0); fn_001D4F80_SkyFlat_Build(); /* call 0x001D4F80 */
 
 loc_001D48E8:
+    fprintf(stderr, "[FSW/SkyHorizon] Load_Sky before SkyDome_Build esp=%08X\n", (unsigned)esp);
     PUSH32(esp, 0); fn_001D7980_SkyDome_Build(); /* call 0x001D7980 */
 
 loc_001D48ED:
+    fprintf(stderr, "[FSW/SkyHorizon] Load_Sky before SkyPlanet_Build esp=%08X\n", (unsigned)esp);
     POP32(esp, edi);
     POP32(esp, esi);
     g_seh_ebp = ebp; fn_001D2FE0_SkyPlanet_Build(); return; /* tail jmp 0x001D2FE0 */

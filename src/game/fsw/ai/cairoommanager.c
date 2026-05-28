@@ -7,6 +7,18 @@
 #define RECOMP_GENERATED_CODE
 #include "recomp_funcs.h"
 #include <math.h>
+#include <stdio.h>
+
+static int cairoom_va_range_is_valid(uint32_t va, uint32_t size)
+{
+    if (size == 0) {
+        return va >= 0x00010000u && va < 0x04000000u;
+    }
+    if (va < 0x00010000u || va >= 0x04000000u || va + size < va) {
+        return 0;
+    }
+    return va + size <= 0x04000000u;
+}
 
 /**
  * fn_00017970_1CAIRoomPosition_QAE_XZ
@@ -3123,9 +3135,51 @@ loc_003526E0:
     PUSH32(esp, 0); fn_00316890_CAICellmap_Get(); /* call 0x00316890 */
 
 loc_00352701:
+    if (!cairoom_va_range_is_valid(eax, 4) ||
+        !cairoom_va_range_is_valid(MEM32(eax), 0xC)) {
+        fprintf(stderr, "[FSW/AI] skipping AIRoomManager setup invalid cellmap singleton=%08X cellmap=%08X\n",
+                (unsigned)eax,
+                (unsigned)(cairoom_va_range_is_valid(eax, 4) ? MEM32(eax) : 0));
+        ecx = MEM32(esp + 0x54);
+        POP32(esp, edi);
+        POP32(esp, esi);
+        POP32(esp, ebp);
+        POP32(esp, ebx);
+        MEM32(0) = ecx;
+        esp = esp + 0x50;
+        esp += 8; return; /* ret 4 */
+    }
     eax = MEM32(eax);
     ebx = MEM32(eax + 8);
+    if (!cairoom_va_range_is_valid(ebx, 8)) {
+        fprintf(stderr, "[FSW/AI] skipping AIRoomManager setup invalid cell node=%08X cellmap=%08X\n",
+                (unsigned)ebx,
+                (unsigned)eax);
+        ecx = MEM32(esp + 0x54);
+        POP32(esp, edi);
+        POP32(esp, esi);
+        POP32(esp, ebp);
+        POP32(esp, ebx);
+        MEM32(0) = ecx;
+        esp = esp + 0x50;
+        esp += 8; return; /* ret 4 */
+    }
     ecx = MEM32(ebx);
+    if (!cairoom_va_range_is_valid(ecx, 4) ||
+        !cairoom_va_range_is_valid(MEM32(ecx), 0x98)) {
+        fprintf(stderr, "[FSW/AI] skipping AIRoomManager setup invalid first cell=%08X node=%08X vtbl=%08X\n",
+                (unsigned)ecx,
+                (unsigned)ebx,
+                (unsigned)(cairoom_va_range_is_valid(ecx, 4) ? MEM32(ecx) : 0));
+        ecx = MEM32(esp + 0x54);
+        POP32(esp, edi);
+        POP32(esp, esi);
+        POP32(esp, ebp);
+        POP32(esp, ebx);
+        MEM32(0) = ecx;
+        esp = esp + 0x50;
+        esp += 8; return; /* ret 4 */
+    }
     eax = MEM32(ecx);
     MEM32(esp + 0x10) = ebx;
     { uint32_t _icall_esp = g_esp;
@@ -3168,7 +3222,20 @@ void sub_00352720(void)
     ebp = g_seh_ebp; /* fpo_leaf: inherit caller's frame */
 
 loc_00352720:
+    if (!cairoom_va_range_is_valid(ebx, 8)) {
+        fprintf(stderr, "[FSW/AI] stopping AIRoomManager cell walk invalid node=%08X\n",
+                (unsigned)ebx);
+        goto loc_003527B9;
+    }
     edi = MEM32(ebx);
+    if (!cairoom_va_range_is_valid(edi, 4) ||
+        !cairoom_va_range_is_valid(MEM32(edi), 0x98)) {
+        fprintf(stderr, "[FSW/AI] skipping AIRoomManager invalid cell=%08X node=%08X vtbl=%08X\n",
+                (unsigned)edi,
+                (unsigned)ebx,
+                (unsigned)(cairoom_va_range_is_valid(edi, 4) ? MEM32(edi) : 0));
+        goto loc_003527AA;
+    }
     edx = MEM32(edi);
     ecx = edi;
     { uint32_t _icall_esp = g_esp;
@@ -3226,6 +3293,11 @@ loc_003527A6:
     ebx = MEM32(esp + 0x10);
 
 loc_003527AA:
+    if (!cairoom_va_range_is_valid(ebx, 8)) {
+        fprintf(stderr, "[FSW/AI] stopping AIRoomManager next invalid node=%08X\n",
+                (unsigned)ebx);
+        goto loc_003527B9;
+    }
     ebx = MEM32(ebx + 4);
     (void)0; /* cmp ebx, esi - flags set for next jcc */
     MEM32(esp + 0x10) = ebx;
@@ -3233,10 +3305,20 @@ loc_003527AA:
 
 loc_003527B9:
     eax = MEM32(esp + 0x64);
+    if (!cairoom_va_range_is_valid(eax, 0xC)) {
+        fprintf(stderr, "[FSW/AI] skipping AIRoomManager room setup invalid room list=%08X\n",
+                (unsigned)eax);
+        goto loc_003527D1;
+    }
     edi = MEM32(eax + 8);
     if (CMP_EQ(edi, esi)) goto loc_003527D1; /* je: equal / zero */
 
 loc_003527C4:
+    if (!cairoom_va_range_is_valid(edi, 0x40)) {
+        fprintf(stderr, "[FSW/AI] stopping AIRoomManager room setup invalid room=%08X\n",
+                (unsigned)edi);
+        goto loc_003527D1;
+    }
     PUSH32(esp, edi);
     PUSH32(esp, 0); fn_003517B0_CAIRoom_Setup(); /* call 0x003517B0 */
 

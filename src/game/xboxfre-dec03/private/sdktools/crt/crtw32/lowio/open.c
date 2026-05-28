@@ -70,16 +70,16 @@ loc_0009E4BA:
 
 loc_0009E4C1:
     eax = MEM32(ebp + 0x10);
-    if (CMP_EQ(eax, 0x10)) { sub_0009E507(); return; } /* je: equal / zero */
+    if (CMP_EQ(eax, 0x10)) { g_seh_ebp = ebp; sub_0009E507(); return; } /* je: equal / zero */
 
 loc_0009E4C9:
-    if (CMP_EQ(eax, 0x20)) { sub_0009E4FE(); return; } /* je: equal / zero */
+    if (CMP_EQ(eax, 0x20)) { g_seh_ebp = ebp; sub_0009E4FE(); return; } /* je: equal / zero */
 
 loc_0009E4CE:
-    if (CMP_EQ(eax, 0x30)) { sub_0009E4F5(); return; } /* je: equal / zero */
+    if (CMP_EQ(eax, 0x30)) { g_seh_ebp = ebp; sub_0009E4F5(); return; } /* je: equal / zero */
 
 loc_0009E4D3:
-    if (CMP_EQ(eax, 0x40)) { sub_0009E4F0(); return; } /* je: equal / zero */
+    if (CMP_EQ(eax, 0x40)) { g_seh_ebp = ebp; sub_0009E4F0(); return; } /* je: equal / zero */
 
 loc_0009E4D8:
     MEM32(0x5D5888) = 0x16;
@@ -407,10 +407,30 @@ loc_0009E61C:
 
 }
 
-/* Fallback for unresolved generated target 0x0009E620. */
+/**
+ * sub_0009E620
+ * Original: 0x0009E620 - 0x0009E693
+ * Successful _sopen path. The generator missed this block, but the CRT
+ * needs it to attach the Win32 handle returned by CreateFileA to the
+ * allocated lowio descriptor.
+ */
 void sub_0009E620(void)
 {
-    recomp_missing_target(0x0009E620u);
+    uint32_t ebp;
+    uint32_t table;
+    uint32_t record;
+    uint32_t fd;
+    ebp = g_seh_ebp;
+
+loc_0009E620:
+    fd = ebx;
+    table = MEM32((fd >> 5) * 4 + 0x6AEEA0);
+    record = table + (fd & 0x1F) * 8;
+    MEM32(record) = eax;
+    MEM8(record + 4) = MEM8(ebp + -1) | 1;
+    MEM8(record + 5) = 0x0A;
+    eax = fd;
+    g_seh_ebp = ebp; sub_0009E693(); return; /* fallthrough to epilogue */
 }
 
 /**
@@ -421,10 +441,13 @@ void sub_0009E620(void)
  */
 void sub_0009E693(void)
 {
+    uint32_t ebp;
+    ebp = g_seh_ebp;
 
 loc_0009E693:
     POP32(esp, esi);
     POP32(esp, ebx);
+    g_seh_ebp = ebp; sub_0009E695(); return; /* fallthrough */
 
 }
 

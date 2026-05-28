@@ -7,6 +7,42 @@
 #define RECOMP_GENERATED_CODE
 #include "recomp_funcs.h"
 #include <math.h>
+#include <string.h>
+
+extern uint32_t xbox_HeapAlloc(uint32_t size, uint32_t alignment);
+
+static int cscreenbloom_va_range_is_valid(uint32_t va, uint32_t size)
+{
+    if (va <= 0x00010000u || va >= 0x04000000u) {
+        return 0;
+    }
+    if (size > 0x04000000u || va > 0x04000000u - size) {
+        return 0;
+    }
+    return 1;
+}
+
+static uint32_t cscreenbloom_ensure_xbox_lock_buffer(uint32_t va, uint32_t stride)
+{
+    uint32_t min_size = stride * 4u + 0x10u;
+    if (stride == 0 || stride > 0x400u) {
+        min_size = 0x1000u;
+    }
+    if (cscreenbloom_va_range_is_valid(va, min_size)) {
+        return va;
+    }
+    uint32_t data = xbox_HeapAlloc(min_size < 0x1000u ? 0x1000u : min_size, 16);
+    if (cscreenbloom_va_range_is_valid(data, min_size)) {
+        memset((void *)XBOX_PTR(data), 0, min_size);
+        return data;
+    }
+    return 0;
+}
+
+static uint32_t cscreenbloom_sanitize_stride(uint32_t stride)
+{
+    return (stride != 0 && stride <= 0x400u) ? stride : 0x10u;
+}
 
 /**
  * fn_0004F420_GCScreenBloom_UAEPAXI_Z
@@ -746,7 +782,10 @@ loc_00169684:
     }
 
 loc_00169693:
+    MEM32(esp + 0x1C) = cscreenbloom_sanitize_stride(MEM32(esp + 0x1C));
     eax = MEM32(esp + 0x18);
+    eax = cscreenbloom_ensure_xbox_lock_buffer(eax, MEM32(esp + 0x1C));
+    MEM32(esp + 0x18) = eax;
     xmm0 = 0.0f; /* xorps self = zero */
     MEMF(eax) = xmm0; /* movss */
     ecx = MEM32(esp + 0x18);
@@ -791,6 +830,8 @@ loc_00169693:
     MEMF(eax + 0xC) = xmm1; /* movss */
     ecx = MEM32(esp + 0x1C);
     eax = MEM32(esp + 0x18);
+    MEM32(esp + 0x64) = cscreenbloom_sanitize_stride(MEM32(esp + 0x64));
+    MEM32(esp + 0x60) = cscreenbloom_ensure_xbox_lock_buffer(MEM32(esp + 0x60), MEM32(esp + 0x64));
     edx = MEM32(esp + 0x60);
     xmm1 = MEMF(esp + 0xF4); /* movss */
     eax = eax + ecx;
@@ -820,6 +861,14 @@ loc_00169693:
     ecx = MEM32(esp + 0x64);
     MEM32(esp + 0x60) = MEM32(esp + 0x60) + ecx;
     eax = MEM32(esi + 8);
+    if (!cscreenbloom_va_range_is_valid(eax, 0x2C) ||
+        !cscreenbloom_va_range_is_valid(MEM32(eax + 0x28), 4)) {
+        fprintf(stderr,
+                "[FSW/Bloom] skipping descriptor unlock slot=0 descriptor=%08X surface=%08X\n",
+                (unsigned)eax,
+                (unsigned)(cscreenbloom_va_range_is_valid(eax, 0x2C) ? MEM32(eax + 0x28) : 0));
+        goto loc_001697E3;
+    }
     ecx = MEM32(eax + 0x28);
     edx = MEM32(ecx);
     { uint32_t _icall_esp = g_esp;
@@ -891,7 +940,10 @@ loc_00169876:
     }
 
 loc_00169885:
+    MEM32(esp + 0x1C) = cscreenbloom_sanitize_stride(MEM32(esp + 0x1C));
     eax = MEM32(esp + 0x18);
+    eax = cscreenbloom_ensure_xbox_lock_buffer(eax, MEM32(esp + 0x1C));
+    MEM32(esp + 0x18) = eax;
     xmm0 = 0.0f; /* xorps self = zero */
     MEMF(eax) = xmm0; /* movss */
     ecx = MEM32(esp + 0x18);
@@ -936,6 +988,8 @@ loc_00169885:
     MEMF(eax + 0xC) = xmm1; /* movss */
     ecx = MEM32(esp + 0x1C);
     eax = MEM32(esp + 0x18);
+    MEM32(esp + 0x64) = cscreenbloom_sanitize_stride(MEM32(esp + 0x64));
+    MEM32(esp + 0x60) = cscreenbloom_ensure_xbox_lock_buffer(MEM32(esp + 0x60), MEM32(esp + 0x64));
     edx = MEM32(esp + 0x60);
     eax = eax + ecx;
     MEM32(esp + 0x18) = eax;
@@ -962,6 +1016,8 @@ loc_00169885:
     MEMF(eax + 4) = xmm1; /* movss */
     ecx = MEM32(esp + 0x64);
     eax = MEM32(esp + 0x60);
+    MEM32(esp + 0x70) = cscreenbloom_sanitize_stride(MEM32(esp + 0x70));
+    MEM32(esp + 0x6C) = cscreenbloom_ensure_xbox_lock_buffer(MEM32(esp + 0x6C), MEM32(esp + 0x70));
     edx = MEM32(esp + 0x6C);
     eax = eax + ecx;
     MEM32(esp + 0x60) = eax;
@@ -988,6 +1044,8 @@ loc_00169885:
     MEMF(eax + 4) = xmm1; /* movss */
     ecx = MEM32(esp + 0x70);
     eax = MEM32(esp + 0x6C);
+    MEM32(esp + 0x7C) = cscreenbloom_sanitize_stride(MEM32(esp + 0x7C));
+    MEM32(esp + 0x78) = cscreenbloom_ensure_xbox_lock_buffer(MEM32(esp + 0x78), MEM32(esp + 0x7C));
     edx = MEM32(esp + 0x78);
     eax = eax + ecx;
     MEM32(esp + 0x6C) = eax;
@@ -1014,6 +1072,8 @@ loc_00169885:
     MEMF(eax + 4) = xmm1; /* movss */
     ecx = MEM32(esp + 0x7C);
     eax = MEM32(esp + 0x78);
+    MEM32(esp + 0x88) = cscreenbloom_sanitize_stride(MEM32(esp + 0x88));
+    MEM32(esp + 0x84) = cscreenbloom_ensure_xbox_lock_buffer(MEM32(esp + 0x84), MEM32(esp + 0x88));
     edx = MEM32(esp + 0x84);
     eax = eax + ecx;
     MEM32(esp + 0x78) = eax;
@@ -1041,6 +1101,14 @@ loc_00169885:
     ecx = MEM32(esp + 0x88);
     MEM32(esp + 0x84) = MEM32(esp + 0x84) + ecx;
     eax = MEM32(esi + 0x14);
+    if (!cscreenbloom_va_range_is_valid(eax, 0x2C) ||
+        !cscreenbloom_va_range_is_valid(MEM32(eax + 0x28), 4)) {
+        fprintf(stderr,
+                "[FSW/Bloom] skipping descriptor unlock slot=1 descriptor=%08X surface=%08X\n",
+                (unsigned)eax,
+                (unsigned)(cscreenbloom_va_range_is_valid(eax, 0x2C) ? MEM32(eax + 0x28) : 0));
+        goto loc_00169B31;
+    }
     ecx = MEM32(eax + 0x28);
     edx = MEM32(ecx);
     { uint32_t _icall_esp = g_esp;
@@ -1112,7 +1180,10 @@ loc_00169BC4:
     }
 
 loc_00169BD3:
+    MEM32(esp + 0x1C) = cscreenbloom_sanitize_stride(MEM32(esp + 0x1C));
     eax = MEM32(esp + 0x18);
+    eax = cscreenbloom_ensure_xbox_lock_buffer(eax, MEM32(esp + 0x1C));
+    MEM32(esp + 0x18) = eax;
     xmm0 = 0.0f; /* xorps self = zero */
     MEMF(eax) = xmm0; /* movss */
     ecx = MEM32(esp + 0x18);
@@ -1157,6 +1228,8 @@ loc_00169BD3:
     MEMF(eax + 0xC) = xmm1; /* movss */
     ecx = MEM32(esp + 0x1C);
     MEM32(esp + 0x18) = MEM32(esp + 0x18) + ecx;
+    MEM32(esp + 0x64) = cscreenbloom_sanitize_stride(MEM32(esp + 0x64));
+    MEM32(esp + 0x60) = cscreenbloom_ensure_xbox_lock_buffer(MEM32(esp + 0x60), MEM32(esp + 0x64));
     edx = MEM32(esp + 0x60);
     MEMF(edx) = xmm0; /* movss */
     eax = MEM32(esp + 0x60);

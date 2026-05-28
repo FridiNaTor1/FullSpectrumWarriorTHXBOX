@@ -570,8 +570,12 @@ uint32_t xbox_HeapAlloc(uint32_t size, uint32_t alignment)
     result = (g_heap_next + alignment - 1) & ~(alignment - 1);
 
     if (result + size > XBOX_HEAP_BASE + XBOX_HEAP_SIZE) {
-        fprintf(stderr, "xbox_HeapAlloc: out of memory (requested %u, used %u/%u)\n",
-                size, g_heap_next - XBOX_HEAP_BASE, XBOX_HEAP_SIZE);
+        uint32_t guest_ret = 0;
+        if (g_memory_base && g_esp <= XBOX_TOTAL_RAM - 4) {
+            guest_ret = *(volatile uint32_t *)((uintptr_t)g_esp + g_memory_offset);
+        }
+        fprintf(stderr, "xbox_HeapAlloc: out of memory (requested %u, used %u/%u, esp=0x%08X ret=0x%08X)\n",
+                size, g_heap_next - XBOX_HEAP_BASE, XBOX_HEAP_SIZE, g_esp, guest_ret);
         return 0;
     }
 

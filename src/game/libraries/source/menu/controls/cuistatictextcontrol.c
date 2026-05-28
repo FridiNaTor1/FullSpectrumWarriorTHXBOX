@@ -6,7 +6,318 @@
 
 #define RECOMP_GENERATED_CODE
 #include "recomp_funcs.h"
+#ifdef XBOXRECOMP_VULKAN_GRAPHICS
+#include "d3d8_vulkan_host.h"
+#include "d3d8_swizzle.h"
+#endif
 #include <math.h>
+#include <stdio.h>
+#include <stdlib.h>
+
+static uint32_t fsw_static_text_log_count;
+static uint32_t fsw_static_text_draw_log_count;
+static uint32_t fsw_static_text_load_log_count;
+extern uint32_t g_fsw_cuifont_current_control;
+extern uint32_t g_fsw_cuifont_current_matrix;
+
+static int fsw_static_text_va_is_valid(uint32_t va)
+{
+    return va >= 0x00010000u && va < 0x04000000u;
+}
+
+static void fsw_static_text_copy_ascii(uint32_t va, char *out, uint32_t out_size)
+{
+    uint32_t i;
+
+    if (out_size == 0) {
+        return;
+    }
+    out[0] = 0;
+    if (!fsw_static_text_va_is_valid(va)) {
+        return;
+    }
+    for (i = 0; i + 1 < out_size; i++) {
+        uint8_t ch = MEM8(va + i);
+        if (ch == 0) {
+            break;
+        }
+        out[i] = (ch >= 0x20 && ch < 0x7F) ? (char)ch : '.';
+    }
+    out[i] = 0;
+}
+
+static int fsw_static_text_read_memfile(uint32_t file, void *dst, uint32_t size)
+{
+    uint32_t stream;
+    uint32_t start;
+    uint32_t length;
+    uint32_t pos;
+    uint32_t available;
+
+    if (!fsw_static_text_va_is_valid(file + 0x24)) {
+        return 0;
+    }
+    stream = MEM32(file + 0x24);
+    if (!fsw_static_text_va_is_valid(stream + 0xC)) {
+        return 0;
+    }
+    start = MEM32(stream + 4);
+    length = MEM32(stream + 8);
+    pos = MEM32(stream + 0xC);
+    if (!fsw_static_text_va_is_valid(start) || pos < start || (pos - start) > length) {
+        return 0;
+    }
+    available = length - (pos - start);
+    if (size > available) {
+        size = available;
+    }
+    if (size != 0) {
+        memcpy(dst, (const void *)XBOX_PTR(pos), size);
+        MEM32(stream + 0xC) = pos + size;
+    }
+    return 1;
+}
+
+static uint32_t fsw_static_text_read_u32(uint32_t file)
+{
+    uint32_t value = 0;
+    fsw_static_text_read_memfile(file, &value, sizeof(value));
+    return value;
+}
+
+static uint8_t fsw_static_text_read_u8(uint32_t file)
+{
+    uint8_t value = 0;
+    fsw_static_text_read_memfile(file, &value, sizeof(value));
+    return value;
+}
+
+#ifdef XBOXRECOMP_VULKAN_GRAPHICS
+typedef struct FswFontAtlasCache {
+    uint32_t font;
+    uint32_t width;
+    uint32_t height;
+    uint32_t *bgra;
+} FswFontAtlasCache;
+
+static FswFontAtlasCache g_fsw_font_atlases[16];
+
+static uint32_t fsw_statictext_decode_p8(uint8_t index)
+{
+    uint8_t alpha = (uint8_t)(((index >> 2) & 3) * 85);
+    return ((uint32_t)alpha << 24) | 0x00FFFFFFu;
+}
+
+static uint32_t fsw_statictext_find_glyph(uint32_t font, uint16_t ch)
+{
+    uint32_t count;
+    uint32_t table;
+
+    if (!fsw_static_text_va_is_valid(font + 0x24)) {
+        return 0;
+    }
+    count = MEM32(font + 4);
+    table = MEM32(font + 0x20);
+    if (count == 0 || count > 4096 || !fsw_static_text_va_is_valid(table)) {
+        return 0;
+    }
+    for (uint32_t i = 0; i < count; i++) {
+        uint32_t glyph = table + i * 5;
+        if (!fsw_static_text_va_is_valid(glyph + 4)) {
+            break;
+        }
+        if (MEM16(glyph) == ch) {
+            return glyph;
+        }
+    }
+    return table;
+}
+
+static const uint32_t *fsw_statictext_decode_font_atlas(uint32_t font, uint32_t *out_w, uint32_t *out_h)
+{
+    uint32_t width;
+    uint32_t height;
+    uint32_t pixels;
+
+    if (!fsw_static_text_va_is_valid(font + 0x30)) {
+        return NULL;
+    }
+    width = MEM32(font + 0x18);
+    height = MEM32(font + 0x1C);
+    pixels = MEM32(font + 0x28);
+    if (width == 0 || height == 0 || width > 2048 || height > 2048 || !fsw_static_text_va_is_valid(pixels)) {
+        return NULL;
+    }
+    for (uint32_t i = 0; i < (uint32_t)(sizeof(g_fsw_font_atlases) / sizeof(g_fsw_font_atlases[0])); i++) {
+        if (g_fsw_font_atlases[i].font == font && g_fsw_font_atlases[i].bgra) {
+            *out_w = g_fsw_font_atlases[i].width;
+            *out_h = g_fsw_font_atlases[i].height;
+            return g_fsw_font_atlases[i].bgra;
+        }
+    }
+    for (uint32_t i = 0; i < (uint32_t)(sizeof(g_fsw_font_atlases) / sizeof(g_fsw_font_atlases[0])); i++) {
+        if (!g_fsw_font_atlases[i].bgra) {
+            uint32_t *bgra = (uint32_t *)calloc((size_t)width * height, sizeof(uint32_t));
+            uint8_t *linear = (uint8_t *)malloc((size_t)width * height);
+            if (!bgra) {
+                return NULL;
+            }
+            if (!linear) {
+                free(bgra);
+                return NULL;
+            }
+            xbox_unswizzle_rect(linear, (const void *)XBOX_PTR(pixels), width, height, 1);
+            for (uint32_t p = 0; p < width * height; p++) {
+                bgra[p] = fsw_statictext_decode_p8(linear[p]);
+            }
+            free(linear);
+            g_fsw_font_atlases[i].font = font;
+            g_fsw_font_atlases[i].width = width;
+            g_fsw_font_atlases[i].height = height;
+            g_fsw_font_atlases[i].bgra = bgra;
+            *out_w = width;
+            *out_h = height;
+            fprintf(stderr, "[FSW/Text] decoded font atlas font=%08X %ux%u pixels=%08X\n", font, width, height, pixels);
+            return bgra;
+        }
+    }
+    return NULL;
+}
+
+static int fsw_statictext_draw_real_font(uint32_t control, uint32_t text, uint32_t font, uint32_t matrix)
+{
+    uint32_t atlas_w = 0;
+    uint32_t atlas_h = 0;
+    const uint32_t *atlas = fsw_statictext_decode_font_atlas(font, &atlas_w, &atlas_h);
+    float x;
+    float y;
+    float pen_x;
+    float char_h;
+    uint32_t color;
+    float a;
+    float r;
+    float g;
+    float b;
+
+    if (!atlas || !fsw_static_text_va_is_valid(text) || !fsw_static_text_va_is_valid(matrix + 0x40)) {
+        return 0;
+    }
+
+    x = MEMF(matrix + 0x30);
+    y = MEMF(matrix + 0x34);
+    if (fabsf(x) < 0.001f && fabsf(y) < 0.001f && fsw_static_text_va_is_valid(control + 0x44)) {
+        x = MEMF(control + 0x40);
+        y = MEMF(control + 0x44);
+    }
+    if (x < -640.0f || x > 1280.0f || y < -480.0f || y > 960.0f) {
+        return 0;
+    }
+    if (x >= -320.0f && x <= 320.0f && y >= -240.0f && y <= 240.0f) {
+        x += 320.0f;
+        y += 240.0f;
+    }
+    pen_x = x;
+    char_h = (float)MEM32(font + 8);
+    if (char_h <= 0.0f || char_h > 128.0f) {
+        char_h = 16.0f;
+    }
+
+    color = MEM32(control + 0x90);
+    a = (float)((color >> 24) & 0xFF) / 255.0f;
+    r = (float)((color >> 16) & 0xFF) / 255.0f;
+    g = (float)((color >> 8) & 0xFF) / 255.0f;
+    b = (float)(color & 0xFF) / 255.0f;
+    if (a <= 0.0f) {
+        a = 1.0f;
+    }
+    if ((color & 0x00FFFFFFu) == 0) {
+        r = g = b = 1.0f;
+    }
+    if (fsw_static_text_draw_log_count < 48) {
+        fprintf(stderr, "[FSW/Text] native draw control=%08X text=%08X font=%08X pos=%.2f,%.2f color=%08X char_h=%.2f atlas=%ux%u glyphs=%u table=%08X\n",
+                control, text, font, x, y, color, char_h, atlas_w, atlas_h,
+                fsw_static_text_va_is_valid(font + 4) ? MEM32(font + 4) : 0,
+                fsw_static_text_va_is_valid(font + 0x20) ? MEM32(font + 0x20) : 0);
+        fsw_static_text_draw_log_count++;
+    }
+
+    for (uint32_t i = 0; i < 256; i++) {
+        uint16_t ch = MEM16(text + i * 2);
+        uint32_t glyph;
+        uint32_t packed;
+        uint32_t glyph_x;
+        uint32_t glyph_row;
+        uint32_t glyph_w;
+        uint32_t cell_h;
+        uint32_t row_count;
+        uint32_t row_h;
+        uint32_t y0_px;
+        uint32_t y1_px;
+        float u0, v0, u1, v1;
+
+        if (ch == 0) {
+            break;
+        }
+        if (ch == '\n') {
+            pen_x = x;
+            y += char_h;
+            continue;
+        }
+        glyph = fsw_statictext_find_glyph(font, ch);
+        if (!glyph) {
+            continue;
+        }
+        packed = MEM16(glyph + 2);
+        glyph_x = packed >> 6;
+        glyph_row = packed & 0x3F;
+        glyph_w = (uint32_t)MEM8(glyph + 4) >> 2;
+        if (glyph_w == 0 || glyph_w > 256) {
+            glyph_w = (uint32_t)(char_h * 0.5f);
+        }
+        cell_h = MEM32(font + 0x0C);
+        row_count = MEM32(font + 0x10);
+        row_h = MEM32(font + 0x14);
+        if (row_count == 0 || row_count > 128) {
+            row_count = 1;
+        }
+        if (row_h == 0 || row_h > 256) {
+            row_h = (uint32_t)char_h;
+        }
+        if (cell_h == 0 || cell_h > 256) {
+            cell_h = row_h;
+        }
+        y0_px = glyph_row * cell_h;
+        y1_px = y0_px + row_h;
+        if (y0_px + row_h > atlas_h && y0_px < atlas_h) {
+            y1_px = atlas_h;
+        }
+        if (glyph_x >= atlas_w || y0_px >= atlas_h) {
+            pen_x += (float)glyph_w;
+            continue;
+        }
+        if (glyph_x + glyph_w > atlas_w) {
+            glyph_w = atlas_w - glyph_x;
+        }
+
+        u0 = (float)glyph_x / (float)atlas_w;
+        u1 = (float)(glyph_x + glyph_w) / (float)atlas_w;
+        v0 = (float)y0_px / (float)atlas_h;
+        v1 = (float)y1_px / (float)atlas_h;
+        D3D8VulkanRhwVertex rect[6] = {
+            { pen_x,                 y,          0.03f, 1.0f, r, g, b, a, u0, v0 },
+            { pen_x + (float)glyph_w, y,          0.03f, 1.0f, r, g, b, a, u1, v0 },
+            { pen_x + (float)glyph_w, y + char_h, 0.03f, 1.0f, r, g, b, a, u1, v1 },
+            { pen_x,                 y,          0.03f, 1.0f, r, g, b, a, u0, v0 },
+            { pen_x + (float)glyph_w, y + char_h, 0.03f, 1.0f, r, g, b, a, u1, v1 },
+            { pen_x,                 y + char_h, 0.03f, 1.0f, r, g, b, a, u0, v1 },
+        };
+        d3d8_vulkan_host_draw_rhw(rect, 6, atlas, atlas_w, atlas_h, 0, 0);
+        pen_x += (float)glyph_w;
+    }
+
+    return 1;
+}
+#endif
 
 /**
  * fn_0012BE90_CUIStaticTextControl_UpdateFlags
@@ -841,6 +1152,13 @@ loc_0012C335:
 
 loc_0012C340:
     MEM32(edi + 0x100) = eax;
+    if (fsw_static_text_load_log_count < 160) {
+        char key[128];
+        fsw_static_text_copy_ascii(esp + 0xC, key, sizeof(key));
+        fprintf(stderr, "[FSW/Text] load control=%08X key=\"%s\" key_crc=%08X raw_len=%u file=%08X\n",
+                edi, key, MEM32(edi + 0x100), MEM32(esp + 8), esi);
+        fsw_static_text_load_log_count++;
+    }
     ecx = MEM32(esi + 0x24);
     (void)0; /* test ecx, ecx - flags set for next jcc */
     eax = edi + 0x104;
@@ -962,13 +1280,32 @@ loc_0012C3A1:
 /* Fallback for unresolved generated target 0x0012C3A3. */
 void sub_0012C3A3(void)
 {
-    recomp_missing_target(0x0012C3A3u);
+    uint32_t value = 0;
+
+    if (fsw_static_text_read_memfile(esi, &value, sizeof(value))) {
+        MEM32(edi + 0x114) = value;
+    }
+    sub_0012C3AF(); return;
 }
 
 /* Fallback for unresolved generated target 0x0012C3AF. */
 void sub_0012C3AF(void)
 {
-    recomp_missing_target(0x0012C3AFu);
+    uint32_t parent = MEM32(esp + 0x118);
+
+    MEM8(edi + 0x118) = fsw_static_text_read_u8(esi);
+    MEM32(edi + 0x10C) = fsw_static_text_read_u32(esi);
+
+    PUSH32(esp, parent);
+    PUSH32(esp, esi);
+    ecx = edi;
+    PUSH32(esp, 0);
+    fn_00132850_CUIControl_Load();
+
+    POP32(esp, edi);
+    POP32(esp, esi);
+    esp = esp + 0x108;
+    esp += 12; return; /* ret 8 */
 }
 
 /**
@@ -1175,6 +1512,8 @@ loc_0012C530:
     PUSH32(esp, edi);
     PUSH32(esp, ecx);
     edi = ecx;
+    g_fsw_cuifont_current_control = edi;
+    g_fsw_cuifont_current_matrix = MEM32(esp + 0x28);
     ecx = MEM32(edi + 0x100);
     ebx = eax;
     eax = esp;
@@ -1185,6 +1524,15 @@ loc_0012C54B:
     esi = eax;
     ebp = 0; /* xor self */
     esp = esp + 4;
+    if (fsw_static_text_log_count < 96) {
+        fprintf(stderr, "[FSW/Text] Draw control=%08X text=%08X font_crc=%08X font=%08X flags=%02X w0=%04X w1=%04X w2=%04X w3=%04X\n",
+                edi, ebx, MEM32(edi + 0x100), esi, MEM8(edi + 0x118),
+                fsw_static_text_va_is_valid(ebx) ? MEM16(ebx) : 0,
+                fsw_static_text_va_is_valid(ebx + 2) ? MEM16(ebx + 2) : 0,
+                fsw_static_text_va_is_valid(ebx + 4) ? MEM16(ebx + 4) : 0,
+                fsw_static_text_va_is_valid(ebx + 6) ? MEM16(ebx + 6) : 0);
+        fsw_static_text_log_count++;
+    }
     if (CMP_EQ(esi, ebp)) goto loc_0012C6A2; /* je: equal / zero */
 
 loc_0012C55A:
@@ -1332,6 +1680,7 @@ loc_0012C6A2:
  */
 void fn_0012C6B0_CUIStaticTextControl_Render(void)
 {
+    uint32_t self_control;
     int _flags = 0; /* fallback flag var */
 
 loc_0012C6B0:
@@ -1339,6 +1688,7 @@ loc_0012C6B0:
     (void)0; /* test eax, eax - flags set for next jcc */
     PUSH32(esp, esi);
     esi = ecx;
+    self_control = esi;
     if (TEST_Z(eax, eax)) goto loc_0012C6EB; /* je: equal / zero */
 
 loc_0012C6BB:
@@ -1356,6 +1706,14 @@ loc_0012C6C5:
 
 loc_0012C6D6:
     esp = esp + 4;
+    esi = self_control;
+    if (fsw_static_text_log_count < 64) {
+        fprintf(stderr, "[FSW/Text] Render control=%08X visible_arg=%08X text_crc=%08X font_crc=%08X callback=%08X result=%08X w0=%04X w1=%04X\n",
+                esi, MEM32(esp + 8), MEM32(esi + 0x104), MEM32(esi + 0x100), MEM32(esi + 0x108), eax,
+                fsw_static_text_va_is_valid(eax) ? MEM16(eax) : 0,
+                fsw_static_text_va_is_valid(eax + 2) ? MEM16(eax + 2) : 0);
+        fsw_static_text_log_count++;
+    }
     if (TEST_Z(eax, eax)) goto loc_0012C6EB; /* je: equal / zero */
 
 loc_0012C6DD:

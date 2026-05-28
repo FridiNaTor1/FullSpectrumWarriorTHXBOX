@@ -8,6 +8,8 @@
 #include "recomp_funcs.h"
 #include <math.h>
 
+extern uint32_t xbox_HeapAlloc(uint32_t size, uint32_t alignment);
+
 /**
  * fn_000A5020_hkWindowsMalloc
  * Symbol: ?hkWindowsMalloc@@YAPAXHH@Z
@@ -22,7 +24,8 @@ void fn_000A5020_hkWindowsMalloc(void)
     ebp = g_seh_ebp; /* fpo_leaf: inherit caller's frame */
 
 loc_000A5020:
-    g_seh_ebp = ebp; fn_0009E067_aligned_malloc(); return; /* tail jmp 0x0009E067 */
+    eax = xbox_HeapAlloc(MEM32(esp + 4), 16);
+    esp += 12; return; /* ret 8 */
 
 }
 
@@ -40,7 +43,7 @@ void fn_000A5030_hkWindowsFree(void)
     ebp = g_seh_ebp; /* fpo_leaf: inherit caller's frame */
 
 loc_000A5030:
-    g_seh_ebp = ebp; fn_0009E052_aligned_free(); return; /* tail jmp 0x0009E052 */
+    esp += 8; return; /* ret 4 */
 
 }
 

@@ -8,6 +8,12 @@
 #include "recomp_funcs.h"
 #include <math.h>
 
+static float uimesh_update_xmm0;
+static float uimesh_update_xmm1;
+static float uimesh_update_xmm2;
+static float uimesh_update_xmm3;
+static uint32_t uimesh_update_ebp;
+
 /**
  * fn_002C31B0_CUIAnimMesh_CorrectParams
  * Symbol: ?CorrectParams@CUIAnimMesh@@IAEXXZ
@@ -857,32 +863,32 @@ void fn_002C3AF0_CUIAnimMesh_Update(void)
 {
     uint32_t ebp;
     int _flags = 0; /* fallback flag var */
-    float xmm0, xmm1, xmm2;
 
 loc_002C3AF0:
     PUSH32(esp, ebp);
     ebp = esp;
+    uimesh_update_ebp = ebp;
     esp = esp & 0xFFFFFFF0u;
     esp = esp - 0xB4;
-    xmm0 = MEMF(0x561454); /* movss */
+    uimesh_update_xmm0 = MEMF(0x561454); /* movss */
     PUSH32(esp, ebx);
     ebx = ecx;
     /* comiss xmm0, MEMF(ebx + 0x70) - sets EFLAGS */
     PUSH32(esp, esi);
     PUSH32(esp, edi);
-    if ((xmm0 <= MEMF(ebx + 0x70))) goto loc_002C3B14; /* jbe: below or equal (unsigned <=) */
+    if ((uimesh_update_xmm0 <= MEMF(ebx + 0x70))) goto loc_002C3B14; /* jbe: below or equal (unsigned <=) */
 
 loc_002C3B0F:
-    MEMF(ebx + 0x70) = xmm0; /* movss */
+    MEMF(ebx + 0x70) = uimesh_update_xmm0; /* movss */
 
 loc_002C3B14:
-    xmm1 = 0.0f; /* xorps self = zero */
+    uimesh_update_xmm1 = 0.0f; /* xorps self = zero */
     /* comiss xmm1, MEMF(ebx + 0x74) - sets EFLAGS */
-    xmm2 = MEMF(0x561418); /* movss */
-    if ((xmm1 <= MEMF(ebx + 0x74))) { sub_002C3B2C(); return; } /* jbe: below or equal (unsigned <=) */
+    uimesh_update_xmm2 = MEMF(0x561418); /* movss */
+    if ((uimesh_update_xmm1 <= MEMF(ebx + 0x74))) { sub_002C3B2C(); return; } /* jbe: below or equal (unsigned <=) */
 
 loc_002C3B25:
-    MEMF(ebx + 0x74) = xmm1; /* movss */
+    MEMF(ebx + 0x74) = uimesh_update_xmm1; /* movss */
     g_seh_ebp = ebp; sub_002C3B3B(); return; /* tail jmp 0x002C3B3B */
 
 }
@@ -896,15 +902,15 @@ loc_002C3B25:
 void sub_002C3B2C(void)
 {
     int _flags = 0; /* fallback flag var */
-    float xmm2, xmm3;
 
 loc_002C3B2C:
-    xmm3 = MEMF(ebx + 0x74); /* movss */
+    uimesh_update_xmm3 = MEMF(ebx + 0x74); /* movss */
     /* comiss xmm3, xmm2 - sets EFLAGS */
-    if ((xmm3 <= xmm2)) { sub_002C3B3B(); return; } /* jbe: below or equal (unsigned <=) */
+    if ((uimesh_update_xmm3 <= uimesh_update_xmm2)) { sub_002C3B3B(); return; } /* jbe: below or equal (unsigned <=) */
 
 loc_002C3B36:
-    MEMF(ebx + 0x74) = xmm2; /* movss */
+    MEMF(ebx + 0x74) = uimesh_update_xmm2; /* movss */
+    sub_002C3B3B(); return; /* original falls through */
 
 }
 
@@ -919,7 +925,6 @@ void sub_002C3B3B(void)
     uint32_t ebp;
     int _flags = 0; /* fallback flag var */
     int _fpu_cmp = 0; /* FPU compare result: -1/0/1 */
-    float xmm0;
     double _fp_stack[8];
     int _fp_top = 0;
     #define fp_push(v) (_fp_stack[--_fp_top & 7] = (v))
@@ -927,35 +932,35 @@ void sub_002C3B3B(void)
     #define fp_popp() (fp_pop())
     #define fp_top() _fp_stack[_fp_top & 7]
     #define fp_st1() _fp_stack[(_fp_top + 1) & 7]
-    ebp = g_seh_ebp; /* fpo_leaf: inherit caller's frame */
+    ebp = uimesh_update_ebp; /* split continuation frame */
 
 loc_002C3B3B:
     /* comiss xmm0, MEMF(ebx + 0x8C) - sets EFLAGS */
-    if ((xmm0 <= MEMF(ebx + 0x8C))) goto loc_002C3B4C; /* jbe: below or equal (unsigned <=) */
+    if ((uimesh_update_xmm0 <= MEMF(ebx + 0x8C))) goto loc_002C3B4C; /* jbe: below or equal (unsigned <=) */
 
 loc_002C3B44:
-    MEMF(ebx + 0x8C) = xmm0; /* movss */
+    MEMF(ebx + 0x8C) = uimesh_update_xmm0; /* movss */
 
 loc_002C3B4C:
     /* comiss xmm0, MEMF(ebx + 0x94) - sets EFLAGS */
-    if ((xmm0 <= MEMF(ebx + 0x94))) goto loc_002C3B5D; /* jbe: below or equal (unsigned <=) */
+    if ((uimesh_update_xmm0 <= MEMF(ebx + 0x94))) goto loc_002C3B5D; /* jbe: below or equal (unsigned <=) */
 
 loc_002C3B55:
-    MEMF(ebx + 0x94) = xmm0; /* movss */
+    MEMF(ebx + 0x94) = uimesh_update_xmm0; /* movss */
 
 loc_002C3B5D:
     /* comiss xmm0, MEMF(ebx + 0x98) - sets EFLAGS */
-    if ((xmm0 <= MEMF(ebx + 0x98))) goto loc_002C3B6E; /* jbe: below or equal (unsigned <=) */
+    if ((uimesh_update_xmm0 <= MEMF(ebx + 0x98))) goto loc_002C3B6E; /* jbe: below or equal (unsigned <=) */
 
 loc_002C3B66:
-    MEMF(ebx + 0x98) = xmm0; /* movss */
+    MEMF(ebx + 0x98) = uimesh_update_xmm0; /* movss */
 
 loc_002C3B6E:
     /* comiss xmm0, MEMF(ebx + 0x9C) - sets EFLAGS */
-    if ((xmm0 <= MEMF(ebx + 0x9C))) goto loc_002C3B7F; /* jbe: below or equal (unsigned <=) */
+    if ((uimesh_update_xmm0 <= MEMF(ebx + 0x9C))) goto loc_002C3B7F; /* jbe: below or equal (unsigned <=) */
 
 loc_002C3B77:
-    MEMF(ebx + 0x9C) = xmm0; /* movss */
+    MEMF(ebx + 0x9C) = uimesh_update_xmm0; /* movss */
 
 loc_002C3B7F:
     fp_push(MEMF(ebx + 0x74)); /* fld float */
@@ -993,25 +998,24 @@ void sub_002C3BAB(void)
 {
     uint32_t ebp;
     int _flags = 0; /* fallback flag var */
-    float xmm0, xmm1, xmm2;
-    ebp = g_seh_ebp; /* fpo_leaf: inherit caller's frame */
+    ebp = uimesh_update_ebp; /* split continuation frame */
 
 loc_002C3BAB:
     /* comiss xmm1, MEMF(esp + 0x10) - sets EFLAGS */
-    xmm0 = xmm2; /* movaps */
-    if ((xmm1 <= MEMF(esp + 0x10))) goto loc_002C3BBD; /* jbe: below or equal (unsigned <=) */
+    uimesh_update_xmm0 = uimesh_update_xmm2; /* movaps */
+    if ((uimesh_update_xmm1 <= MEMF(esp + 0x10))) goto loc_002C3BBD; /* jbe: below or equal (unsigned <=) */
 
 loc_002C3BB5:
-    xmm0 = MEMF(0x56149C); /* movss */
+    uimesh_update_xmm0 = MEMF(0x56149C); /* movss */
 
 loc_002C3BBD:
-    xmm0 = xmm0 * MEMF(esp + 0xC); /* mulss */
-    xmm0 = xmm0 + MEMF(ebx + 0x54); /* addss */
+    uimesh_update_xmm0 = uimesh_update_xmm0 * MEMF(esp + 0xC); /* mulss */
+    uimesh_update_xmm0 = uimesh_update_xmm0 + MEMF(ebx + 0x54); /* addss */
     /* comiss xmm1, xmm0 - sets EFLAGS */
-    if ((xmm1 <= xmm0)) { sub_002C3BD2(); return; } /* jbe: below or equal (unsigned <=) */
+    if ((uimesh_update_xmm1 <= uimesh_update_xmm0)) { sub_002C3BD2(); return; } /* jbe: below or equal (unsigned <=) */
 
 loc_002C3BCD:
-    xmm0 = xmm1; /* movaps */
+    uimesh_update_xmm0 = uimesh_update_xmm1; /* movaps */
     g_seh_ebp = ebp; sub_002C3BDA(); return; /* tail jmp 0x002C3BDA */
 
 }
@@ -1025,14 +1029,14 @@ loc_002C3BCD:
 void sub_002C3BD2(void)
 {
     int _flags = 0; /* fallback flag var */
-    float xmm0, xmm2;
 
 loc_002C3BD2:
     /* comiss xmm0, xmm2 - sets EFLAGS */
-    if ((xmm0 <= xmm2)) { sub_002C3BDA(); return; } /* jbe: below or equal (unsigned <=) */
+    if ((uimesh_update_xmm0 <= uimesh_update_xmm2)) { sub_002C3BDA(); return; } /* jbe: below or equal (unsigned <=) */
 
 loc_002C3BD7:
-    xmm0 = xmm2; /* movaps */
+    uimesh_update_xmm0 = uimesh_update_xmm2; /* movaps */
+    sub_002C3BDA(); return; /* original falls through */
 
 }
 
@@ -1044,10 +1048,9 @@ loc_002C3BD7:
  */
 void sub_002C3BDA(void)
 {
-    float xmm0;
-
 loc_002C3BDA:
-    MEMF(ebx + 0x54) = xmm0; /* movss */
+    MEMF(ebx + 0x54) = uimesh_update_xmm0; /* movss */
+    sub_002C3BDF(); return; /* original falls through */
 
 }
 
@@ -1069,7 +1072,7 @@ void sub_002C3BDF(void)
     #define fp_popp() (fp_pop())
     #define fp_top() _fp_stack[_fp_top & 7]
     #define fp_st1() _fp_stack[(_fp_top + 1) & 7]
-    ebp = g_seh_ebp; /* fpo_leaf: inherit caller's frame */
+    ebp = uimesh_update_ebp; /* split continuation frame */
 
 loc_002C3BDF:
     ecx = MEM32(ebp + 8);
@@ -1121,21 +1124,21 @@ loc_002C3C2A:
 void sub_002C3C38(void)
 {
     int _flags = 0; /* fallback flag var */
-    float xmm0, xmm1;
 
 loc_002C3C38:
-    xmm1 = 0.0f; /* xorps self = zero */
+    uimesh_update_xmm1 = 0.0f; /* xorps self = zero */
     /* comiss xmm1, MEMF(esp + 0x10) - sets EFLAGS */
-    xmm0 = MEMF(0x561418); /* movss */
-    if ((xmm1 <= MEMF(esp + 0x10))) goto loc_002C3C52; /* jbe: below or equal (unsigned <=) */
+    uimesh_update_xmm0 = MEMF(0x561418); /* movss */
+    if ((uimesh_update_xmm1 <= MEMF(esp + 0x10))) goto loc_002C3C52; /* jbe: below or equal (unsigned <=) */
 
 loc_002C3C4A:
-    xmm0 = MEMF(0x56149C); /* movss */
+    uimesh_update_xmm0 = MEMF(0x56149C); /* movss */
 
 loc_002C3C52:
-    xmm0 = xmm0 * MEMF(esp + 0xC); /* mulss */
-    xmm0 = xmm0 + MEMF(ebx + 0xD0); /* addss */
-    MEMF(ebx + 0xD0) = xmm0; /* movss */
+    uimesh_update_xmm0 = uimesh_update_xmm0 * MEMF(esp + 0xC); /* mulss */
+    uimesh_update_xmm0 = uimesh_update_xmm0 + MEMF(ebx + 0xD0); /* addss */
+    MEMF(ebx + 0xD0) = uimesh_update_xmm0; /* movss */
+    sub_002C3C68(); return; /* original falls through */
 
 }
 
@@ -1157,7 +1160,7 @@ void sub_002C3C68(void)
     #define fp_popp() (fp_pop())
     #define fp_top() _fp_stack[_fp_top & 7]
     #define fp_st1() _fp_stack[(_fp_top + 1) & 7]
-    ebp = g_seh_ebp; /* fpo_leaf: inherit caller's frame */
+    ebp = uimesh_update_ebp; /* split continuation frame */
 
 loc_002C3C68:
     xmm0 = MEMF(ebx + 0xD0); /* movss */

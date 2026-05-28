@@ -7,6 +7,39 @@
 #define RECOMP_GENERATED_CODE
 #include "recomp_funcs.h"
 #include <math.h>
+#include <stdio.h>
+
+static int cdeadguy_va_range_is_valid(uint32_t va, uint32_t size)
+{
+    if (va < 0x00010000u || va >= 0x04000000u) {
+        return 0;
+    }
+    if (size > 0x04000000u || va > 0x04000000u - size) {
+        return 0;
+    }
+    return 1;
+}
+
+static int cdeadguy_list_node_is_valid(uint32_t node)
+{
+    if (node == 0) {
+        return 0;
+    }
+    if (!cdeadguy_va_range_is_valid(node, 8) ||
+        !cdeadguy_va_range_is_valid(MEM32(node), 0xE8)) {
+        static uint32_t invalid_deadguy_node_count;
+        if (invalid_deadguy_node_count < 12 || (invalid_deadguy_node_count % 128) == 0) {
+            fprintf(stderr,
+                    "[FSW/DeadGuy] stopping UpdateAll invalid node=%08X object=%08X count=%u\n",
+                    (unsigned)node,
+                    (unsigned)(cdeadguy_va_range_is_valid(node, 4) ? MEM32(node) : 0),
+                    (unsigned)(invalid_deadguy_node_count + 1));
+        }
+        invalid_deadguy_node_count++;
+        return 0;
+    }
+    return 1;
+}
 
 /**
  * fn_0004ED70_GCDeadGuy_UAEPAXI_Z
@@ -687,17 +720,18 @@ loc_0037D430:
     PUSH32(esp, esi);
     PUSH32(esp, edi);
     MEM32(esp + 0xC) = eax;
-    MEM32(esp + 0x14) = 0x612EA4;
-    MEM32(esp + 0x10) = ecx;
-    if (TEST_Z(ecx, ecx)) goto loc_0037D4DC; /* je: equal / zero */
+	    MEM32(esp + 0x14) = 0x612EA4;
+	    MEM32(esp + 0x10) = ecx;
+	    if (!cdeadguy_list_node_is_valid(ecx)) goto loc_0037D4DC;
 
 loc_0037D45E:
     edi = edi;
 
 loc_0037D460:
-    eax = MEM32(esp + 0xC);
-    (void)0; /* test eax, eax - flags set for next jcc */
-    ebx = MEM32(ecx);
+	    eax = MEM32(esp + 0xC);
+	    (void)0; /* test eax, eax - flags set for next jcc */
+	    if (!cdeadguy_list_node_is_valid(ecx)) goto loc_0037D4DC;
+	    ebx = MEM32(ecx);
     if (CMP_G(eax & eax, 0)) goto loc_0037D4A3; /* jg: greater (signed >) */
 
 loc_0037D46A:
@@ -748,10 +782,10 @@ loc_0037D4C2:
 
 loc_0037D4CF:
     edx = MEM32(esp + 0xC);
-    edx--;
-    (void)0; /* test ecx, ecx - flags set for next jcc */
-    MEM32(esp + 0xC) = edx;
-    if (TEST_NZ(ecx, ecx)) goto loc_0037D460; /* jne: not equal / not zero */
+	    edx--;
+	    (void)0; /* test ecx, ecx - flags set for next jcc */
+	    MEM32(esp + 0xC) = edx;
+	    if (cdeadguy_list_node_is_valid(ecx)) goto loc_0037D460;
 
 loc_0037D4DC:
     POP32(esp, edi);

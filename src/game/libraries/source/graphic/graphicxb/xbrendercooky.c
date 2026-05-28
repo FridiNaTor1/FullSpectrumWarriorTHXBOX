@@ -7,6 +7,119 @@
 #define RECOMP_GENERATED_CODE
 #include "recomp_funcs.h"
 #include <math.h>
+#include <stdio.h>
+#include <string.h>
+
+static int xbrendercooky_va_range_is_valid(uint32_t va, uint32_t size)
+{
+    if (va < 0x00010000u || va >= 0x04000000u) {
+        return 0;
+    }
+    if (size > 0x04000000u || va > 0x04000000u - size) {
+        return 0;
+    }
+    return 1;
+}
+
+static int xbrendercooky_descriptor_is_valid(uint32_t descriptor)
+{
+    if (!xbrendercooky_va_range_is_valid(descriptor, 0xD8)) {
+        return 0;
+    }
+
+    uint32_t vertex_count = MEM32(descriptor + 0x18);
+    uint32_t vertex_flags = MEM32(descriptor + 0x0C);
+    uint32_t primitive = MEM32(descriptor + 0x14);
+    if (vertex_count > 0x100000u || vertex_flags > 0x01FFFFFFu || primitive > 8u) {
+        return 0;
+    }
+
+    return 1;
+}
+
+static uint32_t xbrendercooky_ctor_this;
+
+static int xbrendercooky_stack_va_is_valid(uint32_t va)
+{
+    return va >= 0x00780000u && va < 0x00980000u;
+}
+
+static void xbrendercooky_ctor_set_this(uint32_t object)
+{
+    if (xbrendercooky_va_range_is_valid(object, 0x4C)) {
+        xbrendercooky_ctor_this = object;
+    }
+}
+
+static void xbrendercooky_ctor_restore_this(const char *phase)
+{
+    static uint32_t warn_count;
+    if (!xbrendercooky_va_range_is_valid(xbrendercooky_ctor_this, 0x4C)) {
+        return;
+    }
+    if (ebx == xbrendercooky_ctor_this) {
+        return;
+    }
+    if (warn_count < 16 || (warn_count % 256) == 0) {
+        fprintf(stderr,
+                "[FSW/RenderCookie] ctor restored this after %s %08X -> %08X warn=%u\n",
+                phase,
+                (unsigned)ebx,
+                (unsigned)xbrendercooky_ctor_this,
+                (unsigned)(warn_count + 1));
+    }
+    warn_count++;
+    ebx = xbrendercooky_ctor_this;
+}
+
+static void xbrendercooky_ctor_restore_esp(uint32_t expected, const char *phase)
+{
+    static uint32_t warn_count;
+    if (esp == expected) {
+        return;
+    }
+    if (warn_count < 16 || (warn_count % 256) == 0) {
+        fprintf(stderr,
+                "[FSW/RenderCookie] ctor restored esp after %s %08X -> %08X warn=%u\n",
+                phase,
+                (unsigned)esp,
+                (unsigned)expected,
+                (unsigned)(warn_count + 1));
+    }
+    warn_count++;
+    if (xbrendercooky_stack_va_is_valid(expected)) {
+        esp = expected;
+    }
+}
+
+static void xbrendercooky_warn_bad_descriptor(const char *where, uint32_t cookie, uint32_t descriptor, uint32_t record)
+{
+    static uint32_t warn_count;
+    if (warn_count < 16 || (warn_count % 240) == 0) {
+        fprintf(stderr,
+                "[FSW/RenderCookie] %s skipped invalid descriptor cookie=%08X descriptor=%08X record=%08X count=%08X flags=%08X prim=%08X warn=%u\n",
+                where,
+                (unsigned)cookie,
+                (unsigned)descriptor,
+                (unsigned)record,
+                (unsigned)(xbrendercooky_va_range_is_valid(descriptor, 0x1C) ? MEM32(descriptor + 0x18) : 0),
+                (unsigned)(xbrendercooky_va_range_is_valid(descriptor, 0x10) ? MEM32(descriptor + 0x0C) : 0),
+                (unsigned)(xbrendercooky_va_range_is_valid(descriptor, 0x18) ? MEM32(descriptor + 0x14) : 0),
+                (unsigned)(warn_count + 1));
+    }
+    warn_count++;
+}
+
+static void xbrendercooky_lock_guarded_return(void)
+{
+    POP32(esp, edi);
+    POP32(esp, esi);
+    esp += 4; /* saved EBP */
+    eax = 0;
+    POP32(esp, ebx);
+    esp = esp + 0xC;
+    esp += 16; return; /* ret 12 */
+}
 
 /**
  * fn_00050690_1XBRenderCookie_UAE_XZ
@@ -1415,6 +1528,26 @@ void fn_00144660_XBRenderCookie_SetupRecord(void)
     ebp = g_seh_ebp; /* fpo_leaf: inherit caller's frame */
 
 loc_00144660:
+    if (!xbrendercooky_va_range_is_valid(edx, 0xD4) ||
+        !xbrendercooky_va_range_is_valid(eax, 0x10) ||
+        ecx == 0xCCCCCCCCu ||
+        esi == 0xCCCCCCCCu) {
+        static uint32_t invalid_setup_record_count = 0;
+        if (invalid_setup_record_count < 8 || (invalid_setup_record_count % 120) == 0) {
+            fprintf(stderr,
+                    "[FSW/RenderCookie] SetupRecord skipped invalid record=%08X data=%08X flags=%08X stride=%08X count=%u\n",
+                    (unsigned)edx,
+                    (unsigned)eax,
+                    (unsigned)ecx,
+                    (unsigned)esi,
+                    (unsigned)(invalid_setup_record_count + 1));
+        }
+        invalid_setup_record_count++;
+        if (xbrendercooky_va_range_is_valid(edx, 0xD4)) {
+            memset((void*)XBOX_PTR(edx), 0, 0xD4);
+        }
+        esp += 4; return; /* ret */
+    }
     PUSH32(esp, ecx);
     PUSH32(esp, ebx);
     ebx = MEM32(esp + 0x14);
@@ -3078,6 +3211,7 @@ loc_0014543D:
 void fn_00145450_0XBRenderCookie_QAE_PAVCLoadData_Z(void)
 {
     uint32_t ebp;
+    uint32_t ctor_esp_after_push_ebp;
     int _flags = 0; /* fallback flag var */
     ebp = g_seh_ebp; /* fpo_leaf: inherit caller's frame */
 
@@ -3090,6 +3224,7 @@ loc_00145450:
     esp = esp - 0x2C;
     PUSH32(esp, ebx);
     ebx = MEM32(esp + 0x40);
+    xbrendercooky_ctor_set_this(ebx);
     PUSH32(esp, esi);
     PUSH32(esp, edi);
     ecx = 0; /* xor self */
@@ -3133,6 +3268,7 @@ loc_001454BE:
     eax = eax + ecx;
     ecx = MEM32(ebx + 0x10);
     PUSH32(esp, ebp);
+    ctor_esp_after_push_ebp = esp;
     eax = eax + MEM32(esp + 0x28);
     eax = eax + edi;
     eax = eax + esi;
@@ -3145,6 +3281,7 @@ loc_001454F6:
     edx = edx & 0xFFFFF0FFu;
     edx = edx | eax;
     MEM32(ebx + 0x34) = edx;
+    (void)ctor_esp_after_push_ebp;
     g_seh_ebp = ebp; sub_00145514(); return; /* tail jmp 0x00145514 */
 
 }
@@ -3157,12 +3294,16 @@ loc_001454F6:
  */
 void sub_00145506(void)
 {
+    uint32_t ebp;
+    ebp = g_seh_ebp; /* fpo_leaf: inherit caller's frame */
 
 loc_00145506:
+    xbrendercooky_ctor_restore_this("format non-type2");
     ecx = MEM32(ebx + 0x30);
     ecx = ecx & 0xFFFFF0FFu;
     ecx = ecx | eax;
     MEM32(ebx + 0x30) = ecx;
+    g_seh_ebp = ebp; sub_00145514(); return; /* fallthrough 0x00145514 */
 
 }
 
@@ -3175,10 +3316,12 @@ loc_00145506:
 void sub_00145514(void)
 {
     uint32_t ebp;
+    uint32_t call_esp;
     int _flags = 0; /* fallback flag var */
     ebp = g_seh_ebp; /* fpo_leaf: inherit caller's frame */
 
 loc_00145514:
+    xbrendercooky_ctor_restore_this("entry");
     edx = MEM32(ebx + 0x34);
     eax = MEM32(ebx + 0x30);
     ecx = edx;
@@ -3208,13 +3351,20 @@ loc_00145514:
     edi = edi | edx;
     edi = edi | eax;
     ecx = edi;
+    call_esp = esp;
     PUSH32(esp, 0); fn_000508C0_ZeroFormatToXBox(); /* call 0x000508C0 */
+    xbrendercooky_ctor_restore_esp(call_esp, "ZeroFormatToXBox");
+    xbrendercooky_ctor_restore_this("ZeroFormatToXBox");
 
 loc_00145575:
     edi = MEM32(ebx + 0x48);
     MEM32(ebx + 0xC) = eax;
     eax = MEM32(ebx + 0x10);
+    call_esp = esp;
     PUSH32(esp, 0); fn_00145210_XBRenderCookie_FindVAF(); /* call 0x00145210 */
+    xbrendercooky_ctor_restore_esp(call_esp, "FindVAF");
+    xbrendercooky_ctor_restore_this("FindVAF");
+    esi = ebx + 0x30;
 
 loc_00145583:
     MEM32(ebx + 0x40) = eax;
@@ -3230,7 +3380,11 @@ loc_00145591:
     PUSH32(esp, eax);
     PUSH32(esp, ecx);
     PUSH32(esp, edx);
+    call_esp = esp;
     PUSH32(esp, 0); fn_00144100_XBRenderCookie_CalcSize(); /* call 0x00144100 */
+    xbrendercooky_ctor_restore_esp(call_esp, "CalcSize primary");
+    xbrendercooky_ctor_restore_this("CalcSize primary");
+    esi = ebx + 0x30;
 
 loc_001455A1:
     eax = MEM32(ebx + 0x48);
@@ -3241,9 +3395,14 @@ loc_001455A1:
     edx = esp + 0x24;
     PUSH32(esp, edx);
     PUSH32(esp, eax);
+    call_esp = esp;
     PUSH32(esp, 0); fn_00144100_XBRenderCookie_CalcSize(); /* call 0x00144100 */
+    xbrendercooky_ctor_restore_esp(call_esp, "CalcSize secondary");
+    xbrendercooky_ctor_restore_this("CalcSize secondary");
+    esi = ebx + 0x30;
 
 loc_001455B8:
+    xbrendercooky_ctor_restore_this("writeback");
     ecx = MEM32(esp + 0x68);
     eax = MEM32(esp + 0x30);
     edx = MEM32(esp + 0x2C);
@@ -3265,8 +3424,11 @@ loc_001455B8:
  */
 void sub_001455D8(void)
 {
+    uint32_t call_esp;
 
 loc_001455D8:
+    xbrendercooky_ctor_restore_this("non-type2 size");
+    esi = ebx + 0x30;
     edx = MEM32(ebx + 0x48);
     PUSH32(esp, edx);
     edx = MEM32(esi);
@@ -3274,9 +3436,13 @@ loc_001455D8:
     PUSH32(esp, eax);
     PUSH32(esp, ecx);
     PUSH32(esp, edx);
+    call_esp = esp;
     PUSH32(esp, 0); fn_00144100_XBRenderCookie_CalcSize(); /* call 0x00144100 */
+    xbrendercooky_ctor_restore_esp(call_esp, "CalcSize non-type2");
+    xbrendercooky_ctor_restore_this("CalcSize non-type2");
 
 loc_001455EA:
+    xbrendercooky_ctor_restore_this("non-type2 writeback");
     eax = MEM32(esp + 0x58);
     ecx = MEM32(ebx + 0x20);
     edx = MEM32(ebx + 0x18);
@@ -3288,6 +3454,7 @@ loc_001455EA:
     MEM32(ebx + 0x24) = edx;
     MEM32(ebx + 0x10) = eax;
     MEM32(ebx + 0x3C) = 0;
+    sub_00145611(); return; /* fallthrough 0x00145611 */
 
 }
 
@@ -3301,11 +3468,13 @@ void sub_00145611(void)
 {
 
 loc_00145611:
+    xbrendercooky_ctor_restore_this("epilogue");
     ecx = MEM32(esp + 0x38);
     POP32(esp, edi);
     POP32(esp, esi);
     eax = ebx;
     POP32(esp, ebx);
+    xbrendercooky_ctor_this = 0;
     MEM32(0) = ecx;
     esp = esp + 0x38;
     esp += 8; return; /* ret 4 */
@@ -3509,6 +3678,15 @@ loc_00145730:
     PUSH32(esp, edi);
     edi = MEM32(esp + 0x28);
     ebp = ecx;
+    if (!xbrendercooky_descriptor_is_valid(ebx) ||
+        !xbrendercooky_va_range_is_valid(edi, 0xD8) ||
+        !xbrendercooky_va_range_is_valid(ebp, 0x48)) {
+        xbrendercooky_warn_bad_descriptor("Lock", ebp, ebx, edi);
+        if (xbrendercooky_va_range_is_valid(edi, 0xD8)) {
+            memset((void *)XBOX_PTR(edi), 0, 0xD8);
+        }
+        xbrendercooky_lock_guarded_return(); return;
+    }
     eax = 0; /* xor self */
     ecx = 0x36;
     { uint32_t _i; for (_i = 0; _i < ecx; _i++) MEM32(edi + _i*4) = eax; }
@@ -3713,6 +3891,11 @@ void sub_001458C0(void)
 
 loc_001458C0:
     eax = MEM32(ebx + 0x1C);
+    if (!xbrendercooky_descriptor_is_valid(ebx) || eax > 0x100000u) {
+        xbrendercooky_warn_bad_descriptor("IndexBuffer", ebp, ebx, MEM32(esp + 0x28));
+        MEM32(ebp + 0x14) = 0;
+        xbrendercooky_lock_guarded_return(); return;
+    }
     if (TEST_Z(eax, eax)) { sub_00145917(); return; } /* je: equal / zero */
 
 loc_001458C7:
@@ -3725,6 +3908,9 @@ loc_001458CE:
 loc_001458D5:
     ecx = MEM32(esp + 0x24);
     esi = MEM32(esp + 0x18);
+    if (!xbrendercooky_va_range_is_valid(esi, 0x7000)) {
+        esi = MEM32(0x5FA8E8);
+    }
     PUSH32(esp, ecx);
     PUSH32(esp, eax);
     esi = esi + 0x677C;

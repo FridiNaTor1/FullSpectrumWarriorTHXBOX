@@ -252,6 +252,9 @@ loc_00387C58:
 void fn_00387C80_ContinueRendering(void)
 {
     uint32_t ebp;
+    uint32_t root_control;
+    uint32_t camera_arg;
+    uint32_t child_control;
     int _flags = 0; /* fallback flag var */
 
 loc_00387C80:
@@ -264,6 +267,7 @@ loc_00387C80:
     PUSH32(esp, esi);
     PUSH32(esp, edi);
     ebx = eax;
+    root_control = ebx;
     eax = MEM32(ebx);
     esi = ebx + 0x50;
     ecx = 0x10;
@@ -271,6 +275,7 @@ loc_00387C80:
     memcpy((void*)XBOX_PTR(edi), (void*)XBOX_PTR(esi), ecx * 4);
     esi += ecx * 4; edi += ecx * 4; ecx = 0; /* rep movsd */
     esi = MEM32(ebp + 8);
+    camera_arg = esi;
     ecx = esp + 0x20;
     PUSH32(esp, ecx);
     PUSH32(esp, esi);
@@ -279,6 +284,8 @@ loc_00387C80:
     }
 
 loc_00387CAC:
+    ebx = root_control;
+    esi = camera_arg;
     eax = MEM32(ebx + 0xB4);
     ebx = ebx + 0xAC;
     (void)0; /* test eax, eax - flags set for next jcc */
@@ -291,10 +298,13 @@ loc_00387CC4:
     if (TEST_Z(ecx, ecx)) goto loc_00387CD2; /* je: equal / zero */
 
 loc_00387CCA:
+    child_control = ecx;
     edx = MEM32(ecx);
     { uint32_t _icall_esp = g_esp;
     PUSH32(esp, 1);
+    esi = camera_arg;
     PUSH32(esp, esi);
+    ecx = child_control;
     PUSH32(esp, 0); RECOMP_ICALL_SAFE(MEM32(edx + 0x38), _icall_esp); /* indirect call */
     }
 

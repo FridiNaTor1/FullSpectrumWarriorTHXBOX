@@ -7,6 +7,18 @@
 #define RECOMP_GENERATED_CODE
 #include "recomp_funcs.h"
 #include <math.h>
+#include <stdio.h>
+
+static int cbillboardtree_va_range_is_valid(uint32_t va, uint32_t size)
+{
+    if (size == 0) {
+        return va >= 0x00010000u && va < 0x04000000u;
+    }
+    if (va < 0x00010000u || va >= 0x04000000u || va + size < va) {
+        return 0;
+    }
+    return va + size <= 0x04000000u;
+}
 
 /**
  * fn_000336F0_GCBillboardTree_UAEPAXI_Z
@@ -477,6 +489,7 @@ loc_00257F53:
 void fn_00257F70_CBillboardTree_UpdateAll(void)
 {
     uint32_t ebp;
+    uint32_t tree_steps = 0;
     int _flags = 0; /* fallback flag var */
     float xmm1;
     double _fp_stack[8];
@@ -501,7 +514,18 @@ loc_00257F70:
     if (TEST_Z(eax, eax)) goto loc_00257FF6; /* je: equal / zero */
 
 loc_00257F90:
+    if (!cbillboardtree_va_range_is_valid(eax, 8) || ++tree_steps > 4096) {
+        fprintf(stderr, "[FSW/Foliage] stopping CBillboardTree list node=%08X steps=%u\n", eax, tree_steps);
+        MEM32(0x609C24) = 0;
+        MEM32(0x609C28) = 0;
+        MEM32(0x609C2C) = 0;
+        goto loc_00257FF6;
+    }
     edi = MEM32(eax);
+    if (!cbillboardtree_va_range_is_valid(edi, 0xD4)) {
+        fprintf(stderr, "[FSW/Foliage] skipping invalid CBillboardTree object=%08X node=%08X\n", edi, eax);
+        goto loc_00257FE0_skip_update;
+    }
     esi = edi + 0xB0;
     PUSH32(esp, 0); fn_00377630_CParticleManager_Get(); /* call 0x00377630 */
 
@@ -528,6 +552,7 @@ loc_00257FAE:
     fp_st1() *= fp_top(); fp_pop(); /* fmul */
     fp_st1() += fp_top(); fp_pop(); /* fadd */
     MEMF(edi + 0xD0) = (float)fp_top(); fp_popp(); /* fstp */
+loc_00257FE0_skip_update:
     PUSH32(esp, 0); fn_0004E360_EIterator_ZeroList_K_QAE_AV01_H_Z(); /* call 0x0004E360 */
 
 loc_00257FEE:

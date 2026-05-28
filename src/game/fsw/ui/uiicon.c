@@ -7,6 +7,20 @@
 #define RECOMP_GENERATED_CODE
 #include "recomp_funcs.h"
 #include <math.h>
+#include <string.h>
+
+extern uint32_t xbox_HeapAlloc(uint32_t size, uint32_t alignment);
+
+static int cuiicon_va_range_is_valid(uint32_t va, uint32_t size)
+{
+    if (va < 0x00010000u || va >= 0x04000000u) {
+        return 0;
+    }
+    if (size > 0x04000000u || va > 0x04000000u - size) {
+        return 0;
+    }
+    return 1;
+}
 
 /**
  * fn_001C37F0_CUIIcon_CopyFrom
@@ -698,9 +712,17 @@ void fn_001C3E00_0CUIIcon_QAE_VCRC_Z(void)
 {
     int _flags = 0; /* fallback flag var */
     float xmm0, xmm1;
+    uint32_t icon_this;
 
 loc_001C3E00:
     PUSH32(esp, ecx);
+    if (!cuiicon_va_range_is_valid(esi, 0x30)) {
+        esi = xbox_HeapAlloc(0x30, 16);
+        if (cuiicon_va_range_is_valid(esi, 0x30)) {
+            memset((void *)XBOX_PTR(esi), 0, 0x30);
+        }
+    }
+    icon_this = esi;
     xmm1 = MEMF(0x561464); /* movss */
     xmm0 = 0.0f; /* xorps self = zero */
     SET_LO8(eax, 0xFF);
@@ -728,6 +750,7 @@ loc_001C3E00:
     PUSH32(esp, 0); fn_00128D90_CalcLowerCRC(); /* call 0x00128D90 */
 
 loc_001C3E6D:
+    esi = icon_this;
     ecx = MEM32(esp + 8);
     if (CMP_EQ(ecx, eax)) goto loc_001C3E85; /* je: equal / zero */
 
@@ -739,6 +762,7 @@ loc_001C3E75:
 
 loc_001C3E7F:
     esp = esp + 4;
+    esi = icon_this;
     MEM32(esi + 0x2C) = eax;
 
 loc_001C3E85:

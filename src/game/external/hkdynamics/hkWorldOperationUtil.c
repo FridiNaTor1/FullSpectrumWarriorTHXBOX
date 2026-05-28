@@ -7,6 +7,12 @@
 #define RECOMP_GENERATED_CODE
 #include "recomp_funcs.h"
 #include <math.h>
+#include <stdio.h>
+
+static int hk_worldop_va_range_is_valid(uint32_t va, uint32_t size)
+{
+    return va >= 0x00010000u && va < 0x04000000u && size <= 0x04000000u - va;
+}
 
 /**
  * fn_000B33F0_hkWorldOperationUtil_addConstraintImmediately
@@ -1481,6 +1487,17 @@ void fn_000B3DB0_hkWorldOperationUtil_removeEntitySI(void)
 
 loc_000B3DB0:
     eax = MEM32(esp + 8);
+    if (!hk_worldop_va_range_is_valid(eax, 0x90) ||
+        !hk_worldop_va_range_is_valid(MEM32(eax + 0x54), 0x3C)) {
+        fprintf(stderr, "[FSW/Havok] skipping removeEntitySI invalid entity=%08X island=%08X\n",
+                eax, hk_worldop_va_range_is_valid(eax, 0x90) ? MEM32(eax + 0x54) : 0);
+        if (hk_worldop_va_range_is_valid(eax, 0x90)) {
+            MEM32(eax + 8) = 0;
+            MEM32(eax + 0x54) = 0;
+            MEM16(eax + 0x8C) = 0xFFFF;
+        }
+        esp += 4; return; /* ret */
+    }
     PUSH32(esp, esi);
     esi = MEM32(eax + 0x54);
     PUSH32(esp, eax);
@@ -2830,9 +2847,15 @@ loc_000B46AF:
     MEM32(esp + 0x1C) = eax;
     eax = MEM32(esi);
     { uint32_t _icall_esp = g_esp;
+    uint32_t _saved_ebx = ebx;
+    uint32_t _saved_esi = esi;
+    uint32_t _saved_edi = edi;
     PUSH32(esp, ecx);
     ecx = esi;
     PUSH32(esp, 0); RECOMP_ICALL_SAFE(MEM32(eax + 0x14), _icall_esp); /* indirect call */
+    ebx = _saved_ebx;
+    esi = _saved_esi;
+    edi = _saved_edi;
     }
 
 loc_000B46D0:
@@ -2840,12 +2863,18 @@ loc_000B46D0:
     edx = MEM32(ecx);
     eax = esp + 0x10;
     { uint32_t _icall_esp = g_esp;
+    uint32_t _saved_ebx = ebx;
+    uint32_t _saved_esi = esi;
+    uint32_t _saved_edi = edi;
     PUSH32(esp, eax);
     eax = esp + 0x24;
     PUSH32(esp, eax);
     esi = esi + 0x28;
     PUSH32(esp, esi);
     PUSH32(esp, 0); RECOMP_ICALL_SAFE(MEM32(edx + 8), _icall_esp); /* indirect call */
+    ebx = _saved_ebx;
+    esi = _saved_esi;
+    edi = _saved_edi;
     }
 
 loc_000B46E6:

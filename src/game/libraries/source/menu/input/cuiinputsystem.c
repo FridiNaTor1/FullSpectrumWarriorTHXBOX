@@ -6,7 +6,92 @@
 
 #define RECOMP_GENERATED_CODE
 #include "recomp_funcs.h"
+#include "xinput_xbox.h"
 #include <math.h>
+#include <stdio.h>
+#include <string.h>
+
+static void fsw_cuiinput_set_event(uint32_t event_id)
+{
+    if (event_id < 0x18) {
+        MEM8(0x5F9E1C + event_id) = 1;
+    }
+}
+
+static void fsw_cuiinput_bridge_controller_events(void)
+{
+    enum {
+        FSW_PAD_ACCEPT = 1u << 0,
+        FSW_PAD_UP     = 1u << 1,
+        FSW_PAD_DOWN   = 1u << 2,
+        FSW_PAD_LEFT   = 1u << 3,
+        FSW_PAD_RIGHT  = 1u << 4,
+        FSW_PAD_BACK   = 1u << 5,
+        FSW_PAD_START  = 1u << 6,
+        FSW_PAD_X      = 1u << 7,
+        FSW_PAD_Y      = 1u << 8,
+        FSW_PAD_SYSTEM = 1u << 9
+    };
+    static uint32_t previous_mask;
+    static uint32_t repeat_mask;
+    static uint32_t repeat_delay;
+    static uint32_t event_log_count;
+    uint32_t mask = 0;
+
+    for (uint32_t port = 0; port < XBOX_MAX_CONTROLLERS; port++) {
+        XBOX_INPUT_STATE state;
+        memset(&state, 0, sizeof(state));
+        if (xbox_InputGetState(port, &state) != ERROR_SUCCESS) {
+            continue;
+        }
+
+        if (state.Gamepad.bAnalogButtons[XBOX_BUTTON_A] >= XBOX_ANALOG_BUTTON_THRESHOLD) mask |= FSW_PAD_ACCEPT;
+        if (state.Gamepad.bAnalogButtons[XBOX_BUTTON_B] >= XBOX_ANALOG_BUTTON_THRESHOLD) mask |= FSW_PAD_BACK;
+        if (state.Gamepad.bAnalogButtons[XBOX_BUTTON_X] >= XBOX_ANALOG_BUTTON_THRESHOLD) mask |= FSW_PAD_X;
+        if (state.Gamepad.bAnalogButtons[XBOX_BUTTON_Y] >= XBOX_ANALOG_BUTTON_THRESHOLD) mask |= FSW_PAD_Y;
+        if (state.Gamepad.wButtons & XBOX_GAMEPAD_START) mask |= FSW_PAD_START;
+        if (state.Gamepad.wButtons & XBOX_GAMEPAD_BACK) mask |= FSW_PAD_SYSTEM;
+        if ((state.Gamepad.wButtons & XBOX_GAMEPAD_DPAD_UP) || state.Gamepad.sThumbLY > 12000) mask |= FSW_PAD_UP;
+        if ((state.Gamepad.wButtons & XBOX_GAMEPAD_DPAD_DOWN) || state.Gamepad.sThumbLY < -12000) mask |= FSW_PAD_DOWN;
+        if ((state.Gamepad.wButtons & XBOX_GAMEPAD_DPAD_LEFT) || state.Gamepad.sThumbLX < -12000) mask |= FSW_PAD_LEFT;
+        if ((state.Gamepad.wButtons & XBOX_GAMEPAD_DPAD_RIGHT) || state.Gamepad.sThumbLX > 12000) mask |= FSW_PAD_RIGHT;
+        break;
+    }
+
+    uint32_t direction_mask = FSW_PAD_UP | FSW_PAD_DOWN | FSW_PAD_LEFT | FSW_PAD_RIGHT;
+    uint32_t fire_mask = mask & ~previous_mask;
+    uint32_t held_directions = mask & direction_mask;
+
+    if (held_directions != repeat_mask) {
+        repeat_mask = held_directions;
+        repeat_delay = 18;
+    } else if (held_directions) {
+        if (repeat_delay > 0) {
+            repeat_delay--;
+        } else {
+            fire_mask |= held_directions;
+            repeat_delay = 5;
+        }
+    }
+
+    if (fire_mask & FSW_PAD_ACCEPT) fsw_cuiinput_set_event(0);
+    if (fire_mask & FSW_PAD_UP) fsw_cuiinput_set_event(1);
+    if (fire_mask & FSW_PAD_DOWN) fsw_cuiinput_set_event(2);
+    if (fire_mask & FSW_PAD_LEFT) fsw_cuiinput_set_event(3);
+    if (fire_mask & FSW_PAD_RIGHT) fsw_cuiinput_set_event(4);
+    if (fire_mask & FSW_PAD_BACK) fsw_cuiinput_set_event(5);
+    if (fire_mask & FSW_PAD_START) fsw_cuiinput_set_event(6);
+    if (fire_mask & FSW_PAD_X) fsw_cuiinput_set_event(7);
+    if (fire_mask & FSW_PAD_Y) fsw_cuiinput_set_event(8);
+    if (fire_mask & FSW_PAD_SYSTEM) fsw_cuiinput_set_event(0xB);
+
+    if (fire_mask && event_log_count < 32) {
+        fprintf(stderr, "[FSW/Input] CUI event mask=%08X fired=%08X\n", mask, fire_mask);
+        event_log_count++;
+    }
+
+    previous_mask = mask;
+}
 
 /**
  * fn_00132DE0_1CUIInputSystem_AAE_XZ
@@ -179,6 +264,7 @@ loc_00132EA0:
 
 loc_00132EB7:
     MEM16(edx + 0x30) = 0x30;
+    fsw_cuiinput_bridge_controller_events();
     POP32(esp, ebx);
     esp += 4; return; /* ret */
 

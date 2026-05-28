@@ -10698,10 +10698,38 @@ loc_001B616C:
 
 }
 
-/* Fallback for unresolved generated target 0x001B6136. */
 void sub_001B6136(void)
 {
-    recomp_missing_target(0x001B6136u);
+    uint32_t ebp;
+    int _flags = 0; /* fallback flag var */
+    ebp = g_seh_ebp; /* fpo_leaf: inherit caller's frame */
+
+loc_001B6136:
+    PUSH32(esp, 0); fn_001B8B40_CStateUpdate_Get(); /* call 0x001B8B40 */
+
+loc_001B613B:
+    esi = eax;
+    PUSH32(esp, 0); fn_00272490_CNetState_Get(); /* call 0x00272490 */
+
+loc_001B6142:
+    eax = MEM32(eax + 0xFA8);
+    if (CMP_NE(MEM32(esi + eax * 4 + 0x644), 6)) { sub_001B61B3(); return; } /* jne: not equal / not zero */
+
+loc_001B6152:
+    eax = MEM32(0x5FA89C);
+    SET_LO8(ecx, MEM8(eax + 5));
+    if (TEST_NZ(LO8(ecx), LO8(ecx))) { sub_001B6196(); return; } /* jne: not equal / not zero */
+
+loc_001B615E:
+    SET_LO8(ecx, MEM8(0x5F9E21));
+    (void)0; /* test LO8(ecx), LO8(ecx) - flags set for next jcc */
+    MEM8(eax + 5) = 1;
+    if (TEST_Z(LO8(ecx), LO8(ecx))) { sub_001B6196(); return; } /* je: equal / zero */
+
+loc_001B616C:
+    MEM8(eax + 0x1D) = 1;
+    SET_LO8(ebx, 1);
+    g_seh_ebp = ebp; sub_001B61B5(); return; /* tail jmp 0x001B61B5 */
 }
 
 /**

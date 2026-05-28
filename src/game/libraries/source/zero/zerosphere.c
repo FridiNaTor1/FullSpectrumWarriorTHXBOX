@@ -7,6 +7,12 @@
 #define RECOMP_GENERATED_CODE
 #include "recomp_funcs.h"
 #include <math.h>
+#include <stdio.h>
+
+static int zerosphere_va_range_is_valid(uint32_t va, uint32_t size)
+{
+    return va > 0x00010000u && va < 0x04000000u && size <= 0x04000000u - va;
+}
 
 /**
  * fn_0011E530_ZeroSphere_RaySphereTest
@@ -141,15 +147,40 @@ loc_0011E580:
 void fn_0011E5D0_ZeroSphere_VisibilityTestLow(void)
 {
     uint32_t ebp;
+    uint32_t mode;
+    uint32_t test_index;
     int _flags = 0; /* fallback flag var */
     ebp = g_seh_ebp; /* fpo_leaf: inherit caller's frame */
 
 loc_0011E5D0:
     PUSH32(esp, ebx);
     ebx = MEM32(esp + 8);
+    if (!zerosphere_va_range_is_valid(ebx, 0x60)) {
+        fprintf(stderr, "[FSW/Sphere] VisibilityTestLow invalid sphere=%08X\n", (unsigned)ebx);
+        eax = 0;
+        POP32(esp, ebx);
+        esp += 16; return; /* ret 12 */
+    }
     eax = MEM32(ebx + 0x5C);
+    mode = eax;
+    if (mode > 1) {
+        fprintf(stderr, "[FSW/Sphere] VisibilityTestLow invalid mode sphere=%08X mode=%u\n",
+                (unsigned)ebx, (unsigned)mode);
+        eax = 0;
+        POP32(esp, ebx);
+        esp += 16; return; /* ret 12 */
+    }
     PUSH32(esp, ebp);
     ebp = MEM32(esp + 0x10);
+    if (!zerosphere_va_range_is_valid(ebp, 0x110) ||
+        !zerosphere_va_range_is_valid(MEM32(esp + 0x14), 0x40)) {
+        fprintf(stderr, "[FSW/Sphere] VisibilityTestLow invalid args sphere=%08X camera=%08X matrix=%08X\n",
+                (unsigned)ebx, (unsigned)ebp, (unsigned)MEM32(esp + 0x14));
+        eax = 0;
+        POP32(esp, ebp);
+        POP32(esp, ebx);
+        esp += 16; return; /* ret 12 */
+    }
     PUSH32(esp, esi);
     PUSH32(esp, edi);
     edi = 0; /* xor self */
@@ -160,7 +191,19 @@ loc_0011E5D0:
 
 loc_0011E5F0:
     ecx = MEM32(esp + 0x1C);
+    if (esi >= 12) {
+        fprintf(stderr, "[FSW/Sphere] VisibilityTestLow stopping invalid test table index=%u sphere=%08X\n",
+                (unsigned)esi, (unsigned)ebx);
+        goto loc_0011E61C;
+    }
     eax = MEM32(esi * 4 + 0x5CE240);
+    test_index = eax;
+    if (test_index > 5) {
+        fprintf(stderr, "[FSW/Sphere] VisibilityTestLow skipping invalid test function index=%u sphere=%08X\n",
+                (unsigned)test_index, (unsigned)ebx);
+        eax = 0;
+        goto loc_0011E606;
+    }
     { uint32_t _icall_esp = g_esp;
     PUSH32(esp, ebp);
     PUSH32(esp, ecx);

@@ -7,6 +7,74 @@
 #define RECOMP_GENERATED_CODE
 #include "recomp_funcs.h"
 #include <math.h>
+#include <stdio.h>
+
+static int fsw_particle_desc_table_valid(uint32_t desc, uint32_t count)
+{
+    if (count == 0 || count > 4096) {
+        return 0;
+    }
+    if (desc < 0x00010000u || desc >= 0x04000000u) {
+        return 0;
+    }
+    if (desc >= 0x00800000u && desc < 0x00980000u) {
+        return 0;
+    }
+    return 1;
+}
+
+static int fsw_particle_va_range_is_valid(uint32_t va, uint32_t size)
+{
+    return va > 0x00010000u && va < 0x04000000u && size <= 0x04000000u - va;
+}
+
+static void fsw_particle_repair_list(uint32_t list, const char *reason)
+{
+    if (!fsw_particle_va_range_is_valid(list, 0xC)) {
+        return;
+    }
+    uint32_t count = MEM32(list);
+    uint32_t head = MEM32(list + 8);
+    uint32_t corrupt = 0;
+    if (count == 0) {
+        if (head != 0) {
+            corrupt = 1;
+        }
+    } else if (count > 128u || head == 0) {
+        corrupt = 1;
+    } else {
+        uint32_t node = head;
+        for (uint32_t i = 0; i < count; i++) {
+            if (!fsw_particle_va_range_is_valid(node, 0xC) ||
+                !fsw_particle_va_range_is_valid(MEM32(node), 4)) {
+                corrupt = 1;
+                break;
+            }
+            uint32_t next = MEM32(node + 4);
+            if (next == node || (next != 0 && !fsw_particle_va_range_is_valid(next, 0xC))) {
+                corrupt = 1;
+                break;
+            }
+            node = next;
+            if (node == 0 && i + 1 < count) {
+                corrupt = 1;
+                break;
+            }
+        }
+    }
+    if (corrupt) {
+        static uint32_t logged;
+        if (logged < 8) {
+            fprintf(stderr,
+                    "[FSW/Particles] clearing corrupt list reason=%s list=%08X count=%u head=%08X\n",
+                    reason, (unsigned)list, (unsigned)count, (unsigned)head);
+            logged++;
+        }
+        MEM32(list) = 0;
+        MEM32(list + 4) = 0;
+        MEM32(list + 8) = 0;
+    }
+}
 
 /**
  * fn_00028E60_PAVCParticleEffect_ZeroList_Append
@@ -635,9 +703,40 @@ loc_00377670:
     MEM32(esp + 0x1C) = ebx;
     MEM32(esp + 0x20) = ebx;
     MEM32(esp + 0x24) = ebx;
+    {
+        static uint32_t prerender_logs;
+        prerender_logs++;
+        if (prerender_logs <= 8 || (prerender_logs % 120) == 0) {
+            fprintf(stderr, "[FSW/Particles] PreRender #%u video=%08X camera=%08X manager=%08X esp=%08X\n",
+                    (unsigned)prerender_logs,
+                    (unsigned)esi,
+                    (unsigned)edi,
+                    (unsigned)MEM32(ebp + 8),
+                    (unsigned)esp);
+        }
+    }
     PUSH32(esp, 0); fn_00124190_ZeroVideo_SubmitLighting(); /* call 0x00124190 */
 
 loc_003776A1:
+    {
+        static uint32_t lighting_logs;
+        lighting_logs++;
+        if (lighting_logs <= 8 || (lighting_logs % 120) == 0) {
+            fprintf(stderr, "[FSW/Particles] PreRender after SubmitLighting #%u esp=%08X\n",
+                    (unsigned)lighting_logs, (unsigned)esp);
+        }
+    }
+    if (!fsw_particle_va_range_is_valid(esi, 0x4A28) ||
+        !fsw_particle_va_range_is_valid(edi, 0x60)) {
+        static uint32_t logged_invalid_prerender;
+        if (logged_invalid_prerender < 8) {
+            fprintf(stderr,
+                    "[FSW/Particles] skipping PreRender invalid video=%08X camera=%08X manager=%08X\n",
+                    (unsigned)MEM32(0x5FA8E8), (unsigned)edi, (unsigned)MEM32(ebp + 8));
+            logged_invalid_prerender++;
+        }
+        goto loc_0037773C;
+    }
     eax = ZX16(MEM16(esi + 0x4A24));
     ecx = MEM32(esi + 0x10C);
     eax = eax + eax * 8;
@@ -649,6 +748,17 @@ loc_003776A1:
     MEM32(eax + 8) = ecx;
     edx = MEM32(esi + 0x118);
     esi = MEM32(ebp + 8);
+    if (!fsw_particle_va_range_is_valid(esi, 0x20)) {
+        static uint32_t logged_bad_manager;
+        if (logged_bad_manager < 8) {
+            fprintf(stderr, "[FSW/Particles] skipping PreRender invalid manager=%08X\n",
+                    (unsigned)esi);
+            logged_bad_manager++;
+        }
+        goto loc_0037773C;
+    }
+    fsw_particle_repair_list(esi + 8, "pre-render-main");
+    fsw_particle_repair_list(esi + 0x14, "pre-render-secondary");
     MEM32(eax + 0xC) = edx;
     eax = esi + 8;
     MEM32(esp + 0x14) = eax;
@@ -2691,6 +2801,16 @@ void fn_003786F0_CParticleManager_Setup(void)
     ebp = g_seh_ebp; /* fpo_leaf: inherit caller's frame */
 
 loc_003786F0:
+    if (!fsw_particle_desc_table_valid(edx, eax)) {
+        static uint32_t log_count;
+        if (log_count < 16) {
+            fprintf(stderr, "[FSW/Particle] skipping invalid setup desc=%08X count=%u manager=%08X\n",
+                    edx, eax, ecx);
+            log_count++;
+        }
+        esp += 4; return; /* ret */
+    }
+
     esp = esp - 0xC;
     (void)0; /* test eax, eax - flags set for next jcc */
     PUSH32(esp, ebx);
@@ -2758,6 +2878,15 @@ loc_0037876A:
     MEM32(esi) = eax;
 
 loc_0037876F:
+    if (!fsw_particle_desc_table_valid(edi, 1)) {
+        static uint32_t item_log_count;
+        if (item_log_count < 16) {
+            fprintf(stderr, "[FSW/Particle] skipping invalid descriptor item=%08X remaining=%u\n",
+                    edi, ebp);
+            item_log_count++;
+        }
+        goto loc_00378789;
+    }
     edx = MEM32(edi);
     eax = esp + 0x10;
     PUSH32(esp, eax);

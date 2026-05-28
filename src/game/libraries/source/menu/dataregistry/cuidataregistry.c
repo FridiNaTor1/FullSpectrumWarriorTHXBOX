@@ -375,14 +375,14 @@ loc_00052730:
     key = MEM32(entry);
     for (uint32_t probe = 0; probe <= mask; probe++) {
         uint32_t slot = table + (((key + probe) & mask) * 12);
-        uint32_t slot_key = MEM32(slot);
-        if (slot_key == 0xFFFFFFFFu || slot_key == key) {
-            if (slot_key == 0xFFFFFFFFu) {
+        uint32_t slot_hash = MEM32(slot);
+        if (slot_hash == 0xFFFFFFFFu || MEM32(slot + 4) == key) {
+            if (slot_hash == 0xFFFFFFFFu) {
                 MEM32(set + 0xC) = MEM32(set + 0xC) + 1;
             }
-            MEM32(slot) = MEM32(entry);
-            MEM32(slot + 4) = MEM32(entry + 4);
-            MEM32(slot + 8) = MEM32(entry + 8);
+            MEM32(slot) = key;
+            MEM32(slot + 4) = key;
+            MEM32(slot + 8) = MEM32(entry + 4);
             eax = slot;
             esp += 8; return; /* ret 4 */
         }

@@ -7,6 +7,12 @@
 #define RECOMP_GENERATED_CODE
 #include "recomp_funcs.h"
 #include <math.h>
+#include <stdio.h>
+
+static int caicell_va_range_is_valid(uint32_t va, uint32_t size)
+{
+    return va >= 0x00010000u && va < 0x04000000u && size <= 0x04000000u - va;
+}
 
 /**
  * fn_00023180_G_ZeroList_Prepend
@@ -1134,6 +1140,19 @@ void fn_00024630_PAVCDeadGuy_ZeroList_GetHead(void)
 {
 
 loc_00024630:
+    if (!caicell_va_range_is_valid(eax, 8) || !caicell_va_range_is_valid(ecx, 0xC)) {
+        static uint32_t invalid_deadguy_head_logs = 0;
+        if (invalid_deadguy_head_logs < 8 || (invalid_deadguy_head_logs % 8192) == 0) {
+            fprintf(stderr, "[FSW/AI] DeadGuy list GetHead invalid out=%08X list=%08X\n",
+                    (unsigned)eax, (unsigned)ecx);
+        }
+        invalid_deadguy_head_logs++;
+        if (caicell_va_range_is_valid(eax, 8)) {
+            MEM32(eax + 4) = 0;
+            MEM32(eax) = 0;
+        }
+        esp += 4; return; /* ret */
+    }
     MEM32(eax + 4) = ecx;
     ecx = MEM32(ecx + 8);
     MEM32(eax) = ecx;
@@ -1299,13 +1318,18 @@ void sub_0002FA30(void)
     int _flags = 0; /* fallback flag var */
 
 loc_0002FA30:
+    if (!caicell_va_range_is_valid(esi, 0xC) ||
+        !caicell_va_range_is_valid(eax, 0xC) ||
+        !caicell_va_range_is_valid(ebx, 4)) {
+        esp += 4; return; /* ret */
+    }
     ecx = MEM32(esi + 8);
     (void)0; /* test ecx, ecx - flags set for next jcc */
     edx = MEM32(ebx);
     MEM32(eax) = edx;
     MEM32(eax + 8) = 0;
     MEM32(eax + 4) = ecx;
-    if (TEST_Z(ecx, ecx)) { sub_0002FA4E(); return; } /* je: equal / zero */
+    if (TEST_Z(ecx, ecx) || !caicell_va_range_is_valid(ecx, 0xC)) { sub_0002FA4E(); return; } /* je: equal / zero */
 
 loc_0002FA45:
     MEM32(ecx + 8) = eax;
@@ -1330,10 +1354,12 @@ loc_0002FA4C:
 
 }
 
-/* Fallback for unresolved generated target 0x0002FA4E. */
+/* Shared tail-store block targeted from the generated list append path. */
 void sub_0002FA4E(void)
 {
-    recomp_missing_target(0x0002FA4Eu);
+loc_0002FA4E:
+    MEM32(esi + 8) = eax;
+    esp += 4; return; /* ret */
 }
 
 /**

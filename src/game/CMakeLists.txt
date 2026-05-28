@@ -2,6 +2,8 @@ file(GLOB_RECURSE GAME_SOURCE_FILES CONFIGURE_DEPENDS
     "${CMAKE_CURRENT_SOURCE_DIR}/*.c"
 )
 
+find_package(ZLIB REQUIRED)
+
 set(RECOMP_SUPPORT_FILES
     "${CMAKE_CURRENT_SOURCE_DIR}/main.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/recomp/recomp_manual.c"
@@ -20,7 +22,7 @@ target_include_directories(fsw_th_recomp PRIVATE
     "${CMAKE_CURRENT_SOURCE_DIR}/recomp/gen"
 )
 
-target_link_libraries(fsw_th_recomp PRIVATE xboxrecomp m)
+target_link_libraries(fsw_th_recomp PRIVATE xboxrecomp m ZLIB::ZLIB)
 
 if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
     target_compile_options(fsw_th_recomp PRIVATE

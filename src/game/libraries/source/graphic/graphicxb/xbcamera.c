@@ -8,6 +8,11 @@
 #include "recomp_funcs.h"
 #include <math.h>
 
+static int fsw_xbcamera_va_range_is_valid(uint32_t va, uint32_t size)
+{
+    return va >= 0x00010000u && size <= 0x04000000u - va;
+}
+
 /**
  * fn_00052360_GXBCamera_UAEPAXI_Z
  * Symbol: ??_GXBCamera@@UAEPAXI@Z
@@ -443,6 +448,7 @@ loc_00137A51:
 void fn_00137A60_XBCamera_SetFrustum(void)
 {
     int _flags = 0; /* fallback flag var */
+    uint32_t saved_camera;
     float xmm0, xmm1, xmm2, xmm3, xmm4, xmm5, xmm6, xmm7;
     double _fp_stack[8];
     int _fp_top = 0;
@@ -455,8 +461,15 @@ void fn_00137A60_XBCamera_SetFrustum(void)
 loc_00137A60:
     esp = esp - 0xA4;
     PUSH32(esp, esi);
+    saved_camera = ecx;
     esi = ecx;
     PUSH32(esp, 0); fn_0011BFA0_ZeroCamera_SetFrustum(); /* call 0x0011BFA0 */
+    esi = saved_camera;
+    if (!fsw_xbcamera_va_range_is_valid(esi, 0x2C8)) {
+        POP32(esp, esi);
+        esp = esp + 0xA4;
+        esp += 4; return; /* ret */
+    }
 
 loc_00137A6E:
     SET_LO8(eax, MEM8(esi + 0x2BC));

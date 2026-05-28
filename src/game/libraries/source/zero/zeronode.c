@@ -7,6 +7,27 @@
 #define RECOMP_GENERATED_CODE
 #include "recomp_funcs.h"
 #include <math.h>
+#include <stdio.h>
+
+static int fsw_zeronode_va_range_is_valid(uint32_t va, uint32_t size)
+{
+    if (va < 0x00010000u || va >= 0x04000000u) {
+        return 0;
+    }
+    if (size > 0x04000000u || va > 0x04000000u - size) {
+        return 0;
+    }
+    return 1;
+}
+
+static void fsw_zeronode_warn_bad_find(uint32_t node, uint32_t crc)
+{
+    static int warn_count;
+    if (warn_count < 16) {
+        fprintf(stderr, "[FSW/ZeroNode] invalid Find node=%08X crc=%08X\n", node, crc);
+    }
+    warn_count++;
+}
 
 /**
  * fn_00120F10_ZeroBaseNode_GetLast
@@ -362,41 +383,40 @@ loc_001210AD:
  */
 void fn_001210B0_ZeroBaseNode_Attach(void)
 {
-    int _flags = 0; /* fallback flag var */
+    uint32_t child = MEM32(esp + 4);
+    uint32_t parent = ecx;
+    unsigned steps = 0;
 
-loc_001210B0:
-    eax = MEM32(esp + 4);
-    if (TEST_Z(eax, eax)) goto loc_001210E8; /* je: equal / zero */
+    if (child == 0 ||
+        !fsw_zeronode_va_range_is_valid(parent, 0x1C) ||
+        !fsw_zeronode_va_range_is_valid(child, 0x1C) ||
+        child == parent) {
+        esp += 8; return; /* ret 4 */
+    }
 
-loc_001210B8:
-    MEM32(ecx + 0x10) = eax;
-    edx = MEM32(eax + 0x14);
-    if (TEST_Z(edx, edx)) goto loc_001210E2; /* je: equal / zero */
+    MEM32(parent + 0x10) = child;
+    edx = MEM32(child + 0x14);
+    if (edx == 0 || !fsw_zeronode_va_range_is_valid(edx, 0x1C)) {
+        MEM32(child + 0x14) = parent;
+        MEM32(parent + 8) = MEM32(parent + 8) + 1;
+        esp += 8; return; /* ret 4 */
+    }
 
-loc_001210C2:
-    eax = MEM32(edx + 0x18);
-    if (TEST_Z(eax, eax)) goto loc_001210D9; /* je: equal / zero */
+    for (;;) {
+        eax = MEM32(edx + 0x18);
+        if (eax == 0) {
+            break;
+        }
+        if (!fsw_zeronode_va_range_is_valid(eax, 0x1C) || eax == edx || ++steps > 4096) {
+            MEM32(edx + 0x18) = 0;
+            break;
+        }
+        edx = eax;
+    }
 
-loc_001210C9:
-    /* nop */
-
-loc_001210D0:
-    edx = eax;
-    eax = MEM32(edx + 0x18);
-    if (TEST_NZ(eax, eax)) goto loc_001210D0; /* jne: not equal / not zero */
-
-loc_001210D9:
-    MEM32(edx + 0x18) = ecx;
-    MEM32(ecx + 8) = MEM32(ecx + 8) + 1;
+    MEM32(edx + 0x18) = parent;
+    MEM32(parent + 8) = MEM32(parent + 8) + 1;
     esp += 8; return; /* ret 4 */
-
-loc_001210E2:
-    MEM32(eax + 0x14) = ecx;
-    MEM32(ecx + 8) = MEM32(ecx + 8) + 1;
-
-loc_001210E8:
-    esp += 8; return; /* ret 4 */
-
 }
 
 /**
@@ -719,6 +739,10 @@ void fn_00121290_ZeroBaseNode_Find(void)
 
 loc_00121290:
     edx = MEM32(esp + 4);
+    if (!fsw_zeronode_va_range_is_valid(eax, 0x1C)) {
+        fsw_zeronode_warn_bad_find(eax, edx);
+        goto loc_00121298;
+    }
     if (TEST_NZ(edx, edx)) { sub_0012129D(); return; } /* jne: not equal / not zero */
 
 loc_00121298:
@@ -738,10 +762,20 @@ void sub_0012129D(void)
     int _flags = 0; /* fallback flag var */
 
 loc_0012129D:
+    if (!fsw_zeronode_va_range_is_valid(eax, 0x1C)) {
+        fsw_zeronode_warn_bad_find(eax, edx);
+        eax = 0;
+        goto loc_001212F2;
+    }
     ecx = MEM32(eax + 0x14);
     if (TEST_Z(ecx, ecx)) goto loc_001212AD; /* je: equal / zero */
 
 loc_001212A4:
+    if (!fsw_zeronode_va_range_is_valid(ecx, 0x1C)) {
+        fsw_zeronode_warn_bad_find(ecx, edx);
+        eax = 0;
+        goto loc_001212F2;
+    }
     eax = ecx;
     ecx = MEM32(eax + 0x14);
     if (TEST_NZ(ecx, ecx)) goto loc_001212A4; /* jne: not equal / not zero */
@@ -750,6 +784,11 @@ loc_001212AD:
     /* nop */
 
 loc_001212B0:
+    if (!fsw_zeronode_va_range_is_valid(eax, 0x1C)) {
+        fsw_zeronode_warn_bad_find(eax, edx);
+        eax = 0;
+        goto loc_001212F2;
+    }
     if (CMP_EQ(edx, MEM32(eax + 0xC))) goto loc_001212F2; /* je: equal / zero */
 
 loc_001212B5:
@@ -757,10 +796,20 @@ loc_001212B5:
     if (TEST_Z(ecx, ecx)) goto loc_001212D0; /* je: equal / zero */
 
 loc_001212BC:
+    if (!fsw_zeronode_va_range_is_valid(ecx, 0x1C)) {
+        fsw_zeronode_warn_bad_find(ecx, edx);
+        eax = 0;
+        goto loc_001212F2;
+    }
     eax = MEM32(ecx + 0x14);
     if (TEST_Z(eax, eax)) goto loc_001212CC; /* je: equal / zero */
 
 loc_001212C3:
+    if (!fsw_zeronode_va_range_is_valid(eax, 0x1C)) {
+        fsw_zeronode_warn_bad_find(eax, edx);
+        eax = 0;
+        goto loc_001212F2;
+    }
     ecx = eax;
     eax = MEM32(ecx + 0x14);
     if (TEST_NZ(eax, eax)) goto loc_001212C3; /* jne: not equal / not zero */
@@ -778,6 +827,11 @@ loc_001212D9:
     /* nop */
 
 loc_001212E0:
+    if (!fsw_zeronode_va_range_is_valid(eax, 0x1C)) {
+        fsw_zeronode_warn_bad_find(eax, edx);
+        eax = 0;
+        goto loc_001212F2;
+    }
     if (CMP_NE(ecx, MEM32(eax + 0x18))) goto loc_001212EE; /* jne: not equal / not zero */
 
 loc_001212E5:

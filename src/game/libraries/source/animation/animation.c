@@ -7,6 +7,12 @@
 #define RECOMP_GENERATED_CODE
 #include "recomp_funcs.h"
 #include <math.h>
+#include <stdio.h>
+
+static int fsw_anim_va_is_valid(uint32_t va)
+{
+    return va >= 0x00010000u && va < 0x04000000u;
+}
 
 /**
  * fn_000560E0_ZeroQuaternion_GetNormalize
@@ -759,6 +765,15 @@ void fn_00115C90_AnimationSet_Load(void)
     ebp = g_seh_ebp; /* fpo_leaf: inherit caller's frame */
 
 loc_00115C90:
+    if (!fsw_anim_va_is_valid(ecx) || !fsw_anim_va_is_valid(eax)) {
+        static uint32_t bad_anim_load_count = 0;
+        if (bad_anim_load_count < 16) {
+            fprintf(stderr, "[FSW/Anim] skipping invalid AnimationSet::Load dst=%08X src=%08X\n",
+                    (unsigned)ecx, (unsigned)eax);
+        }
+        bad_anim_load_count++;
+        esp += 4; return;
+    }
     edx = MEM32(eax);
     eax = eax + 4;
     MEM32(ecx) = edx;
@@ -781,6 +796,21 @@ loc_00115C90:
     ebp = 0; /* xor self */
     (void)0; /* test esi, esi - flags set for next jcc */
     MEM32(ecx + 0x10) = edx;
+    if (MEM32(ecx + 4) > 0x10000u || MEM32(ecx + 0xC) > 0x10000u ||
+        !fsw_anim_va_is_valid(MEM32(ecx + 8)) || !fsw_anim_va_is_valid(MEM32(ecx + 0x10))) {
+        static uint32_t bad_anim_meta_count = 0;
+        if (bad_anim_meta_count < 16) {
+            fprintf(stderr,
+                    "[FSW/Anim] skipping invalid AnimationSet metadata dst=%08X src=%08X tracks=%u anims=%u data=%08X anim=%08X\n",
+                    (unsigned)ecx, (unsigned)(MEM32(ecx + 8) - 0x10),
+                    (unsigned)MEM32(ecx + 4), (unsigned)MEM32(ecx + 0xC),
+                    (unsigned)MEM32(ecx + 8), (unsigned)MEM32(ecx + 0x10));
+        }
+        bad_anim_meta_count++;
+        POP32(esp, esi);
+        POP32(esp, ebp);
+        esp += 4; return;
+    }
     if (CMP_LE(esi & esi, 0)) goto loc_00115D03; /* jle: less or equal (signed <=) */
 
 loc_00115CC7:
@@ -790,6 +820,15 @@ loc_00115CC7:
 
 loc_00115CD0:
     edx = MEM32(ecx + 0x10);
+    if (!fsw_anim_va_is_valid(edx + esi + 0x28)) {
+        static uint32_t bad_anim_entry_count = 0;
+        if (bad_anim_entry_count < 16) {
+            fprintf(stderr, "[FSW/Anim] stopping invalid AnimationSet entry dst=%08X anim_table=%08X offset=%08X\n",
+                    (unsigned)ecx, (unsigned)edx, (unsigned)esi);
+        }
+        bad_anim_entry_count++;
+        goto loc_00115D02;
+    }
     MEM32(edx + esi + 0x20) = eax;
     edx = MEM32(ecx + 0x10);
     edi = edx + esi;

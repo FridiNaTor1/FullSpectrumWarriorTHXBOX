@@ -7,6 +7,28 @@
 #define RECOMP_GENERATED_CODE
 #include "recomp_funcs.h"
 #include <math.h>
+#include <stdio.h>
+
+static int hudteamdata_va_range_is_valid(uint32_t va, uint32_t size)
+{
+    if (size == 0) {
+        return va >= 0x00010000u && va < 0x04000000u;
+    }
+    if (va < 0x00010000u || va >= 0x04000000u || va + size < va) {
+        return 0;
+    }
+    return va + size <= 0x04000000u;
+}
+
+static int hudteamdata_vtable_is_valid(uint32_t object, uint32_t min_size)
+{
+    uint32_t vtbl;
+    if (!hudteamdata_va_range_is_valid(object, 4)) {
+        return 0;
+    }
+    vtbl = MEM32(object);
+    return vtbl < 0x00800000u && hudteamdata_va_range_is_valid(vtbl, min_size);
+}
 
 /**
  * fn_003AEE70_HUDTeamData_Clear
@@ -169,6 +191,11 @@ void fn_003AEF70_HUDTeamData_UpdateFlags(void)
 
 loc_003AEF70:
     PUSH32(esp, edi);
+    if (!hudteamdata_va_range_is_valid(esi, 0x74)) {
+        fprintf(stderr, "[FSW/HUD] skipping HUDTeamData_UpdateFlags invalid data=%08X\n", esi);
+        POP32(esp, edi);
+        esp += 8; return; /* ret 4 */
+    }
     edi = MEM32(esi + 0x6C);
     PUSH32(esp, 0); fn_00355430_CAIManager_Get(); /* call 0x00355430 */
 
@@ -176,7 +203,7 @@ loc_003AEF79:
     ecx = edi;
     eax = eax + 0xD4;
     ecx = ecx & 0xFF;
-    if (CMP_NE(MEM32(eax + ecx * 8), edi)) { sub_003AEF91(); return; } /* jne: not equal / not zero */
+    if (CMP_NE(MEM32(eax + ecx * 8), edi)) { g_seh_ebp = ebp; sub_003AEF91(); return; } /* jne: not equal / not zero */
 
 loc_003AEF8B:
     ecx = MEM32(eax + ecx * 8 + 4);
@@ -195,6 +222,12 @@ void sub_003AEF91(void)
 
 loc_003AEF91:
     ecx = 0; /* xor self */
+    if (!hudteamdata_vtable_is_valid(ecx, 0xBC)) {
+        fprintf(stderr, "[FSW/HUD] skipping HUDTeamData_UpdateFlags missing team crc=%08X\n", edi);
+        POP32(esp, edi);
+        esp += 8; return; /* ret 4 */
+    }
+    sub_003AEF93(); return; /* fallthrough 0x003AEF93 */
 
 }
 
@@ -211,6 +244,11 @@ void sub_003AEF93(void)
     ebp = g_seh_ebp; /* fpo_leaf: inherit caller's frame */
 
 loc_003AEF93:
+    if (!hudteamdata_vtable_is_valid(ecx, 0xBC)) {
+        fprintf(stderr, "[FSW/HUD] skipping HUDTeamData_UpdateFlags invalid team=%08X crc=%08X\n", ecx, edi);
+        POP32(esp, edi);
+        esp += 8; return; /* ret 4 */
+    }
     eax = MEM32(ecx);
     { uint32_t _icall_esp = g_esp;
     PUSH32(esp, 1);
@@ -238,6 +276,10 @@ loc_003AEFC1:
     ecx = 0; /* xor self */
 
 loc_003AEFC3:
+    if (!hudteamdata_vtable_is_valid(ecx, 4)) {
+        eax = 0;
+        goto loc_003AEFC8;
+    }
     PUSH32(esp, 0); fn_0031E6B0_CAITeam_IsBusyDeep(); /* call 0x0031E6B0 */
 
 loc_003AEFC8:
@@ -262,6 +304,7 @@ void sub_003AEFD4(void)
 loc_003AEFD4:
     eax = MEM32(esi + 0x70);
     eax = eax & 0xFFFFFFFEu;
+    sub_003AEFDA(); return; /* fallthrough 0x003AEFDA */
 
 }
 
@@ -305,6 +348,7 @@ void sub_003AEFFD(void)
 
 loc_003AEFFD:
     eax = 0; /* xor self */
+    sub_003AEFFF(); return; /* fallthrough 0x003AEFFF */
 
 }
 
@@ -320,7 +364,11 @@ void sub_003AEFFF(void)
     float xmm0;
 
 loc_003AEFFF:
-    edi = MEM32(eax + 0x290);
+    if (hudteamdata_va_range_is_valid(eax, 0x294)) {
+        edi = MEM32(eax + 0x290);
+    } else {
+        edi = 0;
+    }
     eax = MEM32(esi + 0x70);
     (void)0; /* test edi, edi - flags set for next jcc */
     SET_LO8(ecx, (TEST_NZ(edi, edi)) ? 1 : 0); /* setne */

@@ -8,6 +8,8 @@
 #include "recomp_funcs.h"
 #include <math.h>
 #include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 #include <unistd.h>
 
 extern uint32_t fsw_ensure_splash_surface(void);
@@ -15,9 +17,48 @@ extern uint32_t fsw_ensure_splash_surface(void);
 extern void d3d8_vulkan_host_present(void);
 #endif
 
+static uint32_t g_fsw_main_boot_level_va;
+static int g_fsw_main_boot_level_enabled;
+static char g_fsw_main_boot_level_name[64];
+static uint32_t g_fsw_main_last_live_context;
+
 static int mainxbox_va_is_valid(uint32_t va)
 {
     return va >= 0x00010000u && va < 0x04000000u;
+}
+
+static uint32_t mainxbox_alloc_cstring(const char *value)
+{
+    size_t len;
+    uint32_t va;
+
+    if (value == NULL || value[0] == '\0') {
+        return 0;
+    }
+
+    len = strlen(value) + 1;
+    va = xbox_HeapAlloc((uint32_t)len, 16);
+    if (!mainxbox_va_is_valid(va)) {
+        return 0;
+    }
+
+    memcpy((void *)XBOX_PTR(va), value, len);
+    return va;
+}
+
+static const char *mainxbox_get_boot_level_name(void)
+{
+    const char *level = getenv("FSW_TH_LEVEL");
+    if (level == NULL || level[0] == '\0') {
+        level = getenv("FSW_TH_BOOT_LEVEL");
+    }
+    if (level == NULL || level[0] == '\0' || strcmp(level, "0") == 0) {
+        return NULL;
+    }
+    if (strcmp(level, "1") == 0 || strcmp(level, "first") == 0 || strcmp(level, "true") == 0) {
+        return "bd_startbusdepot";
+    }
+    return level;
 }
 
 static int mainxbox_is_live_context(uint32_t va)
@@ -34,6 +75,15 @@ static int mainxbox_is_live_context(uint32_t va)
         }
         shell_vtable_fix_count++;
         MEM32(va) = 0x0055A448u;
+    }
+    if (va == 0x006244BCu && MEM32(va) != 0x005406C0u) {
+        static uint32_t mission_vtable_fix_count = 0;
+        if (mission_vtable_fix_count < 16) {
+            fprintf(stderr, "[FSW] main: restoring MissionHandler vtable old=0x%08X\n",
+                    (unsigned)MEM32(va));
+        }
+        mission_vtable_fix_count++;
+        MEM32(va) = 0x005406C0u;
     }
     vtbl = MEM32(va);
     return mainxbox_va_is_valid(vtbl) &&
@@ -331,10 +381,26 @@ loc_003EC6E7:
     SET_LO8(ebx, 1);
 
 loc_003EC6E9:
+    {
+        const char *boot_level = mainxbox_get_boot_level_name();
+        if (boot_level != NULL && !g_fsw_main_boot_level_enabled) {
+            g_fsw_main_boot_level_va = mainxbox_alloc_cstring(boot_level);
+            g_fsw_main_boot_level_enabled = mainxbox_va_is_valid(g_fsw_main_boot_level_va);
+            strncpy(g_fsw_main_boot_level_name, boot_level, sizeof(g_fsw_main_boot_level_name) - 1);
+            g_fsw_main_boot_level_name[sizeof(g_fsw_main_boot_level_name) - 1] = '\0';
+            fprintf(stderr, "[FSW] main: boot level request %s va=0x%08X enabled=%d\n",
+                    boot_level, (unsigned)g_fsw_main_boot_level_va, g_fsw_main_boot_level_enabled);
+        }
+    }
     edx = MEM32(0x5FA38C);
     PUSH32(esp, edx);
-    edx = 0x540788;
+    edx = g_fsw_main_boot_level_enabled ? g_fsw_main_boot_level_va : 0x540788;
     PUSH32(esp, 0); fn_002A70F0_CSettings_SetLevel(); /* call 0x002A70F0 */
+    if (g_fsw_main_boot_level_enabled) {
+        strncpy((char *)XBOX_PTR(0x5D92B8), g_fsw_main_boot_level_name, 0x3F);
+        MEM8(0x5D92F7) = 0;
+        fprintf(stderr, "[FSW] main: current pak forced to %s\n", (const char *)XBOX_PTR(0x5D92B8));
+    }
 
 loc_003EC6FA:
     fprintf(stderr, "[FSW] main: level selected, settings=0x%08X\n",
@@ -352,7 +418,7 @@ loc_003EC704:
             (unsigned)MEM32(0x6152B0));
     PUSH32(esp, ecx);
     eax = 0; /* xor self */
-    ecx = 0x5406A0;
+    ecx = g_fsw_main_boot_level_enabled ? 0x5406F0 : 0x5406A0;
     esi = esp;
     PUSH32(esp, 0); fn_00128D90_CalcLowerCRC(); /* call 0x00128D90 */
 
@@ -365,8 +431,10 @@ loc_003EC71A:
     PUSH32(esp, 0); fn_002B0CA0_CApplicationManager_ContextSwitch(); /* call 0x002B0CA0 */
 
 loc_003EC721:
-    fprintf(stderr, "[FSW] main: ContextSwitch done current=0x%08X pending=0x%08X\n",
-            (unsigned)MEM32(esi), (unsigned)MEM32(esi + 4));
+    fprintf(stderr, "[FSW] main: ContextSwitch done current=0x%08X pending=0x%08X video=0x%08X vtable=0x%08X\n",
+            (unsigned)MEM32(esi), (unsigned)MEM32(esi + 4),
+            (unsigned)MEM32(0x5FA8E8),
+            (unsigned)(mainxbox_va_is_valid(MEM32(0x5FA8E8)) ? MEM32(MEM32(0x5FA8E8)) : 0));
     if (TEST_Z(LO8(ebx), LO8(ebx))) { sub_003EC72C(); return; } /* je: equal / zero */
 
 loc_003EC725:
@@ -407,6 +475,7 @@ loc_003EC73B:
  */
 void sub_003EC740(void)
 {
+    uint32_t app_run_esp = 0;
     int _flags = 0; /* fallback flag var */
 
 loc_003EC740:
@@ -464,22 +533,40 @@ loc_003EC790:
 
 loc_003EC795:
     esi = eax;
+    {
+        uint32_t current_context = MEM32(0x615298);
+        uint32_t pending_context = MEM32(0x61529C);
+        if (mainxbox_is_live_context(current_context)) {
+            g_fsw_main_last_live_context = current_context;
+        } else if (mainxbox_is_live_context(pending_context)) {
+            g_fsw_main_last_live_context = pending_context;
+        }
+    }
+    app_run_esp = esp;
     PUSH32(esp, 0); fn_002B1110_CApplicationManager_Run(); /* call 0x002B1110 */
 
 loc_003EC79C:
+    if (esp != app_run_esp) {
+        static uint32_t app_run_stack_repairs = 0;
+        if (app_run_stack_repairs < 16 || (app_run_stack_repairs % 120) == 0) {
+            fprintf(stderr, "[FSW] main: repairing stack after CApplicationManager_Run before=%08X after=%08X count=%u\n",
+                    app_run_esp, esp, app_run_stack_repairs + 1);
+        }
+        app_run_stack_repairs++;
+        esp = app_run_esp;
+    }
     {
         static uint32_t run_log_count = 0;
-        static uint32_t last_live_context = 0;
         uint32_t current_context = MEM32(0x615298);
         run_log_count++;
         if (mainxbox_is_live_context(current_context)) {
-            last_live_context = current_context;
-        } else if (mainxbox_va_is_valid(last_live_context)) {
-            MEM32(0x615298) = last_live_context;
+            g_fsw_main_last_live_context = current_context;
+        } else if (g_fsw_main_boot_level_enabled && mainxbox_va_is_valid(g_fsw_main_last_live_context)) {
+            MEM32(0x615298) = g_fsw_main_last_live_context;
             eax = 1;
             if (run_log_count <= 16) {
                 fprintf(stderr, "[FSW] main: restored app context 0x%08X after invalid current=0x%08X\n",
-                        (unsigned)last_live_context, (unsigned)current_context);
+                        (unsigned)g_fsw_main_last_live_context, (unsigned)current_context);
             }
         }
         if (run_log_count <= 8 || eax == 0 || (run_log_count % 100000000) == 0) {

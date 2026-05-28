@@ -7,10 +7,44 @@
 #define RECOMP_GENERATED_CODE
 #include "recomp_funcs.h"
 #include <math.h>
+#include <string.h>
+
+extern uint32_t xbox_HeapAlloc(uint32_t size, uint32_t alignment);
+
+static uint32_t g_fsw_video_memory_fallback;
+static uint32_t g_fsw_video_memory_fallback_size;
 
 static int cvideo_va_is_valid(uint32_t va)
 {
     return va >= 0x00010000u && va < 0x04000000u;
+}
+
+static void cvideo_memory_ensure_backing(void)
+{
+    uint32_t base = MEM32(0x5FA6FC);
+    uint32_t size = MEM32(0x5CDAB4);
+
+    if (cvideo_va_is_valid(base) && size >= 0x400000u) {
+        return;
+    }
+
+    if (g_fsw_video_memory_fallback == 0) {
+        g_fsw_video_memory_fallback_size = 0x400000u;
+        g_fsw_video_memory_fallback = xbox_HeapAlloc(g_fsw_video_memory_fallback_size, 0x80);
+        if (cvideo_va_is_valid(g_fsw_video_memory_fallback)) {
+            memset((void *)XBOX_PTR(g_fsw_video_memory_fallback), 0xEA, g_fsw_video_memory_fallback_size);
+        }
+    }
+
+    if (!cvideo_va_is_valid(g_fsw_video_memory_fallback)) {
+        return;
+    }
+
+    MEM32(0x5FA6FC) = g_fsw_video_memory_fallback;
+    MEM32(0x5CDAB4) = g_fsw_video_memory_fallback_size;
+    MEM32(0x6161A4) = 0;
+    MEM32(0x6161A8) = g_fsw_video_memory_fallback;
+    MEM32(0x6161AC) = g_fsw_video_memory_fallback_size;
 }
 
 /**
@@ -138,6 +172,7 @@ void fn_001BB730_CVideoMemoryManager_Initialise(void)
 {
 
 loc_001BB730:
+    cvideo_memory_ensure_backing();
     ecx = MEM32(0x5CDAB4);
     edx = MEM32(0x5FA6FC);
     MEM32(eax + 8) = ecx;
@@ -158,6 +193,7 @@ void fn_001BB750_0CVideoMemoryManager_AAE_XZ(void)
 {
 
 loc_001BB750:
+    cvideo_memory_ensure_backing();
     ecx = MEM32(0x5CDAB4);
     edx = MEM32(0x5FA6FC);
     MEM32(eax + 8) = ecx;
@@ -179,6 +215,7 @@ void fn_001BB770_CVideoMemoryManager_Get(void)
     int _flags = 0; /* fallback flag var */
 
 loc_001BB770:
+    cvideo_memory_ensure_backing();
     SET_LO8(ecx, MEM8(0x6161B0));
     eax = 1;
     if (TEST_NZ(LO8(eax), LO8(ecx))) goto loc_001BB7BA; /* jne: not equal / not zero */
@@ -228,7 +265,7 @@ loc_001BB7C0:
     (void)0; /* cmp ebp, 0x13 - flags set for next jcc */
     PUSH32(esp, esi);
     PUSH32(esp, edi);
-    if (CMP_NE(ebp, 0x13)) { sub_001BB7E8(); return; } /* jne: not equal / not zero */
+    if (CMP_NE(ebp, 0x13)) { g_seh_ebp = ebp; sub_001BB7E8(); return; } /* jne: not equal / not zero */
 
 loc_001BB7E1:
     ecx = 1;
@@ -249,7 +286,7 @@ void sub_001BB7E8(void)
     ebp = g_seh_ebp; /* fpo_leaf: inherit caller's frame */
 
 loc_001BB7E8:
-    if (CMP_NE(ebp, 0x24)) { sub_001BB7F4(); return; } /* jne: not equal / not zero */
+    if (CMP_NE(ebp, 0x24)) { g_seh_ebp = ebp; sub_001BB7F4(); return; } /* jne: not equal / not zero */
 
 loc_001BB7ED:
     ecx = 2;
@@ -363,6 +400,7 @@ loc_001BB877:
     PUSH32(esp, 0); fn_00143AC0_0XBSurface_QAE_VCRC_HHHW4_D3DFORMAT_PAX_Z(); /* call 0x00143AC0 */
 
 loc_001BB8A7:
+    eax = MEM32(esp + 0x28);
     ecx = MEM32(esp + 0xC);
     MEM32(0) = ecx;
     POP32(esp, edi);

@@ -7,6 +7,14 @@
 #define RECOMP_GENERATED_CODE
 #include "recomp_funcs.h"
 #include <math.h>
+#include <stdio.h>
+
+static uint32_t settings_save_log_count;
+
+static int settings_va_range_is_valid(uint32_t va, uint32_t size)
+{
+    return va >= 0x00010000u && va < 0x04000000u && size <= 0x04000000u - va;
+}
 
 /**
  * fn_0002E1B0_GCSettings_AAEPAXI_Z
@@ -2522,9 +2530,24 @@ void fn_002A7580_CSettings_Save(void)
     ebp = g_seh_ebp; /* fpo_leaf: inherit caller's frame */
 
 loc_002A7580:
+    settings_save_log_count++;
     PUSH32(esp, ebx);
     PUSH32(esp, ebp);
     ebp = MEM32(esp + 0xC);
+    if (settings_save_log_count <= 12 || (settings_save_log_count % 120) == 0) {
+        fprintf(stderr,
+                "[FSW/Settings] Save #%u settings=%08X eax=%02X ecx=%02X dirty=%u timer=%u profile=%08X pool=%08X/%08X esp=%08X\n",
+                (unsigned)settings_save_log_count,
+                (unsigned)ebp,
+                (unsigned)ZX8(LO8(eax)),
+                (unsigned)ZX8(LO8(ecx)),
+                (unsigned)(settings_va_range_is_valid(ebp, 0xD0) ? ZX8(MEM8(ebp + 0xC9)) : 0),
+                (unsigned)(settings_va_range_is_valid(ebp, 0xD0) ? MEM32(ebp + 0xCC) : 0),
+                (unsigned)MEM32(0x5FA358),
+                (unsigned)MEM32(0x60802C),
+                (unsigned)MEM32(0x608030),
+                (unsigned)esp);
+    }
     (void)0; /* test LO8(eax), LO8(eax) - flags set for next jcc */
     SET_LO8(edx, (TEST_Z(LO8(eax), LO8(eax))) ? 1 : 0); /* sete */
     (void)0; /* test LO8(eax), LO8(eax) - flags set for next jcc */
@@ -2535,6 +2558,10 @@ loc_002A7580:
     if (TEST_Z(LO8(eax), LO8(eax))) { sub_002A76BA(); return; } /* je: equal / zero */
 
 loc_002A75A1:
+    if (settings_save_log_count <= 12 || (settings_save_log_count % 120) == 0) {
+        fprintf(stderr, "[FSW/Settings] Save #%u resetting cache esp=%08X\n",
+                (unsigned)settings_save_log_count, (unsigned)esp);
+    }
     eax = MEM32(0x5FA358);
     MEM8(eax + 0x5704) = 0;
     MEM8(eax + 0x5703) = 0;
@@ -2542,6 +2569,11 @@ loc_002A75A1:
     PUSH32(esp, 0); fn_00115A20_CPageAnimCache_Reset(); /* call 0x00115A20 */
 
 loc_002A75BE:
+    if (settings_save_log_count <= 12 || (settings_save_log_count % 120) == 0) {
+        fprintf(stderr, "[FSW/Settings] Save #%u after cache reset pool=%08X/%08X esp=%08X\n",
+                (unsigned)settings_save_log_count,
+                (unsigned)MEM32(0x60802C), (unsigned)MEM32(0x608030), (unsigned)esp);
+    }
     eax = MEM32(0x608030);
     ebx = 0; /* xor self */
     ecx = 0x4E200;
@@ -2569,6 +2601,7 @@ loc_002A75DF:
     eax = MEM32(0x60802C);
     MEM32(0x608038) = ecx;
     edi = eax;
+    sub_002A75EC(); return; /* original falls through */
 
 }
 
@@ -2585,6 +2618,10 @@ void sub_002A75EC(void)
     ebp = g_seh_ebp; /* fpo_leaf: inherit caller's frame */
 
 loc_002A75EC:
+    if (settings_save_log_count <= 12 || (settings_save_log_count % 120) == 0) {
+        fprintf(stderr, "[FSW/Settings] Save #%u allocate stream fast=%08X esp=%08X\n",
+                (unsigned)settings_save_log_count, (unsigned)MEM32(0x5F9E40), (unsigned)esp);
+    }
     if (CMP_NE(MEM32(0x5F9E40), ebx)) { sub_002A7600(); return; } /* jne: not equal / not zero */
 
 loc_002A75F4:
@@ -2621,6 +2658,7 @@ loc_002A760F:
 
 loc_002A7613:
     MEM32(eax) = 0x12345678;
+    sub_002A7619(); return; /* original falls through */
 
 }
 
@@ -2638,6 +2676,10 @@ void sub_002A7619(void)
 
 loc_002A7619:
     esi = eax;
+    if (settings_save_log_count <= 12 || (settings_save_log_count % 120) == 0) {
+        fprintf(stderr, "[FSW/Settings] Save #%u stream=%08X esp=%08X\n",
+                (unsigned)settings_save_log_count, (unsigned)esi, (unsigned)esp);
+    }
     if (CMP_EQ(esi, ebx)) { sub_002A7699(); return; } /* je: equal / zero */
 
 loc_002A761F:
@@ -2649,6 +2691,10 @@ loc_002A761F:
     PUSH32(esp, 0); fn_002A7510_CSettings_SaveSaveStream(); /* call 0x002A7510 */
 
 loc_002A763B:
+    if (settings_save_log_count <= 12 || (settings_save_log_count % 120) == 0) {
+        fprintf(stderr, "[FSW/Settings] Save #%u after SaveSaveStream eax=%08X stream=%08X esp=%08X\n",
+                (unsigned)settings_save_log_count, (unsigned)eax, (unsigned)esi, (unsigned)esp);
+    }
     edx = MEM32(esi);
     ecx = esi;
     SET_LO8(ebx, LO8(eax));
@@ -2695,6 +2741,10 @@ loc_002A7671:
     }
 
 loc_002A7679:
+    if (settings_save_log_count <= 12 || (settings_save_log_count % 120) == 0) {
+        fprintf(stderr, "[FSW/Settings] Save #%u finishing success=%u esp=%08X\n",
+                (unsigned)settings_save_log_count, (unsigned)ZX8(LO8(ebx)), (unsigned)esp);
+    }
     eax = MEM32(0x5FA358);
     MEM8(eax + 0x5704) = LO8(ebx);
     MEM8(0x608034) = 0;

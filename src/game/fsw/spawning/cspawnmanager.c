@@ -7,6 +7,18 @@
 #define RECOMP_GENERATED_CODE
 #include "recomp_funcs.h"
 #include <math.h>
+#include <stdio.h>
+
+static int cspawn_va_range_is_valid(uint32_t va, uint32_t size)
+{
+    if (size == 0) {
+        return va >= 0x00010000u && va < 0x04000000u;
+    }
+    if (va < 0x00010000u || va >= 0x04000000u || va + size < va) {
+        return 0;
+    }
+    return va + size <= 0x04000000u;
+}
 
 /**
  * fn_00012630_VCSpawnMapCharacter_ZeroList_Append
@@ -1435,6 +1447,12 @@ void fn_00182C50_CSpawnManager_GetActiveEntityCost(void)
     float xmm0, xmm1;
 
 loc_00182C50:
+    if (!cspawn_va_range_is_valid(eax, 0x48)) {
+        fprintf(stderr, "[FSW/Spawn] skipping GetActiveEntityCost invalid manager=%08X\n",
+                (unsigned)eax);
+        xmm0 = 0.0f;
+        esp += 4; return; /* ret */
+    }
     eax = MEM32(eax + 0x44);
     (void)0; /* test eax, eax - flags set for next jcc */
     xmm0 = 0.0f; /* xorps self = zero */
@@ -1444,7 +1462,19 @@ loc_00182C5A:
     xmm1 = MEMF(0x561418); /* movss */
 
 loc_00182C62:
+    if (!cspawn_va_range_is_valid(eax, 8)) {
+        fprintf(stderr, "[FSW/Spawn] stopping GetActiveEntityCost invalid active node=%08X\n",
+                (unsigned)eax);
+        goto loc_00182C7E;
+    }
     ecx = MEM32(eax);
+    if (!cspawn_va_range_is_valid(ecx, 0x28) ||
+        !cspawn_va_range_is_valid(MEM32(ecx + 0x24), 0x10C)) {
+        fprintf(stderr, "[FSW/Spawn] skipping GetActiveEntityCost invalid active object=%08X core=%08X\n",
+                (unsigned)ecx,
+                (unsigned)(cspawn_va_range_is_valid(ecx, 0x28) ? MEM32(ecx + 0x24) : 0));
+        goto loc_00182C77;
+    }
     edx = MEM32(ecx + 0x24);
     ecx = MEM32(edx + 0x108);
     ecx--;
@@ -2370,7 +2400,20 @@ loc_001830B0:
     PUSH32(esp, esi);
     esi = eax;
     PUSH32(esp, edi);
+    if (!cspawn_va_range_is_valid(esi, 0x94)) {
+        fprintf(stderr, "[FSW/Spawn] CanSpawn invalid encounter=%08X\n", (unsigned)esi);
+        sub_0018311E(); return;
+    }
     edi = MEM32(esi + 0x54);
+    if (!cspawn_va_range_is_valid(edi, 0x24)) {
+        if (edi != 0) {
+            fprintf(stderr, "[FSW/Spawn] CanSpawn invalid faction/parent=%08X encounter=%08X\n",
+                    (unsigned)edi, (unsigned)esi);
+        }
+        edi = 0;
+        ebp = 0xFFFFFFFFu;
+        g_seh_ebp = ebp; sub_001830C5(); return;
+    }
     if (TEST_Z(edi, edi)) { sub_001830C2(); return; } /* je: equal / zero */
 
 loc_001830BD:
@@ -2823,6 +2866,12 @@ void fn_001832E0_CSpawnManager_GetActivationQueueCost(void)
     float xmm0, xmm1;
 
 loc_001832E0:
+    if (!cspawn_va_range_is_valid(eax, 0x54)) {
+        fprintf(stderr, "[FSW/Spawn] skipping GetActivationQueueCost invalid manager=%08X\n",
+                (unsigned)eax);
+        xmm0 = 0.0f;
+        esp += 4; return; /* ret */
+    }
     eax = MEM32(eax + 0x50);
     (void)0; /* test eax, eax - flags set for next jcc */
     xmm0 = 0.0f; /* xorps self = zero */
@@ -2832,7 +2881,18 @@ loc_001832EA:
     xmm1 = MEMF(0x561418); /* movss */
 
 loc_001832F2:
+    if (!cspawn_va_range_is_valid(eax, 8)) {
+        fprintf(stderr, "[FSW/Spawn] stopping GetActivationQueueCost invalid queue node=%08X\n",
+                (unsigned)eax);
+        goto loc_0018330B;
+    }
     ecx = MEM32(eax);
+    if (!cspawn_va_range_is_valid(ecx, 0x10C)) {
+        fprintf(stderr, "[FSW/Spawn] skipping GetActivationQueueCost invalid queued core=%08X node=%08X\n",
+                (unsigned)ecx,
+                (unsigned)eax);
+        goto loc_00183304;
+    }
     ecx = MEM32(ecx + 0x108);
     ecx--;
     if ((ecx == 0)) goto loc_00183300; /* je: equal / zero */
@@ -3538,6 +3598,7 @@ loc_00183749:
     if (TEST_Z(edi, edi)) goto loc_00183768; /* je: equal / zero */
 
 loc_00183751:
+    if (!cspawn_va_range_is_valid(edi, 8)) goto loc_00183768;
     eax = MEM32(edi);
     ecx = esp + 0x14;
     PUSH32(esp, ecx);
@@ -3545,6 +3606,7 @@ loc_00183751:
     PUSH32(esp, 0); fn_00028E60_PAVCParticleEffect_ZeroList_Append(); /* call 0x00028E60 */
 
 loc_00183761:
+    if (!cspawn_va_range_is_valid(edi + 4, 4)) goto loc_00183768;
     edi = MEM32(edi + 4);
     if (TEST_NZ(edi, edi)) goto loc_00183751; /* jne: not equal / not zero */
 
@@ -5324,6 +5386,13 @@ loc_001841D0:
     esp = esp & 0xFFFFFFF8u;
     esp = esp - 0x14;
     PUSH32(esp, ebx);
+    if (!cspawn_va_range_is_valid(MEM32(ebp + 8), 0x48)) {
+        fprintf(stderr, "[FSW/Spawn] skipping UpdateCoreDeactivations invalid manager=%08X\n",
+                (unsigned)MEM32(ebp + 8));
+        PUSH32(esp, esi);
+        PUSH32(esp, edi);
+        goto loc_0018444B;
+    }
     ebx = MEM32(ebp + 8);
     ebx = ebx + 0x18;
     eax = ebx;
@@ -5341,7 +5410,22 @@ loc_001841F7:
     /* nop */
 
 loc_00184200:
+    if (!cspawn_va_range_is_valid(esi, 8)) {
+        fprintf(stderr, "[FSW/Spawn] stopping UpdateCoreDeactivations invalid deactivation node=%08X\n",
+                (unsigned)esi);
+        goto loc_00184288;
+    }
     edi = MEM32(esi);
+    if (!cspawn_va_range_is_valid(edi, 0xF4) ||
+        !cspawn_va_range_is_valid(MEM32(edi + 0xF0), 4) ||
+        !cspawn_va_range_is_valid(MEM32(MEM32(edi + 0xF0)), 0xB8)) {
+        fprintf(stderr, "[FSW/Spawn] skipping UpdateCoreDeactivations invalid deactivation object=%08X core=%08X vtbl=%08X\n",
+                (unsigned)edi,
+                (unsigned)(cspawn_va_range_is_valid(edi, 0xF4) ? MEM32(edi + 0xF0) : 0),
+                (unsigned)(cspawn_va_range_is_valid(edi, 0xF4) &&
+                           cspawn_va_range_is_valid(MEM32(edi + 0xF0), 4) ? MEM32(MEM32(edi + 0xF0)) : 0));
+        goto loc_00184279;
+    }
     ecx = MEM32(edi + 0xF0);
     eax = MEM32(ecx);
     { uint32_t _icall_esp = g_esp;
@@ -5393,6 +5477,13 @@ loc_00184251:
     PUSH32(esp, 0); fn_0003E000_PAVCHavokBody_ZeroList_Remove(); /* call 0x0003E000 */
 
 loc_00184256:
+    if (!cspawn_va_range_is_valid(edi, 4) ||
+        !cspawn_va_range_is_valid(MEM32(edi), 0x28)) {
+        fprintf(stderr, "[FSW/Spawn] skipping UpdateCoreDeactivations invalid removable object=%08X vtbl=%08X\n",
+                (unsigned)edi,
+                (unsigned)(cspawn_va_range_is_valid(edi, 4) ? MEM32(edi) : 0));
+        goto loc_00184279;
+    }
     eax = MEM32(edi);
     ecx = edi;
     { uint32_t _icall_esp = g_esp;
@@ -5413,6 +5504,11 @@ loc_0018426C:
     if (TEST_Z(esi, esi)) goto loc_00184288; /* je: equal / zero */
 
 loc_00184279:
+    if (!cspawn_va_range_is_valid(esi, 8)) {
+        fprintf(stderr, "[FSW/Spawn] stopping UpdateCoreDeactivations next invalid node=%08X\n",
+                (unsigned)esi);
+        goto loc_00184288;
+    }
     esi = MEM32(esi + 4);
     (void)0; /* test esi, esi - flags set for next jcc */
     MEM32(esp + 0x10) = esi;
@@ -5425,6 +5521,11 @@ loc_00184288:
     PUSH32(esp, 0); fn_00024630_PAVCDeadGuy_ZeroList_GetHead(); /* call 0x00024630 */
 
 loc_00184297:
+    if (!cspawn_va_range_is_valid(eax, 8)) {
+        fprintf(stderr, "[FSW/Spawn] stopping UpdateCoreDeactivations active head invalid iterator=%08X\n",
+                (unsigned)eax);
+        goto loc_0018444B;
+    }
     ebx = MEM32(eax);
     (void)0; /* test ebx, ebx - flags set for next jcc */
     edx = MEM32(eax + 4);
@@ -5436,7 +5537,17 @@ loc_001842AC:
     /* nop */
 
 loc_001842B0:
+    if (!cspawn_va_range_is_valid(ebx, 8)) {
+        fprintf(stderr, "[FSW/Spawn] stopping UpdateCoreDeactivations invalid active node=%08X\n",
+                (unsigned)ebx);
+        goto loc_0018444B;
+    }
     esi = MEM32(ebx);
+    if (!cspawn_va_range_is_valid(esi, 0x184)) {
+        fprintf(stderr, "[FSW/Spawn] skipping UpdateCoreDeactivations invalid active object=%08X\n",
+                (unsigned)esi);
+        goto loc_0018443C;
+    }
     xmm0 = MEMF(esi + 0x180); /* movss */
     edi = MEM32(esi + 0xF0);
     (void)0; /* test edi, edi - flags set for next jcc */
@@ -5445,6 +5556,13 @@ loc_001842B0:
     if (TEST_Z(edi, edi)) goto loc_00184362; /* je: equal / zero */
 
 loc_001842D5:
+    if (!cspawn_va_range_is_valid(edi, 4) ||
+        !cspawn_va_range_is_valid(MEM32(edi), 0x84)) {
+        fprintf(stderr, "[FSW/Spawn] skipping UpdateCoreDeactivations invalid active core=%08X vtbl=%08X\n",
+                (unsigned)edi,
+                (unsigned)(cspawn_va_range_is_valid(edi, 4) ? MEM32(edi) : 0));
+        goto loc_00184362;
+    }
     eax = MEM32(edi);
     ecx = edi;
     { uint32_t _icall_esp = g_esp;
@@ -5494,6 +5612,11 @@ loc_00184321:
     eax = 0; /* xor self */
 
 loc_00184323:
+    if (!cspawn_va_range_is_valid(eax, 0xCC)) {
+        fprintf(stderr, "[FSW/Spawn] skipping UpdateCoreDeactivations invalid core actor data=%08X\n",
+                (unsigned)eax);
+        goto loc_00184362;
+    }
     eax = MEM32(eax + 0xC8);
     eax = eax >> 1;
     if (TEST_NZ(LO8(eax), 1)) goto loc_00184362; /* jne: not equal / not zero */
@@ -5527,6 +5650,13 @@ loc_00184359:
     ecx = 0; /* xor self */
 
 loc_0018435B:
+    if (!cspawn_va_range_is_valid(ecx, 4) ||
+        !cspawn_va_range_is_valid(MEM32(ecx), 0x38)) {
+        fprintf(stderr, "[FSW/Spawn] skipping UpdateCoreDeactivations invalid core state=%08X vtbl=%08X\n",
+                (unsigned)ecx,
+                (unsigned)(cspawn_va_range_is_valid(ecx, 4) ? MEM32(ecx) : 0));
+        goto loc_00184362;
+    }
     edx = MEM32(ecx);
     { uint32_t _icall_esp = g_esp;
     PUSH32(esp, 1);
@@ -5540,6 +5670,13 @@ loc_00184362:
 
 loc_00184372:
     ecx = MEM32(esi + 0xF0);
+    if (!cspawn_va_range_is_valid(ecx, 4) ||
+        !cspawn_va_range_is_valid(MEM32(ecx), 0xB8)) {
+        fprintf(stderr, "[FSW/Spawn] skipping UpdateCoreDeactivations invalid timeout core=%08X vtbl=%08X\n",
+                (unsigned)ecx,
+                (unsigned)(cspawn_va_range_is_valid(ecx, 4) ? MEM32(ecx) : 0));
+        goto loc_0018443C;
+    }
     eax = MEM32(ecx);
     { uint32_t _icall_esp = g_esp;
     PUSH32(esp, 0); RECOMP_ICALL_SAFE(MEM32(eax + 0xB4), _icall_esp); /* indirect call */
@@ -5635,6 +5772,13 @@ loc_00184415:
     esp = esp + 4;
 
 loc_00184418:
+    if (!cspawn_va_range_is_valid(esi, 4) ||
+        !cspawn_va_range_is_valid(MEM32(esi), 0x28)) {
+        fprintf(stderr, "[FSW/Spawn] skipping UpdateCoreDeactivations invalid remove active=%08X vtbl=%08X\n",
+                (unsigned)esi,
+                (unsigned)(cspawn_va_range_is_valid(esi, 4) ? MEM32(esi) : 0));
+        goto loc_0018443C;
+    }
     eax = MEM32(esi);
     ecx = esi;
     { uint32_t _icall_esp = g_esp;
@@ -5655,6 +5799,11 @@ loc_0018442F:
     if (TEST_Z(ebx, ebx)) goto loc_0018444B; /* je: equal / zero */
 
 loc_0018443C:
+    if (!cspawn_va_range_is_valid(ebx, 8)) {
+        fprintf(stderr, "[FSW/Spawn] stopping UpdateCoreDeactivations next active invalid node=%08X\n",
+                (unsigned)ebx);
+        goto loc_0018444B;
+    }
     ebx = MEM32(ebx + 4);
     (void)0; /* test ebx, ebx - flags set for next jcc */
     MEM32(esp + 0x10) = ebx;
@@ -7554,6 +7703,8 @@ loc_001851A4:
 void fn_001851B0_CSpawnManager_CanSpawnOverMin(void)
 {
     uint32_t ebp;
+    uint32_t source_manager;
+    uint32_t can_spawn_steps;
     int _flags = 0; /* fallback flag var */
     ebp = g_seh_ebp; /* fpo_leaf: inherit caller's frame */
 
@@ -7564,6 +7715,12 @@ loc_001851B0:
     ebp = MEM32(esp + 0x14);
     PUSH32(esp, esi);
     PUSH32(esp, edi);
+    source_manager = ecx;
+    if (!cspawn_va_range_is_valid(source_manager, 0x58)) {
+        fprintf(stderr, "[FSW/Spawn] skipping CanSpawnOverMin invalid manager=%08X\n",
+                (unsigned)source_manager);
+        goto loc_00185207;
+    }
     ecx = ecx + 0x30;
     eax = esp + 0x10;
     PUSH32(esp, 0); fn_00024630_PAVCDeadGuy_ZeroList_GetHead(); /* call 0x00024630 */
@@ -7571,12 +7728,28 @@ loc_001851B0:
 loc_001851C7:
     esi = MEM32(esp + 0x10);
     if (TEST_Z(esi, esi)) goto loc_00185207; /* je: equal / zero */
+    can_spawn_steps = 0;
 
 loc_001851CF:
     /* nop */
 
 loc_001851D0:
+    if (!cspawn_va_range_is_valid(esi, 8)) {
+        fprintf(stderr, "[FSW/Spawn] stopping CanSpawnOverMin invalid encounter node=%08X manager=%08X\n",
+                (unsigned)esi, (unsigned)source_manager);
+        goto loc_00185207;
+    }
+    if (++can_spawn_steps > 4096) {
+        fprintf(stderr, "[FSW/Spawn] stopping CanSpawnOverMin runaway list manager=%08X node=%08X\n",
+                (unsigned)source_manager, (unsigned)esi);
+        goto loc_00185207;
+    }
     ebx = MEM32(esi);
+    if (!cspawn_va_range_is_valid(ebx, 0x70)) {
+        fprintf(stderr, "[FSW/Spawn] skipping CanSpawnOverMin invalid encounter=%08X node=%08X next=%08X\n",
+                (unsigned)ebx, (unsigned)esi, (unsigned)MEM32(esi + 4));
+        goto loc_00185200;
+    }
     PUSH32(esp, ebp);
     eax = ebx;
     PUSH32(esp, 0); fn_001830B0_CSpawnEncounter_CanSpawn(); /* call 0x001830B0 */
@@ -7593,9 +7766,19 @@ loc_001851E3:
     PUSH32(esp, 0); fn_00183000_CSpawnEncounter_GetCurrentSpawnValue(); /* call 0x00183000 */
 
 loc_001851EC:
+    if (!cspawn_va_range_is_valid(ebx, 0x70)) {
+        fprintf(stderr, "[FSW/Spawn] skipping CanSpawnOverMin invalid encounter after value=%08X\n",
+                (unsigned)ebx);
+        goto loc_00185200;
+    }
     if (CMP_GE(eax, MEM32(ebx + 0x6C))) goto loc_00185200; /* jge: greater or equal (signed >=) */
 
 loc_001851F1:
+    if (!cspawn_va_range_is_valid(edi, 0x58)) {
+        fprintf(stderr, "[FSW/Spawn] skipping CanSpawnOverMin invalid manager singleton=%08X encounter=%08X\n",
+                (unsigned)edi, (unsigned)ebx);
+        goto loc_00185200;
+    }
     eax = (int32_t)MEMF(edi + 0x54); /* cvttss2si */
     PUSH32(esp, eax);
     PUSH32(esp, 0); fn_00183EA0_CSpawnEncounter_SelectNextCharacter(); /* call 0x00183EA0 */
@@ -7604,6 +7787,11 @@ loc_001851FC:
     if (TEST_NZ(eax, eax)) { sub_00185213(); return; } /* jne: not equal / not zero */
 
 loc_00185200:
+    if (!cspawn_va_range_is_valid(esi, 8)) {
+        fprintf(stderr, "[FSW/Spawn] stopping CanSpawnOverMin invalid next source node=%08X\n",
+                (unsigned)esi);
+        goto loc_00185207;
+    }
     esi = MEM32(esi + 4);
     if (TEST_NZ(esi, esi)) goto loc_001851D0; /* jne: not equal / not zero */
 
@@ -7811,6 +7999,7 @@ loc_001852D3:
 void fn_001852E0_CSpawnManager_UpdateActiveEncounters(void)
 {
     uint32_t ebp;
+    uint32_t active_steps;
     int _flags = 0; /* fallback flag var */
     float xmm0, xmm1, xmm2;
     ebp = g_seh_ebp; /* fpo_leaf: inherit caller's frame */
@@ -7823,6 +8012,11 @@ loc_001852E0:
     ebp = MEM32(esp + 0x20);
     PUSH32(esp, esi);
     PUSH32(esp, edi);
+    if (!cspawn_va_range_is_valid(ebp, 0x58)) {
+        fprintf(stderr, "[FSW/Spawn] skipping UpdateActiveEncounters invalid manager=%08X\n",
+                (unsigned)ebp);
+        goto loc_00185409;
+    }
     PUSH32(esp, eax);
     ecx = ebp;
     PUSH32(esp, 0); fn_001851B0_CSpawnManager_CanSpawnOverMin(); /* call 0x001851B0 */
@@ -7844,13 +8038,29 @@ loc_00185307:
 loc_00185322:
     eax = MEM32(esp + 0x1C);
     if (TEST_Z(eax, eax)) goto loc_00185409; /* je: equal / zero */
+    active_steps = 0;
 
 loc_0018532E:
     edi = edi;
 
 loc_00185330:
     ecx = MEM32(esp + 0x1C);
+    if (!cspawn_va_range_is_valid(ecx, 8)) {
+        fprintf(stderr, "[FSW/Spawn] stopping UpdateActiveEncounters invalid node=%08X manager=%08X\n",
+                (unsigned)ecx, (unsigned)ebp);
+        goto loc_00185409;
+    }
+    if (++active_steps > 4096) {
+        fprintf(stderr, "[FSW/Spawn] stopping UpdateActiveEncounters runaway list manager=%08X node=%08X\n",
+                (unsigned)ebp, (unsigned)ecx);
+        goto loc_00185409;
+    }
     edi = MEM32(ecx);
+    if (!cspawn_va_range_is_valid(edi, 0x94)) {
+        fprintf(stderr, "[FSW/Spawn] skipping UpdateActiveEncounters invalid encounter=%08X node=%08X next=%08X\n",
+                (unsigned)edi, (unsigned)ecx, (unsigned)MEM32(ecx + 4));
+        goto loc_001853F6;
+    }
     eax = MEM32(edi + 0x34);
     xmm0 = MEMF(edi + 0x90); /* movss */
     xmm0 = xmm0 - MEMF(esp + 0x2C); /* subss */
@@ -7863,6 +8073,11 @@ loc_00185330:
 
 loc_0018535C:
     edx = MEM32(edi + 0x50);
+    if (!cspawn_va_range_is_valid(edx, 4)) {
+        fprintf(stderr, "[FSW/Spawn] clearing UpdateActiveEncounters invalid manual trigger=%08X encounter=%08X\n",
+                (unsigned)edx, (unsigned)edi);
+        edx = 0;
+    }
     PUSH32(esp, 1);
     PUSH32(esp, ecx);
     eax = esp;
@@ -7870,6 +8085,11 @@ loc_0018535C:
     goto loc_00185372;
 
 loc_00185368:
+    if (!cspawn_va_range_is_valid(MEM32(edi + 0x50), 4)) {
+        fprintf(stderr, "[FSW/Spawn] clearing UpdateActiveEncounters invalid manual trigger=%08X encounter=%08X\n",
+                (unsigned)MEM32(edi + 0x50), (unsigned)edi);
+        MEM32(edi + 0x50) = 0;
+    }
     PUSH32(esp, 0);
     PUSH32(esp, ecx);
     ecx = MEM32(edi + 0x50);
@@ -7911,6 +8131,11 @@ loc_001853A8:
     PUSH32(esp, 0); fn_00183000_CSpawnEncounter_GetCurrentSpawnValue(); /* call 0x00183000 */
 
 loc_001853AF:
+    if (!cspawn_va_range_is_valid(edi, 0x70)) {
+        fprintf(stderr, "[FSW/Spawn] skipping UpdateActiveEncounters invalid encounter thresholds=%08X\n",
+                (unsigned)edi);
+        goto loc_001853F6;
+    }
     if (CMP_L(eax, MEM32(edi + 0x6C))) goto loc_001853C4; /* jl: less (signed <) */
 
 loc_001853B4:
@@ -7954,6 +8179,11 @@ loc_001853F1:
 
 loc_001853F6:
     eax = MEM32(esp + 0x1C);
+    if (!cspawn_va_range_is_valid(eax, 8)) {
+        fprintf(stderr, "[FSW/Spawn] stopping UpdateActiveEncounters invalid next source node=%08X\n",
+                (unsigned)eax);
+        goto loc_00185409;
+    }
     eax = MEM32(eax + 4);
     (void)0; /* test eax, eax - flags set for next jcc */
     MEM32(esp + 0x1C) = eax;
@@ -8551,6 +8781,11 @@ void fn_001857A0_CSpawnManager_InitializeEncounterParentSlots(void)
     int _flags = 0; /* fallback flag var */
 
 loc_001857A0:
+    if (!cspawn_va_range_is_valid(eax, 0x3C)) {
+        fprintf(stderr, "[FSW/Spawn] skipping InitializeEncounterParentSlots invalid manager=%08X\n",
+                (unsigned)eax);
+        esp += 4; return; /* ret */
+    }
     PUSH32(esp, edi);
     edi = MEM32(eax + 0x38);
     if (TEST_Z(edi, edi)) goto loc_001857DE; /* je: equal / zero */
@@ -8561,12 +8796,29 @@ loc_001857A8:
     /* nop */
 
 loc_001857B0:
+    if (!cspawn_va_range_is_valid(edi, 8)) {
+        fprintf(stderr, "[FSW/Spawn] stopping encounter parent slot walk invalid node=%08X\n",
+                (unsigned)edi);
+        goto loc_001857DC;
+    }
     esi = MEM32(edi);
+    if (!cspawn_va_range_is_valid(esi, 0x58)) {
+        fprintf(stderr, "[FSW/Spawn] skipping encounter parent slot invalid encounter=%08X next=%08X\n",
+                (unsigned)esi,
+                (unsigned)MEM32(edi + 4));
+        goto loc_001857D5;
+    }
     eax = MEM32(esi + 0x38);
     if (CMP_LE(eax & eax, 0)) goto loc_001857D5; /* jle: less or equal (signed <=) */
 
 loc_001857B9:
     ecx = MEM32(esi + 0x40);
+    if (!cspawn_va_range_is_valid(ecx, 4)) {
+        fprintf(stderr, "[FSW/Spawn] skipping encounter parent slot invalid faction list=%08X encounter=%08X\n",
+                (unsigned)ecx,
+                (unsigned)esi);
+        goto loc_001857D5;
+    }
     ebx = MEM32(ecx);
     if (TEST_Z(ebx, ebx)) goto loc_001857D5; /* je: equal / zero */
 
@@ -8609,6 +8861,11 @@ void fn_001857E0_CSpawnManager_InitializeSpawnPools(void)
     int _flags = 0; /* fallback flag var */
 
 loc_001857E0:
+    if (!cspawn_va_range_is_valid(eax, 0x3C)) {
+        fprintf(stderr, "[FSW/Spawn] skipping InitializeSpawnPools invalid manager=%08X\n",
+                (unsigned)eax);
+        esp += 4; return; /* ret */
+    }
     PUSH32(esp, ecx);
     PUSH32(esp, ebx);
     ebx = MEM32(eax + 0x38);
@@ -8623,8 +8880,19 @@ loc_001857EB:
     /* nop */
 
 loc_001857F0:
+    if (!cspawn_va_range_is_valid(ebx, 8)) {
+        fprintf(stderr, "[FSW/Spawn] stopping spawn pool walk invalid node=%08X\n",
+                (unsigned)ebx);
+        goto loc_00185833;
+    }
     esi = MEM32(ebx);
     ebx = MEM32(ebx + 4);
+    if (!cspawn_va_range_is_valid(esi, 0x4C)) {
+        fprintf(stderr, "[FSW/Spawn] skipping spawn pool invalid encounter=%08X next=%08X\n",
+                (unsigned)esi,
+                (unsigned)ebx);
+        goto loc_0018582F;
+    }
     PUSH32(esp, ecx);
     ecx = MEM32(esi + 0x48);
     eax = esp;
@@ -10018,11 +10286,21 @@ void fn_001861E0_CSpawnManager_UpdateSpawnNodes(void)
     float xmm0, xmm1;
 
 loc_001861E0:
+    if (!cspawn_va_range_is_valid(eax, 0xC)) {
+        fprintf(stderr, "[FSW/Spawn] skipping UpdateSpawnNodes invalid manager=%08X\n",
+                (unsigned)eax);
+        esp += 8; return; /* ret 4 */
+    }
     PUSH32(esp, ebx);
     ebx = MEM32(eax + 8);
     if (TEST_Z(ebx, ebx)) goto loc_0018622B; /* je: equal / zero */
 
 loc_001861E8:
+    if (!cspawn_va_range_is_valid(ebx, 0x64)) {
+        fprintf(stderr, "[FSW/Spawn] stopping UpdateSpawnNodes invalid spawn node=%08X\n",
+                (unsigned)ebx);
+        goto loc_0018622B;
+    }
     if (CMP_EQ(MEM32(ebx + 8), 2)) goto loc_00186224; /* je: equal / zero */
 
 loc_001861EE:
@@ -10045,6 +10323,11 @@ loc_0018621A:
     PUSH32(esp, 0); fn_00185B40_CSpawnNode_UpdateAttrition(); /* call 0x00185B40 */
 
 loc_00186224:
+    if (!cspawn_va_range_is_valid(ebx, 0x64)) {
+        fprintf(stderr, "[FSW/Spawn] stopping UpdateSpawnNodes next invalid spawn node=%08X\n",
+                (unsigned)ebx);
+        goto loc_0018622B;
+    }
     ebx = MEM32(ebx + 0x60);
     if (TEST_NZ(ebx, ebx)) goto loc_001861E8; /* jne: not equal / not zero */
 
@@ -10776,6 +11059,7 @@ loc_00186740:
     PUSH32(esp, esi);
     PUSH32(esp, edi);
     edi = eax;
+    fprintf(stderr, "[FSW/Spawn] LoadReplacementData start manager=%08X esp=%08X\n", edi, esp);
     PUSH32(esp, 0); fn_001C00D0_CPlayerManager_Get(); /* call 0x001C00D0 */
 
 loc_00186749:
@@ -10791,10 +11075,12 @@ loc_00186759:
 loc_0018675D:
     eax = edi + 0xE4;
     edi = edi + 0x90;
+    fprintf(stderr, "[FSW/Spawn] LoadReplacementData from network packet tracker=%08X packet=%08X\n", edi, eax);
     PUSH32(esp, edi);
     PUSH32(esp, 0); fn_0037E120_CReplacementTracker_LoadDataFromPacket(); /* call 0x0037E120 */
 
 loc_0018676F:
+    fprintf(stderr, "[FSW/Spawn] LoadReplacementData done esp=%08X\n", esp);
     POP32(esp, edi);
     POP32(esp, esi);
     esp += 4; return; /* ret */
@@ -10812,16 +11098,19 @@ void sub_00186772(void)
 
 loc_00186772:
     esi = edi + 0x90;
+    fprintf(stderr, "[FSW/Spawn] LoadReplacementData local tracker=%08X manager=%08X\n", esi, edi);
     PUSH32(esp, esi);
     PUSH32(esp, 0); fn_0037DC00_CReplacementTracker_LoadData(); /* call 0x0037DC00 */
 
 loc_0018677E:
+    fprintf(stderr, "[FSW/Spawn] LoadReplacementData after tracker LoadData esp=%08X tracker=%08X\n", esp, esi);
     edi = edi + 0xE4;
     PUSH32(esp, edi);
     PUSH32(esp, esi);
     PUSH32(esp, 0); fn_0037EA20_CReplacementTracker_LoadDataIntoPacket(); /* call 0x0037EA20 */
 
 loc_0018678B:
+    fprintf(stderr, "[FSW/Spawn] LoadReplacementData local done esp=%08X packet=%08X tracker=%08X\n", esp, edi, esi);
     POP32(esp, edi);
     POP32(esp, esi);
     esp += 4; return; /* ret */
@@ -11743,6 +12032,15 @@ loc_00186D80:
     PUSH32(esp, ebx);
     PUSH32(esp, esi);
     esi = MEM32(ebp + 8);
+    if (!cspawn_va_range_is_valid(esi, 0x58)) {
+        fprintf(stderr, "[FSW/Spawn] skipping SpawnEntities invalid manager=%08X\n",
+                (unsigned)esi);
+        POP32(esp, esi);
+        POP32(esp, ebx);
+        esp = ebp;
+        POP32(esp, ebp);
+        esp += 12; return; /* ret 8 */
+    }
     ebx = MEM32(esi + 0x50);
     (void)0; /* test ebx, ebx - flags set for next jcc */
     eax = esi + 0x48;
@@ -11768,9 +12066,22 @@ loc_00186DAE:
     if ((xmm1 <= xmm2)) goto loc_00186EEC; /* jbe: below or equal (unsigned <=) */
 
 loc_00186DC3:
+    if (!cspawn_va_range_is_valid(ebx, 8)) {
+        fprintf(stderr, "[FSW/Spawn] stopping SpawnEntities invalid spawn list node=%08X\n",
+                (unsigned)ebx);
+        goto loc_00186EEC;
+    }
     eax = MEM32(esp + 0x10);
     ecx = MEM32(ebx + 4);
     edi = MEM32(ebx);
+    if (!cspawn_va_range_is_valid(edi, 0x184)) {
+        fprintf(stderr, "[FSW/Spawn] skipping SpawnEntities invalid pending core=%08X node=%08X next=%08X\n",
+                (unsigned)edi,
+                (unsigned)ebx,
+                (unsigned)ecx);
+        MEM32(esp + 0x30) = ecx;
+        goto loc_00186EE0;
+    }
     MEM32(esp + 0x2C) = eax;
     eax = esi;
     MEM32(esp + 0x1C) = edi;
@@ -11805,6 +12116,12 @@ loc_00186E31:
     (void)0; /* test eax, eax - flags set for next jcc */
     MEM32(esp + 0x20) = eax;
     if (TEST_Z(eax, eax)) goto loc_00186EEC; /* je: equal / zero */
+    if (!cspawn_va_range_is_valid(eax, 0x58)) {
+        fprintf(stderr, "[FSW/Spawn] stopping SpawnEntities invalid encounter=%08X core=%08X\n",
+                (unsigned)eax,
+                (unsigned)edi);
+        goto loc_00186EEC;
+    }
 
 loc_00186E3D:
     PUSH32(esp, eax);
@@ -11821,6 +12138,11 @@ loc_00186E51:
     if (TEST_Z(ebx, ebx)) goto loc_00186E95; /* je: equal / zero */
 
 loc_00186E5F:
+    if (!cspawn_va_range_is_valid(ebx, 8)) {
+        fprintf(stderr, "[FSW/Spawn] skipping SpawnEntities invalid picked spawn node=%08X\n",
+                (unsigned)ebx);
+        goto loc_00186E95;
+    }
     esi = esp + 0x20;
     PUSH32(esp, 0); fn_0004E5F0_PAVCDialogEvent_ZeroList_Remove(); /* call 0x0004E5F0 */
 
@@ -11855,9 +12177,19 @@ loc_00186E95:
 
 loc_00186E9E:
     ecx = MEM32(esp + 0x1C);
+    if (!cspawn_va_range_is_valid(ecx, 0x158)) {
+        fprintf(stderr, "[FSW/Spawn] skipping SpawnEntities retry update invalid core=%08X\n",
+                (unsigned)ecx);
+        goto loc_00186EDD;
+    }
     edx = 0; /* xor self */
     MEM32(ecx + 0x154) = edx;
     ecx = MEM32(esp + 0x20);
+    if (!cspawn_va_range_is_valid(ecx, 0x58)) {
+        fprintf(stderr, "[FSW/Spawn] skipping SpawnEntities retry update invalid encounter=%08X\n",
+                (unsigned)ecx);
+        goto loc_00186EDD;
+    }
     eax = MEM32(ecx + 0x34);
     if (CMP_LE(eax, 0xFFFFFFFFu)) goto loc_00186EC1; /* jle: less or equal (signed <=) */
 
@@ -11875,6 +12207,11 @@ loc_00186EC1:
     if (CMP_EQ(eax, edx)) goto loc_00186EDD; /* je: equal / zero */
 
 loc_00186EC8:
+    if (!cspawn_va_range_is_valid(eax, 0x24)) {
+        fprintf(stderr, "[FSW/Spawn] skipping SpawnEntities retry update invalid spawn pool=%08X\n",
+                (unsigned)eax);
+        goto loc_00186EDD;
+    }
     ecx = MEM32(eax + 0x20);
     if (CMP_LE(ecx, 0xFFFFFFFFu)) goto loc_00186EDD; /* jle: less or equal (signed <=) */
 

@@ -14,6 +14,11 @@ static int cmenubganim_va_is_valid(uint32_t va)
     return va >= 0x00010000u && va < 0x04000000u;
 }
 
+static int cmenubganim_va_range_is_valid(uint32_t va, uint32_t size)
+{
+    return va >= 0x00010000u && va < 0x04000000u && size <= 0x04000000u - va;
+}
+
 /**
  * fn_0019AA10_CMenuAnimation_GetSoundKeys
  * Symbol: ?GetSoundKeys@CMenuAnimation@@QAEXMMAAPBUCSoundKey@@AAH@Z
@@ -179,20 +184,31 @@ loc_0019AAC0:
 void fn_0019AAE0_CMenuAnimation_Init(void)
 {
     uint32_t ebp;
+    uint32_t animation_count;
+    uint32_t image_count;
+    uint32_t table_size;
     int _flags = 0; /* fallback flag var */
     float xmm0;
     ebp = g_seh_ebp; /* fpo_leaf: inherit caller's frame */
 
 loc_0019AAE0:
     xmm0 = 0.0f; /* xorps self = zero */
-    if (!cmenubganim_va_is_valid(ecx) ||
-        !cmenubganim_va_is_valid(eax) ||
-        !cmenubganim_va_is_valid(eax + 8)) {
+    animation_count = cmenubganim_va_range_is_valid(eax, 0x10) ? MEM32(eax + 4) : 0xFFFFFFFFu;
+    image_count = cmenubganim_va_range_is_valid(eax, 0x10) ? MEM32(eax + 8) : 0xFFFFFFFFu;
+    table_size = (animation_count <= 0x400u) ? animation_count * 0x10u : 0xFFFFFFFFu;
+    if (!cmenubganim_va_range_is_valid(ecx, 0x14) ||
+        !cmenubganim_va_range_is_valid(eax, 0x10) ||
+        animation_count > 0x400u ||
+        image_count > 0x4000u ||
+        !cmenubganim_va_range_is_valid(eax + 0x10, table_size)) {
         static uint32_t invalid_animation_count = 0;
         if (invalid_animation_count < 8) {
             fprintf(stderr,
-                    "[FSW/Menu] using empty menu animation object=%08X data=%08X\n",
-                    (unsigned)ecx, (unsigned)eax);
+                    "[FSW/Menu] using empty menu animation object=%08X data=%08X animations=%08X images=%08X\n",
+                    (unsigned)ecx,
+                    (unsigned)eax,
+                    (unsigned)animation_count,
+                    (unsigned)image_count);
         }
         invalid_animation_count++;
         eax = ecx;
@@ -218,6 +234,26 @@ loc_0019AAFF:
 
 loc_0019AB04:
     esi = MEM32(edx);
+    if (esi > 0x4000u || !cmenubganim_va_range_is_valid(eax, esi * 0x18u)) {
+        static uint32_t invalid_animation_table_count = 0;
+        if (invalid_animation_table_count < 8) {
+            fprintf(stderr,
+                    "[FSW/Menu] truncating corrupt menu animation table object=%08X data=%08X item=%u frames=%08X table=%08X\n",
+                    (unsigned)ecx,
+                    (unsigned)MEM32(ecx),
+                    (unsigned)edi,
+                    (unsigned)esi,
+                    (unsigned)eax);
+        }
+        invalid_animation_table_count++;
+        POP32(esp, esi);
+        POP32(esp, ebp);
+        POP32(esp, edi);
+        POP32(esp, ebx);
+        eax = ecx;
+        fn_0019AAC0_CMenuAnimation_InitEmpty();
+        return;
+    }
     MEM32(edx + 4) = eax;
     esi = esi + esi * 2;
     eax = eax + esi * 8;

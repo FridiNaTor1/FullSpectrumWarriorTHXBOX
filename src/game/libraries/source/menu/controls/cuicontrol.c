@@ -7,6 +7,9 @@
 #define RECOMP_GENERATED_CODE
 #include "recomp_funcs.h"
 #include <math.h>
+#include <stdio.h>
+
+extern uint32_t xbox_HeapAlloc(uint32_t size, uint32_t alignment);
 
 static int cuicontrol_va_is_valid(uint32_t va)
 {
@@ -21,6 +24,692 @@ static int cuicontrol_method_is_valid(uint32_t object, uint32_t method_offset)
 
     uint32_t vtbl = MEM32(object);
     return cuicontrol_va_is_valid(vtbl + method_offset) && MEM32(vtbl + method_offset) != 0;
+}
+
+static uint32_t fsw_cuicontrol_fix_stack_image_control(uint32_t object)
+{
+#ifdef XBOXRECOMP_VULKAN_GRAPHICS
+    static uint32_t fix_log_count;
+    if (!cuicontrol_va_is_valid(object + 0x150)) {
+        return object;
+    }
+    if (MEM32(object) == 0x560A90u) {
+        return object;
+    }
+    for (int32_t delta = -16; delta <= 16; delta += 4) {
+        uint32_t candidate = object + (uint32_t)delta;
+        if (cuicontrol_va_is_valid(candidate + 0x150) && MEM32(candidate) == 0x560A90u) {
+            if (fix_log_count < 12) {
+                fprintf(stderr,
+                        "[FSW/Menu] corrected stack image control %08X -> %08X delta=%d old_vtbl=%08X\n",
+                        object, candidate, (int)delta, MEM32(object));
+                fix_log_count++;
+            }
+            return candidate;
+        }
+    }
+#endif
+    return object;
+}
+
+static int fsw_cuicontrol_read_memfile(uint32_t file, void *dst, uint32_t size)
+{
+    uint32_t stream;
+    uint32_t start;
+    uint32_t length;
+    uint32_t pos;
+    uint32_t available;
+
+    if (!cuicontrol_va_is_valid(file + 0x24)) {
+        return 0;
+    }
+
+    stream = MEM32(file + 0x24);
+    if (!cuicontrol_va_is_valid(stream + 0xC)) {
+        return 0;
+    }
+
+    start = MEM32(stream + 4);
+    length = MEM32(stream + 8);
+    pos = MEM32(stream + 0xC);
+    if (!cuicontrol_va_is_valid(start) || pos < start) {
+        return 0;
+    }
+
+    if ((pos - start) > length) {
+        return 0;
+    }
+    available = length - (pos - start);
+    if (size > available) {
+        size = available;
+    }
+    if (size != 0) {
+        memcpy(dst, (const void *)XBOX_PTR(pos), size);
+        MEM32(stream + 0xC) = pos + size;
+    }
+    return 1;
+}
+
+static uint32_t fsw_cuicontrol_read_u32(uint32_t file)
+{
+    uint32_t value = 0;
+    fsw_cuicontrol_read_memfile(file, &value, sizeof(value));
+    return value;
+}
+
+static uint8_t fsw_cuicontrol_read_u8(uint32_t file)
+{
+    uint8_t value = 0;
+    fsw_cuicontrol_read_memfile(file, &value, sizeof(value));
+    return value;
+}
+
+static void fsw_cuicontrol_skip(uint32_t file, uint32_t size)
+{
+    uint8_t scratch[64];
+    while (size != 0) {
+        uint32_t chunk = size > sizeof(scratch) ? (uint32_t)sizeof(scratch) : size;
+        if (!fsw_cuicontrol_read_memfile(file, scratch, chunk)) {
+            return;
+        }
+        size -= chunk;
+    }
+}
+
+static uint32_t fsw_cuicontrol_stream_pos(uint32_t file)
+{
+    uint32_t stream;
+    if (!cuicontrol_va_is_valid(file + 0x24)) {
+        return 0;
+    }
+    stream = MEM32(file + 0x24);
+    if (!cuicontrol_va_is_valid(stream + 0xC)) {
+        return 0;
+    }
+    return MEM32(stream + 0xC);
+}
+
+static void fsw_cuicontrol_set_stream_pos(uint32_t file, uint32_t pos)
+{
+    uint32_t stream;
+    if (!cuicontrol_va_is_valid(file + 0x24)) {
+        return;
+    }
+    stream = MEM32(file + 0x24);
+    if (!cuicontrol_va_is_valid(stream + 0xC)) {
+        return;
+    }
+    MEM32(stream + 0xC) = pos;
+}
+
+static int fsw_cuicontrol_type_is_known(uint8_t type)
+{
+    return type == 1 || type == 2 || type == 3 || type == 5 || type == 6 ||
+           type == 7 || type == 8 || type == 9 || type == 10 || type == 12;
+}
+
+static uint32_t fsw_cuicontrol_find_base(uint32_t file)
+{
+    uint32_t stream;
+    uint32_t start;
+    uint32_t length;
+    uint32_t pos;
+
+    if (!cuicontrol_va_is_valid(file + 0x24)) {
+        return 0;
+    }
+    stream = MEM32(file + 0x24);
+    if (!cuicontrol_va_is_valid(stream + 0xC)) {
+        return 0;
+    }
+
+    start = MEM32(stream + 4);
+    length = MEM32(stream + 8);
+    pos = MEM32(stream + 0xC);
+    if (!cuicontrol_va_is_valid(start) || pos < start || (pos - start) >= length) {
+        return 0;
+    }
+
+    for (uint32_t delta = 0; delta <= 0x40 && (pos + delta + 0x78) < (start + length); delta++) {
+        uint32_t base = pos + delta;
+        uint8_t type = MEM8(base + 0x40);
+        float m00 = MEMF(base);
+        float m11 = MEMF(base + 0x14);
+        float m22 = MEMF(base + 0x28);
+        float m33 = MEMF(base + 0x3C);
+        if (fsw_cuicontrol_type_is_known(type) &&
+            isfinite(m00) && isfinite(m11) && isfinite(m22) && isfinite(m33) &&
+            fabsf(m00) < 10000.0f && fabsf(m11) < 10000.0f &&
+            fabsf(m22) < 10000.0f && fabsf(m33 - 1.0f) < 0.01f) {
+            return base;
+        }
+    }
+    return 0;
+}
+
+static void fsw_cuicontrol_bind_callbacks(uint32_t control, uint32_t visible_crc,
+                                          uint32_t update_crc, uint32_t render_crc)
+{
+    uint32_t saved_eax = eax;
+    uint32_t saved_ecx = ecx;
+    uint32_t saved_edx = edx;
+    uint32_t saved_ebx = ebx;
+    uint32_t saved_esi = esi;
+    uint32_t saved_edi = edi;
+    uint32_t saved_esp = esp;
+
+    edi = control;
+    PUSH32(esp, visible_crc);
+    PUSH32(esp, 0);
+    fn_001326C0_CUIControl_SetVisibleCRC();
+    esp = saved_esp;
+
+    edi = control;
+    PUSH32(esp, update_crc);
+    PUSH32(esp, 0);
+    fn_00132650_CUIControl_SetUpdateCRC();
+    esp = saved_esp;
+
+    edi = control;
+    PUSH32(esp, render_crc);
+    PUSH32(esp, 0);
+    fn_001325E0_CUIControl_SetRenderCRC();
+    esp = saved_esp;
+
+    eax = saved_eax;
+    ecx = saved_ecx;
+    edx = saved_edx;
+    ebx = saved_ebx;
+    esi = saved_esi;
+    edi = saved_edi;
+    esp = saved_esp;
+}
+
+static uint32_t fsw_cuicontrol_calc_crc(uint32_t string_va)
+{
+    uint32_t saved_ecx = ecx;
+    uint32_t saved_edx = edx;
+    uint32_t saved_ebx = ebx;
+    uint32_t saved_esi = esi;
+    uint32_t saved_edi = edi;
+    uint32_t saved_esp = esp;
+    uint32_t result;
+
+    if (!cuicontrol_va_is_valid(string_va)) {
+        return 0;
+    }
+    eax = 0;
+    ecx = string_va;
+    PUSH32(esp, 0);
+    fn_00128D90_CalcLowerCRC();
+    result = eax;
+    esp = saved_esp;
+
+    ecx = saved_ecx;
+    edx = saved_edx;
+    ebx = saved_ebx;
+    esi = saved_esi;
+    edi = saved_edi;
+    return result;
+}
+
+static uint32_t fsw_cuicontrol_host_render_callback(uint32_t crc)
+{
+    switch (crc) {
+    case 0xA0208EB0u: return 0x00387DC0u; /* StartMenuRender */
+    case 0x64D26292u: return 0x003FF620u; /* MovieRender */
+    default: return 0;
+    }
+}
+
+static uint32_t fsw_cuicontrol_host_update_callback(uint32_t crc)
+{
+    switch (crc) {
+    case 0xF0F717DCu: return 0x003876A0u; /* CacheLoadingUpdate */
+    case 0x7E7E9F9Cu: return 0x00387900u; /* XBCrossGameInviteMsgUpdate */
+    case 0xE5657F2Cu: return 0x003FF9D0u; /* PandemicLogoUpdate */
+    case 0x6F56DC51u: return 0x003FFA50u; /* THQLogoUpdate */
+    default: return 0;
+    }
+}
+
+static uint32_t fsw_cuicontrol_host_visible_callback(uint32_t crc)
+{
+    switch (crc) {
+    case 0x4CD9128Du: return 0x0019CC40u; /* StartButtonVisible */
+    case 0x113BC4FCu: return 0x0019CCC0u; /* CacheLoadingVisible */
+    default: return 0;
+    }
+}
+
+static uint32_t fsw_cuicontrol_alloc(uint8_t type)
+{
+    uint32_t size = 0x180;
+    uint32_t object;
+    uint32_t saved_eax = eax;
+    uint32_t saved_ecx = ecx;
+    uint32_t saved_edx = edx;
+    uint32_t saved_ebx = ebx;
+    uint32_t saved_esi = esi;
+    uint32_t saved_edi = edi;
+    uint32_t saved_esp = esp;
+
+    if (type == 8) {
+        size = 0xBB00;
+    } else if (type == 12) {
+        size = 0x300;
+    } else if (type == 2) {
+        size = 0x160;
+    } else if (type == 6) {
+        size = 0x140;
+    }
+
+    object = xbox_HeapAlloc(size, 16);
+    if (!cuicontrol_va_is_valid(object)) {
+        return 0;
+    }
+    memset((void *)XBOX_PTR(object), 0, size);
+
+    eax = object;
+    ecx = object;
+    esi = object;
+    edi = object;
+    switch (type) {
+    case 1:
+        PUSH32(esp, 0);
+        fn_0012C250_0CUIStaticTextControl_QAE_XZ();
+        break;
+    case 2:
+        PUSH32(esp, 0);
+        fn_0012BBD0_0CUIImageControl_QAE_XZ();
+        break;
+    case 3:
+        PUSH32(esp, 0);
+        fn_0012F410_0CUIMenu_QAE_XZ();
+        break;
+    case 5:
+        PUSH32(esp, 0);
+        fn_0012ECA0_0CUIMenuItemList_QAE_XZ();
+        break;
+    case 6:
+        PUSH32(esp, 0);
+        fn_0012C9C0_0CUIVariableTextControl_QAE_XZ();
+        break;
+    case 7:
+        PUSH32(esp, 0);
+        fn_00376350_0CUIButton_QAE_XZ();
+        break;
+    case 8:
+        PUSH32(esp, object);
+        PUSH32(esp, 0);
+        fn_0012E0C0_0CUITextEntryControl_QAE_XZ();
+        break;
+    case 9:
+        PUSH32(esp, 0);
+        fn_003C3580_0CUILineControl_QAE_XZ();
+        break;
+    case 10:
+        PUSH32(esp, object);
+        PUSH32(esp, 0);
+        fn_0012B020_0CUIRectangle_QAE_XZ();
+        break;
+    case 12:
+        PUSH32(esp, 0);
+        fn_0012A340_0CUITextEditControl_QAE_XZ();
+        break;
+    default:
+        PUSH32(esp, 0);
+        fn_00132000_0CUIControl_QAE_XZ();
+        break;
+    }
+    esp = saved_esp;
+    eax = saved_eax;
+    ecx = saved_ecx;
+    edx = saved_edx;
+    ebx = saved_ebx;
+    esi = saved_esi;
+    edi = saved_edi;
+    return object;
+}
+
+static void fsw_cuicontrol_add_child(uint32_t parent, uint32_t child)
+{
+    uint32_t saved_eax = eax;
+    uint32_t saved_ecx = ecx;
+    uint32_t saved_edx = edx;
+    uint32_t saved_ebx = ebx;
+    uint32_t saved_esi = esi;
+    uint32_t saved_edi = edi;
+    uint32_t saved_esp = esp;
+
+    if (!cuicontrol_va_is_valid(parent) || !cuicontrol_va_is_valid(child)) {
+        return;
+    }
+    ecx = parent;
+    PUSH32(esp, child);
+    PUSH32(esp, 0);
+    fn_00130CD0_CUIControl_AddChild();
+    esp = saved_esp;
+
+    eax = saved_eax;
+    ecx = saved_ecx;
+    edx = saved_edx;
+    ebx = saved_ebx;
+    esi = saved_esi;
+    edi = saved_edi;
+}
+
+static void fsw_cuicontrol_set_image_texture(uint32_t control, uint32_t texture_crc)
+{
+    uint32_t saved_eax = eax;
+    uint32_t saved_ecx = ecx;
+    uint32_t saved_edx = edx;
+    uint32_t saved_ebx = ebx;
+    uint32_t saved_esi = esi;
+    uint32_t saved_edi = edi;
+    uint32_t saved_esp = esp;
+
+    if (!cuicontrol_va_is_valid(control) || texture_crc == 0) {
+        return;
+    }
+    MEM32(control + 0x138) = texture_crc;
+    edi = control;
+    PUSH32(esp, texture_crc);
+    PUSH32(esp, 0);
+    fn_0012BC30_CUIImageControl_SetTexture();
+    esp = saved_esp;
+    {
+        static uint32_t set_texture_log_count = 0;
+        if (set_texture_log_count < 128) {
+            fprintf(stderr,
+                    "[FSW/Menu] SetTexture result control=%08X crc=%08X ok=%u texture=%08X image=%08X\n",
+                    (unsigned)control, (unsigned)texture_crc,
+                    (unsigned)MEM8(control + 0x134),
+                    (unsigned)MEM32(control + 0x104),
+                    (unsigned)(control + 0x100));
+            set_texture_log_count++;
+        }
+    }
+
+    eax = saved_eax;
+    ecx = saved_ecx;
+    edx = saved_edx;
+    ebx = saved_ebx;
+    esi = saved_esi;
+    edi = saved_edi;
+}
+
+static void fsw_cuicontrol_load_children(uint32_t parent, uint32_t file, uint32_t child_count);
+static uint32_t fsw_cuicontrol_load_child_by_type(uint32_t file, uint32_t parent, uint8_t type);
+
+static uint32_t fsw_cuicontrol_load_child(uint32_t file, uint32_t parent)
+{
+    uint32_t record_pos = fsw_cuicontrol_stream_pos(file);
+    uint32_t base_pos = fsw_cuicontrol_find_base(file);
+    uint8_t type;
+    uint32_t object;
+    uint32_t visible_crc;
+    uint32_t update_crc;
+    uint32_t render_crc;
+    uint8_t tag;
+    uint32_t name_len;
+    uint32_t child_count = 0;
+
+    if (base_pos == 0 || base_pos < record_pos) {
+        static uint32_t fail_log_count = 0;
+        if (fail_log_count < 16) {
+            fprintf(stderr,
+                    "[FSW/Menu] child scan failed parent=%08X record=%08X base=%08X pos=%08X bytes=%02X %02X %02X %02X %02X %02X %02X %02X\n",
+                    (unsigned)parent, (unsigned)record_pos, (unsigned)base_pos,
+                    (unsigned)fsw_cuicontrol_stream_pos(file),
+                    (unsigned)(cuicontrol_va_is_valid(record_pos) ? MEM8(record_pos) : 0),
+                    (unsigned)(cuicontrol_va_is_valid(record_pos + 1) ? MEM8(record_pos + 1) : 0),
+                    (unsigned)(cuicontrol_va_is_valid(record_pos + 2) ? MEM8(record_pos + 2) : 0),
+                    (unsigned)(cuicontrol_va_is_valid(record_pos + 3) ? MEM8(record_pos + 3) : 0),
+                    (unsigned)(cuicontrol_va_is_valid(record_pos + 4) ? MEM8(record_pos + 4) : 0),
+                    (unsigned)(cuicontrol_va_is_valid(record_pos + 5) ? MEM8(record_pos + 5) : 0),
+                    (unsigned)(cuicontrol_va_is_valid(record_pos + 6) ? MEM8(record_pos + 6) : 0),
+                    (unsigned)(cuicontrol_va_is_valid(record_pos + 7) ? MEM8(record_pos + 7) : 0));
+            fail_log_count++;
+        }
+        return 0;
+    }
+    type = MEM8(base_pos + 0x40);
+    object = fsw_cuicontrol_alloc(type);
+    if (!cuicontrol_va_is_valid(object)) {
+        return 0;
+    }
+
+    if (type == 3 && (base_pos - record_pos) >= 4) {
+        MEM32(object + 0x100) = MEM32(record_pos);
+    } else if (type == 2 && (base_pos - record_pos) >= 4) {
+        uint32_t texture_crc = 0;
+        uint32_t texture_len = MEM32(record_pos);
+        if (texture_len != 0 && texture_len < 0x80 &&
+            record_pos + 4 + texture_len <= base_pos &&
+            cuicontrol_va_is_valid(record_pos + 4)) {
+            texture_crc = fsw_cuicontrol_calc_crc(record_pos + 4);
+        } else {
+            texture_crc = MEM32(record_pos);
+        }
+        if (texture_crc == 0x00001602u) {
+            texture_crc = 0x99D7384Au; /* SHL_BACKGROUND */
+        }
+        if (texture_crc != 0) {
+            static uint32_t texture_log_count = 0;
+            if (texture_log_count < 128) {
+                const char *name = (texture_len != 0 && texture_len < 0x80 &&
+                                    cuicontrol_va_is_valid(record_pos + 4))
+                                       ? (const char *)XBOX_PTR(record_pos + 4)
+                                       : "<crc>";
+                fprintf(stderr, "[FSW/Menu] image texture control=%08X crc=%08X name=%s\n",
+                        (unsigned)object, (unsigned)texture_crc, name);
+                texture_log_count++;
+            }
+            fsw_cuicontrol_set_image_texture(object, texture_crc);
+        }
+    } else if ((type == 1 || type == 6) && (base_pos - record_pos) >= 8) {
+        uint32_t font_len = MEM32(record_pos);
+        uint32_t text_crc_pos = record_pos + 4 + font_len;
+        if (font_len != 0 && font_len < 0x80 &&
+            record_pos + 4 + font_len <= base_pos &&
+            cuicontrol_va_is_valid(record_pos + 4)) {
+            MEM32(object + 0x100) = fsw_cuicontrol_calc_crc(record_pos + 4);
+        }
+        if (cuicontrol_va_is_valid(text_crc_pos + 4)) {
+            MEM32(object + 0x104) = MEM32(text_crc_pos);
+        }
+    }
+
+    fsw_cuicontrol_set_stream_pos(file, base_pos);
+    fsw_cuicontrol_read_memfile(file, (void *)XBOX_PTR(object + 0x10), 0x40);
+    MEM8(object + 0xD1) = fsw_cuicontrol_read_u8(file);
+    MEM32(object + 0x94) = fsw_cuicontrol_read_u32(file);
+    MEM32(object + 0x98) = fsw_cuicontrol_read_u32(file);
+    MEM32(object + 0x9C) = fsw_cuicontrol_read_u32(file);
+    MEM32(object + 0xA0) = fsw_cuicontrol_read_u32(file);
+    MEM32(object + 0x90) = fsw_cuicontrol_read_u32(file);
+    visible_crc = fsw_cuicontrol_read_u32(file);
+    update_crc = fsw_cuicontrol_read_u32(file);
+    render_crc = fsw_cuicontrol_read_u32(file);
+    fsw_cuicontrol_bind_callbacks(object, visible_crc, update_crc, render_crc);
+
+    MEM32(object + 0xF4) = fsw_cuicontrol_read_u32(file);
+    MEM8(object + 0xD0) = fsw_cuicontrol_read_u8(file);
+    MEM8(object + 0xD2) = fsw_cuicontrol_read_u8(file);
+    MEM8(object + 0xD3) = fsw_cuicontrol_read_u8(file);
+    MEM8(object + 0xD4) = fsw_cuicontrol_read_u8(file);
+    MEM8(object + 0xD5) = fsw_cuicontrol_read_u8(file);
+    MEM8(object + 0xE4) = fsw_cuicontrol_read_u8(file);
+    MEM8(object + 0xE5) = fsw_cuicontrol_read_u8(file);
+    fsw_cuicontrol_read_memfile(file, (void *)XBOX_PTR(object + 0xE8), 0xC);
+
+    if (type == 1 || type == 6) {
+        child_count = 0;
+    } else if (type == 3) {
+        tag = fsw_cuicontrol_read_u8(file);
+        name_len = fsw_cuicontrol_read_u32(file);
+        fsw_cuicontrol_skip(file, name_len + (tag == 2 ? 1 : 0));
+        child_count = fsw_cuicontrol_read_u8(file);
+        if (child_count > 64) {
+            child_count = 0;
+        }
+    } else {
+        child_count = fsw_cuicontrol_read_u8(file);
+        if (child_count > 64) {
+            child_count = 0;
+        }
+    }
+
+    fsw_cuicontrol_add_child(parent, object);
+    fsw_cuicontrol_load_children(object, file, child_count);
+
+    {
+        static uint32_t child_log_count = 0;
+        if (child_log_count < 24) {
+            fprintf(stderr,
+                    "[FSW/Menu] child load parent=%08X child=%08X type=%u children=%u record=%08X base=%08X callbacks=%08X/%08X/%08X\n",
+                    (unsigned)parent, (unsigned)object, (unsigned)type, (unsigned)child_count,
+                    (unsigned)record_pos, (unsigned)base_pos,
+                    (unsigned)MEM32(object + 0xB8), (unsigned)MEM32(object + 0xBC),
+                    (unsigned)MEM32(object + 0xC0));
+            child_log_count++;
+        }
+    }
+
+    return object;
+}
+
+static void fsw_cuicontrol_load_children(uint32_t parent, uint32_t file, uint32_t child_count)
+{
+    for (uint32_t i = 0; i < child_count; i++) {
+        uint32_t type_pos = fsw_cuicontrol_stream_pos(file);
+        uint8_t type = fsw_cuicontrol_read_u8(file);
+        if (fsw_cuicontrol_load_child_by_type(file, parent, type) == 0) {
+            fsw_cuicontrol_set_stream_pos(file, type_pos);
+            if (fsw_cuicontrol_load_child(file, parent) == 0) {
+                return;
+            }
+        }
+    }
+}
+
+static uint32_t fsw_cuicontrol_load_child_by_type(uint32_t file, uint32_t parent, uint8_t type)
+{
+    uint32_t object;
+    uint32_t vtbl;
+    uint32_t load_target;
+    uint32_t saved_eax = eax;
+    uint32_t saved_ecx = ecx;
+    uint32_t saved_edx = edx;
+    uint32_t saved_ebx = ebx;
+    uint32_t saved_esi = esi;
+    uint32_t saved_edi = edi;
+    uint32_t saved_esp = esp;
+
+    if (!fsw_cuicontrol_type_is_known(type)) {
+        static uint32_t unknown_child_log_count = 0;
+        if (unknown_child_log_count < 16) {
+            fprintf(stderr,
+                    "[FSW/Menu] unknown child type parent=%08X type=%u pos=%08X\n",
+                    (unsigned)parent, (unsigned)type,
+                    (unsigned)fsw_cuicontrol_stream_pos(file));
+            unknown_child_log_count++;
+        }
+        return 0;
+    }
+
+    object = fsw_cuicontrol_alloc(type);
+    if (!cuicontrol_va_is_valid(object)) {
+        return 0;
+    }
+
+    vtbl = MEM32(object);
+    load_target = cuicontrol_va_is_valid(vtbl + 0x44) ? MEM32(vtbl + 0x44) : 0;
+    if (load_target == 0) {
+        return 0;
+    }
+
+    {
+        static uint32_t typed_child_log_count = 0;
+        if (typed_child_log_count < 48) {
+            fprintf(stderr,
+                    "[FSW/Menu] typed child load parent=%08X child=%08X type=%u pos=%08X load=%08X\n",
+                    (unsigned)parent, (unsigned)object, (unsigned)type,
+                    (unsigned)fsw_cuicontrol_stream_pos(file),
+                    (unsigned)load_target);
+            typed_child_log_count++;
+        }
+    }
+
+    {
+        uint32_t _icall_esp = g_esp;
+        PUSH32(esp, parent);
+        PUSH32(esp, file);
+        ecx = object;
+        PUSH32(esp, 0);
+        RECOMP_ICALL_SAFE(load_target, _icall_esp);
+    }
+    fsw_cuicontrol_add_child(parent, object);
+
+    eax = saved_eax;
+    ecx = saved_ecx;
+    edx = saved_edx;
+    ebx = saved_ebx;
+    esi = saved_esi;
+    edi = saved_edi;
+    esp = saved_esp;
+    return object;
+}
+
+static void fsw_cuicontrol_load_tail(uint32_t control, uint32_t file)
+{
+    uint32_t visible_crc;
+    uint32_t update_crc;
+    uint32_t render_crc;
+    uint32_t child_count;
+
+    if (!cuicontrol_va_is_valid(control + 0xF4) || !cuicontrol_va_is_valid(file)) {
+        return;
+    }
+
+    MEM32(control + 0xA0) = fsw_cuicontrol_read_u32(file);
+    MEM32(control + 0x90) = fsw_cuicontrol_read_u32(file);
+    visible_crc = fsw_cuicontrol_read_u32(file);
+    update_crc = fsw_cuicontrol_read_u32(file);
+    render_crc = fsw_cuicontrol_read_u32(file);
+    MEM32(control + 0xC4) = visible_crc;
+    MEM32(control + 0xC8) = update_crc;
+    MEM32(control + 0xCC) = render_crc;
+    fsw_cuicontrol_bind_callbacks(control, visible_crc, update_crc, render_crc);
+
+    MEM32(control + 0xE4) = fsw_cuicontrol_read_u32(file);
+    MEM8(control + 0xD0) = fsw_cuicontrol_read_u8(file);
+    child_count = fsw_cuicontrol_read_u32(file);
+    MEM8(control + 0xD2) = fsw_cuicontrol_read_u8(file);
+    MEM8(control + 0xD3) = fsw_cuicontrol_read_u8(file);
+    MEM32(control + 0xA4) = fsw_cuicontrol_read_u32(file);
+    MEM32(control + 0xA8) = fsw_cuicontrol_read_u32(file);
+    MEM32(control + 0xF4) = fsw_cuicontrol_read_u32(file);
+    MEM32(control + 0xD8) = MEM32(esp + 0x20);
+
+    if (child_count > 256) {
+        child_count = 0;
+    }
+    {
+        static uint32_t tail_log_count = 0;
+        if (tail_log_count < 48) {
+            fprintf(stderr,
+                    "[FSW/Menu] control tail control=%08X type=%u children=%u callbacks=%08X/%08X/%08X flags=%08X parent=%08X pos=%08X\n",
+                    (unsigned)control, (unsigned)MEM8(control + 0xD1),
+                    (unsigned)child_count, (unsigned)visible_crc,
+                    (unsigned)update_crc, (unsigned)render_crc,
+                    (unsigned)MEM32(control + 0xE4), (unsigned)MEM32(control + 0xD8),
+                    (unsigned)fsw_cuicontrol_stream_pos(file));
+            tail_log_count++;
+        }
+    }
+    fsw_cuicontrol_load_children(control, file, child_count);
 }
 
 /**
@@ -2471,6 +3160,9 @@ loc_001317F9:
 void fn_00131810_CUIControl_RenderHeirarchy(void)
 {
     uint32_t ebp;
+    uint32_t self_control;
+    uint32_t camera_arg;
+    uint32_t child_control;
     int _flags = 0; /* fallback flag var */
 
 loc_00131810:
@@ -2481,7 +3173,13 @@ loc_00131810:
     esp = esp - 0x10;
     PUSH32(esp, esi);
     PUSH32(esp, edi);
-    esi = ecx;
+    esi = fsw_cuicontrol_fix_stack_image_control(ecx);
+    self_control = esi;
+#ifdef XBOXRECOMP_VULKAN_GRAPHICS
+    if (esi >= 0x00E00000u && esi < 0x01000000u && MEM32(esi) != 0x560A90u) {
+        goto loc_001318C4;
+    }
+#endif
     eax = MEM32(esi);
     PUSH32(esp, 0);
     PUSH32(esp, 0);
@@ -2489,6 +3187,19 @@ loc_00131810:
     }
 
 loc_00131826:
+    esi = self_control;
+    {
+        static uint32_t hierarchy_log_count = 0;
+        if (hierarchy_log_count < 64) {
+            fprintf(stderr,
+                    "[FSW/Menu] hierarchy self=%08X type=%u visible=%u flags=%02X/%02X child_head=%08X child_tail=%08X render=%08X hierarchy=%08X\n",
+                    (unsigned)esi, (unsigned)MEM8(esi + 0xD1), (unsigned)(LO8(eax) != 0),
+                    (unsigned)MEM8(esi + 0xE4), (unsigned)MEM8(esi + 0xE5),
+                    (unsigned)MEM32(esi + 0xAC), (unsigned)MEM32(esi + 0xB0),
+                    (unsigned)MEM32(MEM32(esi) + 0x34), (unsigned)MEM32(MEM32(esi) + 0x38));
+            hierarchy_log_count++;
+        }
+    }
     if (TEST_Z(LO8(eax), LO8(eax))) goto loc_001318C4; /* je: equal / zero */
 
 loc_0013182E:
@@ -2496,6 +3207,7 @@ loc_0013182E:
 
 loc_0013183B:
     edi = MEM32(ebp + 8);
+    camera_arg = edi;
     if (TEST_Z(edi, edi)) goto loc_001318C4; /* je: equal / zero */
 
 loc_00131846:
@@ -2525,6 +3237,8 @@ loc_00131861:
     esp += 12; return; /* ret 8 */
 
 loc_0013186C:
+    esi = self_control;
+    edi = camera_arg;
     edx = MEM32(esi);
     eax = esi + 0x50;
     { uint32_t _icall_esp = g_esp;
@@ -2535,6 +3249,13 @@ loc_0013186C:
     }
 
 loc_00131878:
+    esi = self_control;
+    edi = camera_arg;
+#ifdef XBOXRECOMP_VULKAN_GRAPHICS
+    if (esi >= 0x00E00000u && esi < 0x01000000u && MEM32(esi) == 0x560A90u) {
+        goto loc_001318C4;
+    }
+#endif
     eax = esi + 0xAC;
     MEM32(esp + 0xC) = eax;
     eax = MEM32(eax + 8);
@@ -2546,8 +3267,11 @@ loc_0013188D:
     /* nop */
 
 loc_00131890:
+    if (!cuicontrol_va_is_valid(eax + 4)) goto loc_001318C4;
     esi = MEM32(eax);
     if (TEST_Z(esi, esi)) goto loc_001318AF; /* je: equal / zero */
+    if (!cuicontrol_va_is_valid(esi + 0xE8) || !cuicontrol_method_is_valid(esi, 0x24)) goto loc_001318AF;
+    child_control = esi;
 
 loc_00131896:
     edx = MEM32(esi);
@@ -2559,18 +3283,33 @@ loc_00131896:
     }
 
 loc_001318A1:
+    esi = child_control;
+    edi = camera_arg;
+    {
+        static uint32_t hierarchy_child_log_count = 0;
+        if (hierarchy_child_log_count < 96) {
+            fprintf(stderr,
+                    "[FSW/Menu] hierarchy child parent=%08X child=%08X type=%u visible=%u flags=%02X/%02X node=%08X\n",
+                    (unsigned)MEM32(ebp - 8), (unsigned)esi, (unsigned)MEM8(esi + 0xD1),
+                    (unsigned)(LO8(eax) != 0), (unsigned)MEM8(esi + 0xE4),
+                    (unsigned)MEM8(esi + 0xE5), (unsigned)MEM32(esp + 8));
+            hierarchy_child_log_count++;
+        }
+    }
     if (TEST_Z(LO8(eax), LO8(eax))) goto loc_001318AF; /* je: equal / zero */
 
 loc_001318A5:
     eax = MEM32(esi);
     { uint32_t _icall_esp = g_esp;
     PUSH32(esp, 0);
+    edi = camera_arg;
     PUSH32(esp, edi);
     ecx = esi;
     PUSH32(esp, 0); RECOMP_ICALL_SAFE(MEM32(eax + 0x38), _icall_esp); /* indirect call */
     }
 
 loc_001318AF:
+    esi = self_control;
     eax = esp + 0x10;
     ecx = esp + 8;
     PUSH32(esp, 0); fn_0004E360_EIterator_ZeroList_K_QAE_AV01_H_Z(); /* call 0x0004E360 */
@@ -3996,6 +4735,17 @@ void fn_001325E0_CUIControl_SetRenderCRC(void)
     int _flags = 0; /* fallback flag var */
 
 loc_001325E0:
+#ifdef XBOXRECOMP_VULKAN_GRAPHICS
+    {
+        uint32_t crc = MEM32(esp + 4);
+        uint32_t callback = fsw_cuicontrol_host_render_callback(crc);
+        if (callback != 0 || crc == 0xC9EF9119u) {
+            MEM32(edi + 0xCC) = crc;
+            MEM32(edi + 0xC0) = callback;
+            esp += 8; return; /* ret 4 */
+        }
+    }
+#endif
     eax = MEM32(esp + 4);
     PUSH32(esp, esi);
     MEM32(edi + 0xCC) = eax;
@@ -4078,6 +4828,17 @@ void fn_00132650_CUIControl_SetUpdateCRC(void)
     int _flags = 0; /* fallback flag var */
 
 loc_00132650:
+#ifdef XBOXRECOMP_VULKAN_GRAPHICS
+    {
+        uint32_t crc = MEM32(esp + 4);
+        uint32_t callback = fsw_cuicontrol_host_update_callback(crc);
+        if (callback != 0 || crc == 0xC9EF9119u) {
+            MEM32(edi + 0xC8) = crc;
+            MEM32(edi + 0xBC) = callback;
+            esp += 8; return; /* ret 4 */
+        }
+    }
+#endif
     eax = MEM32(esp + 4);
     PUSH32(esp, esi);
     MEM32(edi + 0xC8) = eax;
@@ -4160,6 +4921,17 @@ void fn_001326C0_CUIControl_SetVisibleCRC(void)
     int _flags = 0; /* fallback flag var */
 
 loc_001326C0:
+#ifdef XBOXRECOMP_VULKAN_GRAPHICS
+    {
+        uint32_t crc = MEM32(esp + 4);
+        uint32_t callback = fsw_cuicontrol_host_visible_callback(crc);
+        if (callback != 0 || crc == 0xC9EF9119u) {
+            MEM32(edi + 0xC4) = crc;
+            MEM32(edi + 0xB8) = callback;
+            esp += 8; return; /* ret 4 */
+        }
+    }
+#endif
     eax = MEM32(esp + 4);
     PUSH32(esp, esi);
     MEM32(edi + 0xC4) = eax;
@@ -4426,6 +5198,26 @@ void fn_00132850_CUIControl_Load(void)
     ebp = g_seh_ebp; /* fpo_leaf: inherit caller's frame */
 
 loc_00132850:
+#ifdef XBOXRECOMP_VULKAN_GRAPHICS
+    {
+        uint32_t control = ecx;
+        uint32_t file = MEM32(esp + 4);
+        uint32_t parent = MEM32(esp + 8);
+        uint32_t saved_esp = esp;
+
+        if (cuicontrol_va_is_valid(control + 0xF4) && cuicontrol_va_is_valid(file)) {
+            fsw_cuicontrol_read_memfile(file, (void *)XBOX_PTR(control + 0x10), 0x40);
+            MEM8(control + 0xD1) = fsw_cuicontrol_read_u8(file);
+            MEM32(control + 0x94) = fsw_cuicontrol_read_u32(file);
+            MEM32(control + 0x98) = fsw_cuicontrol_read_u32(file);
+            MEM32(control + 0x9C) = fsw_cuicontrol_read_u32(file);
+            MEM32(saved_esp + 0x20) = parent;
+            fsw_cuicontrol_load_tail(control, file);
+            esp = saved_esp;
+            esp += 12; return; /* ret 8 */
+        }
+    }
+#endif
     esp = esp - 0xC;
     PUSH32(esp, ebx);
     PUSH32(esp, ebp);
@@ -4680,6 +5472,8 @@ void sub_00132909(void)
     uint32_t ebp;
 
 loc_00132909:
+    ebp = g_seh_ebp;
+    fsw_cuicontrol_load_tail(edi, ebp);
     POP32(esp, edi);
     POP32(esp, esi);
     POP32(esp, ebp);

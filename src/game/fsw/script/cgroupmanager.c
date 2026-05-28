@@ -8,6 +8,17 @@
 #include "recomp_funcs.h"
 #include <math.h>
 
+static int cgroup_va_range_is_valid(uint32_t va, uint32_t size)
+{
+    if (size == 0) {
+        return va >= 0x00010000u && va < 0x04000000u;
+    }
+    if (va < 0x00010000u || va >= 0x04000000u || va + size < va) {
+        return 0;
+    }
+    return va + size <= 0x04000000u;
+}
+
 /**
  * fn_00049400_GCGroupManager_MAEPAXI_Z
  * Symbol: ??_GCGroupManager@@MAEPAXI@Z
@@ -4021,10 +4032,13 @@ loc_001EDCD0:
     PUSH32(esp, esi);
     ebx = ebp + 0x14;
     PUSH32(esp, edi);
+    if (!cgroup_va_range_is_valid(ebp, 0x28) ||
+        !cgroup_va_range_is_valid(ebx + 8, 4)) goto loc_001EDD1B;
     edi = MEM32(ebx + 8);
     if (TEST_Z(edi, edi)) goto loc_001EDD14; /* je: equal / zero */
 
 loc_001EDCE2:
+    if (!cgroup_va_range_is_valid(edi, 8)) goto loc_001EDD14;
     PUSH32(esp, ecx);
     ecx = MEM32(edi);
     eax = esp;
@@ -4048,6 +4062,7 @@ loc_001EDD00:
     PUSH32(esp, 0); fn_00028E60_PAVCParticleEffect_ZeroList_Append(); /* call 0x00028E60 */
 
 loc_001EDD0D:
+    if (!cgroup_va_range_is_valid(edi + 4, 4)) goto loc_001EDD14;
     edi = MEM32(edi + 4);
     if (TEST_NZ(edi, edi)) goto loc_001EDCE2; /* jne: not equal / not zero */
 

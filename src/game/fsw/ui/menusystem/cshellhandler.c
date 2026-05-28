@@ -85,6 +85,41 @@ static uint32_t fsw_shell_camera_va(uint32_t video_va)
     return camera_va;
 }
 
+static void fsw_shell_register_ui_data(void)
+{
+    uint32_t saved_eax = eax;
+    uint32_t saved_ecx = ecx;
+    uint32_t saved_edx = edx;
+    uint32_t saved_ebx = ebx;
+    uint32_t saved_esi = esi;
+    uint32_t saved_edi = edi;
+    uint32_t saved_esp = esp;
+
+    if (MEM32(0x5FA8A0) == 0) {
+        PUSH32(esp, 0);
+        fn_00377150_CUIDataRegistry_Init();
+    }
+
+    esi = MEM32(0x5FA8A0) + 0x40;
+    PUSH32(esp, 0);
+    fn_000526E0_VCRC_U_CEntry_ZeroHashSet_RemoveAll();
+
+    PUSH32(esp, 0);
+    fn_001AE440_CUIGlobals_RegisterUnicodeStrings();
+
+    esi = 0x60F060;
+    PUSH32(esp, 0);
+    fn_001AF230_CUIGlobals_RegisterStrings();
+
+    eax = saved_eax;
+    ecx = saved_ecx;
+    edx = saved_edx;
+    ebx = saved_ebx;
+    esi = saved_esi;
+    edi = saved_edi;
+    esp = saved_esp;
+}
+
 /**
  * fn_0004C470_GCShellHandler_UAEPAXI_Z
  * Symbol: ??_GCShellHandler@@UAEPAXI@Z
@@ -1407,8 +1442,9 @@ loc_001B945A:
 
 loc_001B9468:
     ecx = MEM32(0x5FA518);
-    PUSH32(esp, 0x5406E4);
     MEM8(ecx + 0x7D) = LO8(ebx);
+    fsw_shell_register_ui_data();
+    PUSH32(esp, 0x5406E4);
     PUSH32(esp, 0); fn_001B9C90_CMenuSystem_LoadMenus(); /* call 0x001B9C90 */
 
 loc_001B947B:

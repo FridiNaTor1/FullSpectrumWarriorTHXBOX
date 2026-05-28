@@ -210,7 +210,9 @@ loc_00028F24:
 /* Fallback for unresolved generated target 0x00028F26. */
 void sub_00028F26(void)
 {
-    recomp_missing_target(0x00028F26u);
+    MEM32(esi + 4) = eax;
+    POP32(esp, ebx);
+    esp += 8; return; /* ret 4 */
 }
 
 /**

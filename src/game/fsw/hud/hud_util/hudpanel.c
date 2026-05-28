@@ -7,6 +7,12 @@
 #define RECOMP_GENERATED_CODE
 #include "recomp_funcs.h"
 #include <math.h>
+#include <stdio.h>
+
+static int hudpanel_va_range_is_valid(uint32_t va, uint32_t size)
+{
+    return va >= 0x00010000u && va < 0x04000000u && size <= 0x04000000u - va;
+}
 
 /**
  * fn_003D24C0_HUDPanel_Clear
@@ -19,6 +25,10 @@ void fn_003D24C0_HUDPanel_Clear(void)
 {
 
 loc_003D24C0:
+    if (!hudpanel_va_range_is_valid(ebx, 0x60)) {
+        fprintf(stderr, "[FSW/HUD] skipping HUDPanel_Clear invalid panel=%08X\n", ebx);
+        esp += 4; return; /* ret */
+    }
     PUSH32(esp, ecx);
     PUSH32(esp, esi);
     PUSH32(esp, edi);
@@ -26,6 +36,13 @@ loc_003D24C0:
 
 loc_003D24C8:
     esi = eax;
+    if (!hudpanel_va_range_is_valid(esi, 0x40)) {
+        fprintf(stderr, "[FSW/HUD] skipping HUDPanel_Clear invalid identity matrix=%08X panel=%08X\n", esi, ebx);
+        POP32(esp, edi);
+        POP32(esp, esi);
+        POP32(esp, ecx);
+        esp += 4; return; /* ret */
+    }
     eax = ebx + 0x40;
     ecx = 0x10;
     edi = ebx;
@@ -33,6 +50,11 @@ loc_003D24C8:
     esi += ecx * 4; edi += ecx * 4; ecx = 0; /* rep movsd */
     ecx = MEM32(eax + 4);
     edx = MEM32(eax + 8);
+    if (!hudpanel_va_range_is_valid(ecx, 0xC) || !hudpanel_va_range_is_valid(edx, 0xC)) {
+        fprintf(stderr, "[FSW/HUD] repairing HUDPanel list panel=%08X prev=%08X next=%08X\n", ebx, ecx, edx);
+        ecx = eax;
+        edx = eax;
+    }
     MEM32(ecx + 8) = edx;
     ecx = MEM32(eax + 8);
     edx = MEM32(eax + 4);

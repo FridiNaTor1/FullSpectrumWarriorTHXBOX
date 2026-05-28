@@ -7,6 +7,18 @@
 #define RECOMP_GENERATED_CODE
 #include "recomp_funcs.h"
 #include <math.h>
+#include <stdio.h>
+
+static int zeromessages_va_range_is_valid(uint32_t va, uint32_t size)
+{
+    if (va < 0x00010000u || va >= 0x04000000u) {
+        return 0;
+    }
+    if (size > 0x04000000u || va > 0x04000000u - size) {
+        return 0;
+    }
+    return 1;
+}
 
 /**
  * sub_000365B8
@@ -1143,6 +1155,23 @@ void fn_00053140_PAUZeroMsgBase_ZeroHeap_Pop(void)
     ebp = g_seh_ebp; /* fpo_leaf: inherit caller's frame */
 
 loc_00053140:
+    if (!zeromessages_va_range_is_valid(eax, 0x10) ||
+        MEM32(eax) == 0 ||
+        MEM32(eax) > 0x4000 ||
+        !zeromessages_va_range_is_valid(MEM32(eax + 0xC), (MEM32(eax) + 1u) * 8u)) {
+        static int zero_heap_pop_logs;
+        if (zero_heap_pop_logs < 16) {
+            fprintf(stderr, "[FSW/ZeroMsg] skipping corrupt heap pop heap=%08X count=%08X data=%08X\n",
+                    (unsigned)eax,
+                    (unsigned)(zeromessages_va_range_is_valid(eax, 4) ? MEM32(eax) : 0),
+                    (unsigned)(zeromessages_va_range_is_valid(eax, 0x10) ? MEM32(eax + 0xC) : 0));
+            zero_heap_pop_logs++;
+        }
+        if (zeromessages_va_range_is_valid(eax, 4)) {
+            MEM32(eax) = 0;
+        }
+        esp += 4; return; /* ret */
+    }
     ecx = MEM32(eax + 0xC);
     edx = MEM32(eax);
     PUSH32(esp, ebx);

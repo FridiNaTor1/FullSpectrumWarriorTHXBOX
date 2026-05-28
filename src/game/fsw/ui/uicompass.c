@@ -7,6 +7,12 @@
 #define RECOMP_GENERATED_CODE
 #include "recomp_funcs.h"
 #include <math.h>
+#include <stdio.h>
+
+static int fsw_uicompass_va_is_valid(uint32_t va)
+{
+    return va >= 0x00010000u && va < 0x04000000u;
+}
 
 /**
  * fn_001C91D0_CUICompass_AddtoSideLists
@@ -554,6 +560,15 @@ loc_001C9616:
     if (TEST_Z(esi, esi)) goto loc_001C9659; /* je: equal / zero */
 
 loc_001C961C:
+    if (!fsw_uicompass_va_is_valid(esi)) {
+        static uint32_t invalid_compass_icon_logs = 0;
+        if (invalid_compass_icon_logs < 8) {
+            fprintf(stderr, "[FSW/UICompass] skipping invalid icon name table=%08X value=%08X\n",
+                    edi, esi);
+        }
+        invalid_compass_icon_logs++;
+        goto loc_001C9659;
+    }
     SET_LO8(ecx, MEM8(esi));
     eax = eax | 0xFFFFFFFFu;
     (void)0; /* test LO8(ecx), LO8(ecx) - flags set for next jcc */

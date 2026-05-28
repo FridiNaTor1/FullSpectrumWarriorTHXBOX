@@ -7,6 +7,40 @@
 #define RECOMP_GENERATED_CODE
 #include "recomp_funcs.h"
 #include <math.h>
+#include <stdio.h>
+
+static int cplayermanager_va_range_is_valid(uint32_t va, uint32_t size)
+{
+    if (va < 0x00010000u || va >= 0x04000000u) {
+        return 0;
+    }
+    if (size > 0x04000000u || va > 0x04000000u - size) {
+        return 0;
+    }
+    return 1;
+}
+
+static int cplayermanager_list_node_is_valid(const char *where, uint32_t node)
+{
+    if (node == 0) {
+        return 0;
+    }
+    if (!cplayermanager_va_range_is_valid(node, 8) ||
+        !cplayermanager_va_range_is_valid(MEM32(node), 0x54)) {
+        static uint32_t invalid_player_list_count;
+        if (invalid_player_list_count < 12 || (invalid_player_list_count % 128) == 0) {
+            fprintf(stderr,
+                    "[FSW/Player] stopping %s invalid player list node=%08X player=%08X count=%u\n",
+                    where,
+                    (unsigned)node,
+                    (unsigned)(cplayermanager_va_range_is_valid(node, 4) ? MEM32(node) : 0),
+                    (unsigned)(invalid_player_list_count + 1));
+        }
+        invalid_player_list_count++;
+        return 0;
+    }
+    return 1;
+}
 
 /**
  * fn_0004C120_0CUIRecentPlayer_QAE_PBVCNetPlayer_Z
@@ -136,72 +170,66 @@ loc_0004C1BE:
 void fn_0004C200_PAVCPlayer_ZeroList_DeleteAll(void)
 {
     uint32_t ebp;
-    int _flags = 0; /* fallback flag var */
+    uint32_t list = edi;
+    uint32_t node;
+    unsigned steps = 0;
     ebp = g_seh_ebp; /* fpo_leaf: inherit caller's frame */
 
-loc_0004C200:
+    if (!cplayermanager_va_range_is_valid(list, 0xC)) {
+        esp += 4; return; /* ret */
+    }
+
     PUSH32(esp, ebp);
     PUSH32(esp, esi);
-    esi = MEM32(edi + 8);
+    esi = MEM32(list + 8);
     ebp = 0; /* xor self */
-    if (CMP_EQ(esi, ebp)) goto loc_0004C25E; /* je: equal / zero */
-
-loc_0004C20B:
     PUSH32(esp, ebx);
-    /* nop */
 
-loc_0004C210:
-    MEM32(edi) = MEM32(edi) - 1;
-    eax = MEM32(esi + 4);
-    MEM32(edi + 8) = eax;
-    ebx = MEM32(esi);
-    if (CMP_EQ(ebx, ebp)) goto loc_0004C22D; /* je: equal / zero */
+    while (esi != 0 && steps++ < 4096) {
+        uint32_t next;
+        uint32_t prev;
 
-loc_0004C21E:
-    PUSH32(esp, ebx);
-    PUSH32(esp, 0); fn_001BF770_1CPlayer_QAE_XZ(); /* call 0x001BF770 */
+        if (!cplayermanager_va_range_is_valid(esi, 0xC)) {
+            MEM32(list) = 0;
+            MEM32(list + 4) = 0;
+            MEM32(list + 8) = 0;
+            break;
+        }
 
-loc_0004C224:
-    PUSH32(esp, ebx);
-    PUSH32(esp, 0); fn_001293F0_3_YAXPAX_Z(); /* call 0x001293F0 */
+        next = MEM32(esi + 4);
+        prev = MEM32(esi + 8);
+        if (MEM32(list) != 0) {
+            MEM32(list) = MEM32(list) - 1;
+        }
+        MEM32(list + 8) = cplayermanager_va_range_is_valid(next, 0xC) ? next : 0;
+        ebx = MEM32(esi);
+        if (cplayermanager_va_range_is_valid(ebx, 0x54)) {
+            PUSH32(esp, ebx);
+            PUSH32(esp, 0); fn_001BF770_1CPlayer_QAE_XZ(); /* call 0x001BF770 */
+            PUSH32(esp, ebx);
+            PUSH32(esp, 0); fn_001293F0_3_YAXPAX_Z(); /* call 0x001293F0 */
+            esp = esp + 4;
+        }
+        if (cplayermanager_va_range_is_valid(prev, 0xC)) {
+            MEM32(prev + 4) = cplayermanager_va_range_is_valid(next, 0xC) ? next : 0;
+        }
+        if (cplayermanager_va_range_is_valid(next, 0xC)) {
+            MEM32(next + 8) = cplayermanager_va_range_is_valid(prev, 0xC) ? prev : 0;
+        }
+        node = esi;
+        esi = cplayermanager_va_range_is_valid(next, 0xC) ? next : 0;
+        MEM32(node + 8) = ebp;
+        MEM32(node + 4) = ebp;
+        PUSH32(esp, node);
+        PUSH32(esp, 0); fn_001293F0_3_YAXPAX_Z(); /* call 0x001293F0 */
+        esp = esp + 4;
+    }
 
-loc_0004C22A:
-    esp = esp + 4;
-
-loc_0004C22D:
-    eax = MEM32(esi + 8);
-    if (CMP_EQ(eax, ebp)) goto loc_0004C23A; /* je: equal / zero */
-
-loc_0004C234:
-    ecx = MEM32(esi + 4);
-    MEM32(eax + 4) = ecx;
-
-loc_0004C23A:
-    eax = MEM32(esi + 4);
-    if (CMP_EQ(eax, ebp)) goto loc_0004C247; /* je: equal / zero */
-
-loc_0004C241:
-    edx = MEM32(esi + 8);
-    MEM32(eax + 8) = edx;
-
-loc_0004C247:
-    PUSH32(esp, esi);
-    MEM32(esi + 8) = ebp;
-    MEM32(esi + 4) = ebp;
-    PUSH32(esp, 0); fn_001293F0_3_YAXPAX_Z(); /* call 0x001293F0 */
-
-loc_0004C253:
-    esi = MEM32(edi + 8);
-    esp = esp + 4;
-    if (CMP_NE(esi, ebp)) goto loc_0004C210; /* jne: not equal / not zero */
-
-loc_0004C25D:
     POP32(esp, ebx);
 
-loc_0004C25E:
     POP32(esp, esi);
-    MEM32(edi + 4) = ebp;
-    MEM32(edi + 8) = ebp;
+    MEM32(list + 4) = ebp;
+    MEM32(list + 8) = ebp;
     POP32(esp, ebp);
     esp += 4; return; /* ret */
 
@@ -5591,9 +5619,9 @@ void fn_001C0DA0_CPlayerManager_UpdateAllControlLists(void)
     ebp = g_seh_ebp; /* fpo_leaf: inherit caller's frame */
 
 loc_001C0DA0:
-    PUSH32(esp, esi);
-    esi = MEM32(edi + 8);
-    if (TEST_Z(esi, esi)) goto loc_001C0DBE; /* je: equal / zero */
+	    PUSH32(esp, esi);
+	    esi = MEM32(edi + 8);
+	    if (!cplayermanager_list_node_is_valid("UpdateAllControlLists", esi)) goto loc_001C0DBE;
 
 loc_001C0DA8:
     eax = MEM32(esi);
@@ -5605,8 +5633,8 @@ loc_001C0DB1:
     PUSH32(esp, 0); fn_001C0B20_CPlayer_UpdateControlledCoreList(); /* call 0x001C0B20 */
 
 loc_001C0DB7:
-    esi = MEM32(esi + 4);
-    if (TEST_NZ(esi, esi)) goto loc_001C0DA8; /* jne: not equal / not zero */
+	    esi = MEM32(esi + 4);
+	    if (cplayermanager_list_node_is_valid("UpdateAllControlLists", esi)) goto loc_001C0DA8;
 
 loc_001C0DBE:
     eax = edi;
@@ -5766,9 +5794,9 @@ void sub_001C0E99(void)
     ebp = g_seh_ebp; /* fpo_leaf: inherit caller's frame */
 
 loc_001C0E99:
-    esi = MEM32(esp + 0x20);
-    ebx = MEM32(esi + 8);
-    if (TEST_Z(ebx, ebx)) goto loc_001C0EBA; /* je: equal / zero */
+	    esi = MEM32(esp + 0x20);
+	    ebx = MEM32(esi + 8);
+	    if (!cplayermanager_list_node_is_valid("InitializePlayerData", ebx)) goto loc_001C0EBA;
 
 loc_001C0EA4:
     eax = MEM32(ebx);
@@ -5780,8 +5808,8 @@ loc_001C0EAD:
     PUSH32(esp, 0); fn_001C0B20_CPlayer_UpdateControlledCoreList(); /* call 0x001C0B20 */
 
 loc_001C0EB3:
-    ebx = MEM32(ebx + 4);
-    if (TEST_NZ(ebx, ebx)) goto loc_001C0EA4; /* jne: not equal / not zero */
+	    ebx = MEM32(ebx + 4);
+	    if (cplayermanager_list_node_is_valid("InitializePlayerData", ebx)) goto loc_001C0EA4;
 
 loc_001C0EBA:
     eax = esi;

@@ -7,6 +7,26 @@
 #define RECOMP_GENERATED_CODE
 #include "recomp_funcs.h"
 #include <math.h>
+#include <stdio.h>
+
+static int cfly_va_range_is_valid(uint32_t va, uint32_t size)
+{
+    return va >= 0x00010000u && va < 0x04000000u && size <= 0x04000000u - va;
+}
+
+static void cfly_clear_active_list(void)
+{
+    MEM32(0x61323C) = 0;
+    MEM32(0x613240) = 0;
+    MEM32(0x613244) = 0;
+}
+
+static void cfly_clear_target_list(void)
+{
+    MEM32(0x613248) = 0;
+    MEM32(0x61324C) = 0;
+    MEM32(0x613250) = 0;
+}
 
 /**
  * fn_0004F130_0CFlyTarget_QAE_ABVZeroVector3_HMM_Z
@@ -516,6 +536,12 @@ loc_0037C0A0:
     esp = esp & 0xFFFFFFF8u;
     esp = esp - 0x18;
     eax = MEM32(0x613244);
+    if (eax != 0 && !cfly_va_range_is_valid(eax, 8)) {
+        fprintf(stderr, "[FSW/Effects] clearing invalid active fly list head=%08X count=%08X\n",
+                eax, MEM32(0x61323C));
+        cfly_clear_active_list();
+        eax = 0;
+    }
     PUSH32(esp, ebx);
     ebx = 0; /* xor self */
     (void)0; /* cmp eax, ebx - flags set for next jcc */
@@ -525,6 +551,13 @@ loc_0037C0A0:
     if (CMP_EQ(eax, ebx)) goto loc_0037C193; /* je: equal / zero */
 
 loc_0037C0C6:
+    if (!cfly_va_range_is_valid(eax, 8) ||
+        !cfly_va_range_is_valid(MEM32(eax), 0x60)) {
+        fprintf(stderr, "[FSW/Effects] stopping active fly iterator node=%08X fly=%08X\n",
+                eax, cfly_va_range_is_valid(eax, 4) ? MEM32(eax) : 0);
+        cfly_clear_active_list();
+        goto loc_0037C193;
+    }
     esi = MEM32(eax);
     eax = esp + 0x18;
     ecx = esp + 0x10;
@@ -559,6 +592,11 @@ loc_0037C10D:
     /* nop */
 
 loc_0037C110:
+    if (!cfly_va_range_is_valid(eax, 8)) {
+        fprintf(stderr, "[FSW/Effects] stopping active fly search invalid node=%08X\n", eax);
+        cfly_clear_active_list();
+        goto loc_0037C177;
+    }
     if (CMP_EQ(esi, MEM32(eax))) goto loc_0037C11D; /* je: equal / zero */
 
 loc_0037C114:
@@ -629,6 +667,12 @@ loc_0037C187:
 
 loc_0037C193:
     eax = MEM32(0x613250);
+    if (eax != 0 && !cfly_va_range_is_valid(eax, 8)) {
+        fprintf(stderr, "[FSW/Effects] clearing invalid fly target list head=%08X count=%08X\n",
+                eax, MEM32(0x613248));
+        cfly_clear_target_list();
+        eax = 0;
+    }
     (void)0; /* cmp eax, ebx - flags set for next jcc */
     ecx = 0x613248;
     MEM32(esp + 0x10) = eax;
@@ -639,6 +683,13 @@ loc_0037C1AD:
     /* nop */
 
 loc_0037C1B0:
+    if (!cfly_va_range_is_valid(eax, 8) ||
+        !cfly_va_range_is_valid(MEM32(eax), 0x60)) {
+        fprintf(stderr, "[FSW/Effects] stopping fly target update iterator node=%08X target=%08X\n",
+                eax, cfly_va_range_is_valid(eax, 4) ? MEM32(eax) : 0);
+        cfly_clear_target_list();
+        goto loc_0037C2B4;
+    }
     esi = MEM32(eax);
     eax = esp + 0x18;
     ecx = esp + 0x10;
@@ -1407,6 +1458,12 @@ loc_0037C8C0:
 loc_0037C8EE:
     eax = MEM32(0x613248);
     if (TEST_Z(eax, eax)) goto loc_0037CAAD; /* je: equal / zero */
+    if (!cfly_va_range_is_valid(MEM32(0x613250), 8)) {
+        fprintf(stderr, "[FSW/Effects] skipping fly creation invalid target list head=%08X count=%08X\n",
+                MEM32(0x613250), MEM32(0x613248));
+        cfly_clear_target_list();
+        goto loc_0037CAAD;
+    }
 
 loc_0037C8FB:
     PUSH32(esp, 0); fn_00299110_CRandomManager_Get(); /* call 0x00299110 */
@@ -1436,6 +1493,11 @@ loc_0037C941:
     esi = edx;
 
 loc_0037C943:
+    if (!cfly_va_range_is_valid(MEM32(esp + 0x1C), 8)) {
+        fprintf(stderr, "[FSW/Effects] stopping fly target iterator invalid node=%08X remaining=%08X\n",
+                MEM32(esp + 0x1C), esi);
+        goto loc_0037CAAD;
+    }
     eax = esp + 0x14;
     ecx = esp + 0x1C;
     PUSH32(esp, 0); fn_0004E360_EIterator_ZeroList_K_QAE_AV01_H_Z(); /* call 0x0004E360 */
@@ -1446,6 +1508,11 @@ loc_0037C950:
 
 loc_0037C953:
     ecx = MEM32(esp + 0x1C);
+    if (!cfly_va_range_is_valid(ecx, 4) || !cfly_va_range_is_valid(MEM32(ecx), 0x60)) {
+        fprintf(stderr, "[FSW/Effects] skipping fly creation invalid target node=%08X target=%08X\n",
+                ecx, cfly_va_range_is_valid(ecx, 4) ? MEM32(ecx) : 0);
+        goto loc_0037CAAD;
+    }
     esi = MEM32(ecx);
     edx = MEM32(esi + 0x5C);
     (void)0; /* cmp edx, MEM32(esi + 0x58) - flags set for next jcc */

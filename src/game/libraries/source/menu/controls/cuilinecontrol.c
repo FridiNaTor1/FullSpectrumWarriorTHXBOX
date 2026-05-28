@@ -6,7 +6,97 @@
 
 #define RECOMP_GENERATED_CODE
 #include "recomp_funcs.h"
+#ifdef XBOXRECOMP_VULKAN_GRAPHICS
+#include "d3d8_vulkan_host.h"
+#endif
 #include <math.h>
+#include <stdio.h>
+
+static int cuilinecontrol_va_is_valid(uint32_t va)
+{
+    return va >= 0x00010000u && va < 0x04000000u;
+}
+
+#ifdef XBOXRECOMP_VULKAN_GRAPHICS
+static int fsw_cuilinecontrol_render_vulkan(uint32_t control, uint32_t matrix)
+{
+    static uint32_t log_count;
+    float x0;
+    float y0;
+    float x1;
+    float y1;
+    float dx;
+    float dy;
+    float len;
+    float px;
+    float py;
+    uint32_t color;
+    float a;
+    float r;
+    float g;
+    float b;
+
+    if (!cuilinecontrol_va_is_valid(control + 0x118)) {
+        return 0;
+    }
+
+    x0 = MEMF(control + 0x100);
+    y0 = MEMF(control + 0x104);
+    x1 = MEMF(control + 0x10C);
+    y1 = MEMF(control + 0x110);
+    if (cuilinecontrol_va_is_valid(matrix + 0x40)) {
+        x0 += MEMF(matrix + 0x30);
+        y0 += MEMF(matrix + 0x34);
+        x1 += MEMF(matrix + 0x30);
+        y1 += MEMF(matrix + 0x34);
+    }
+
+    dx = x1 - x0;
+    dy = y1 - y0;
+    len = sqrtf(dx * dx + dy * dy);
+    if (len <= 0.001f || x0 < -2048.0f || x0 > 2048.0f || y0 < -2048.0f || y0 > 2048.0f ||
+        x1 < -2048.0f || x1 > 2048.0f || y1 < -2048.0f || y1 > 2048.0f) {
+        if (log_count < 24) {
+            fprintf(stderr, "[FSW/Menu] skip line control=%08X p0=%.2f,%.2f p1=%.2f,%.2f matrix=%08X\n",
+                    control, x0, y0, x1, y1, matrix);
+            log_count++;
+        }
+        return 1;
+    }
+
+    px = -dy / len;
+    py = dx / len;
+    px *= 0.75f;
+    py *= 0.75f;
+
+    color = MEM32(control + 0x90);
+    a = (float)((color >> 24) & 0xFF) / 255.0f;
+    r = (float)((color >> 16) & 0xFF) / 255.0f;
+    g = (float)((color >> 8) & 0xFF) / 255.0f;
+    b = (float)(color & 0xFF) / 255.0f;
+    if (a <= 0.0f) a = 1.0f;
+    if ((color & 0x00FFFFFFu) == 0) {
+        r = g = b = 1.0f;
+    }
+
+    D3D8VulkanRhwVertex rect[6] = {
+        { x0 + px, y0 + py, 0.04f, 1.0f, r, g, b, a, 0, 0 },
+        { x1 + px, y1 + py, 0.04f, 1.0f, r, g, b, a, 1, 0 },
+        { x1 - px, y1 - py, 0.04f, 1.0f, r, g, b, a, 1, 1 },
+        { x0 + px, y0 + py, 0.04f, 1.0f, r, g, b, a, 0, 0 },
+        { x1 - px, y1 - py, 0.04f, 1.0f, r, g, b, a, 1, 1 },
+        { x0 - px, y0 - py, 0.04f, 1.0f, r, g, b, a, 0, 1 },
+    };
+    d3d8_vulkan_host_draw_rhw(rect, 6, NULL, 0, 0, 0, 0);
+
+    if (log_count < 24) {
+        fprintf(stderr, "[FSW/Menu] draw line control=%08X p0=%.2f,%.2f p1=%.2f,%.2f color=%08X matrix=%08X\n",
+                control, x0, y0, x1, y1, color, matrix);
+        log_count++;
+    }
+    return 1;
+}
+#endif
 
 /**
  * fn_000529A0_GCUILineControl_UAEPAXI_Z
@@ -415,6 +505,11 @@ void fn_003C38E0_CUILineControl_Render(void)
     int _flags = 0; /* fallback flag var */
 
 loc_003C38E0:
+#ifdef XBOXRECOMP_VULKAN_GRAPHICS
+    if (fsw_cuilinecontrol_render_vulkan(ecx, MEM32(esp + 8))) {
+        esp += 12; return; /* ret 8 */
+    }
+#endif
     esp = esp - 0x18;
     PUSH32(esp, esi);
     esi = ecx;

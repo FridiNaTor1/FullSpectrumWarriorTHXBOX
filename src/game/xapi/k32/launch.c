@@ -7,6 +7,7 @@
 #define RECOMP_GENERATED_CODE
 #include "recomp_funcs.h"
 #include <math.h>
+#include <stdio.h>
 
 /**
  * fn_0005B520_XLaunchNewImageA_8
@@ -20,6 +21,10 @@ void fn_0005B520_XLaunchNewImageA_8(void)
     int _flags = 0; /* fallback flag var */
 
 loc_0005B520:
+    fprintf(stderr, "[XAPI] XLaunchNewImageA ignored on host\n");
+    eax = 0;
+    esp += 12; return; /* ret 8 */
+
     eax = 0x5790C8;
     PUSH32(esp, esi);
     esi = eax;

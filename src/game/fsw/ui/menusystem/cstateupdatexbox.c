@@ -6,7 +6,59 @@
 
 #define RECOMP_GENERATED_CODE
 #include "recomp_funcs.h"
+#include "xinput_xbox.h"
 #include <math.h>
+#include <stdio.h>
+#include <string.h>
+
+static int fsw_cstate_xbox_va_is_valid(uint32_t va)
+{
+    return va >= 0x00010000u && va < 0x04000000u;
+}
+
+static void fsw_cstate_xbox_set_action_bit(uint32_t action_va, int active)
+{
+    if (!fsw_cstate_xbox_va_is_valid(action_va + 0x10)) {
+        return;
+    }
+    if (active) {
+        MEM8(action_va + 0x10) = MEM8(action_va + 0x10) | 1;
+    } else {
+        MEM8(action_va + 0x10) = MEM8(action_va + 0x10) & (uint8_t)~1u;
+    }
+}
+
+static void fsw_cstate_xbox_bridge_start_input(void)
+{
+    static uint32_t bridge_log_count;
+    static const uint32_t start_offsets[4] = { 0x1B8, 0x1CC, 0x1E0, 0x1F4 };
+    uint32_t input_base = MEM32(0x601F60);
+    int any_skip = 0;
+
+    if (!fsw_cstate_xbox_va_is_valid(input_base + 0x220)) {
+        return;
+    }
+
+    for (uint32_t port = 0; port < 4; port++) {
+        XBOX_INPUT_STATE state;
+        int active = 0;
+
+        memset(&state, 0, sizeof(state));
+        if (xbox_InputGetState(port, &state) == ERROR_SUCCESS) {
+            active = (state.Gamepad.wButtons & XBOX_GAMEPAD_START) != 0 ||
+                     state.Gamepad.bAnalogButtons[XBOX_BUTTON_A] >= XBOX_ANALOG_BUTTON_THRESHOLD;
+            if (active && bridge_log_count < 12) {
+                fprintf(stderr, "[FSW/Input] start action port=%u buttons=%04X A=%u base=%08X\n",
+                        port, state.Gamepad.wButtons, state.Gamepad.bAnalogButtons[XBOX_BUTTON_A], input_base);
+                bridge_log_count++;
+            }
+        }
+        fsw_cstate_xbox_set_action_bit(input_base + start_offsets[port], active);
+        any_skip = any_skip || active;
+    }
+
+    fsw_cstate_xbox_set_action_bit(input_base + 0x208, any_skip);
+}
 
 /**
  * fn_001AF3C0_CStateUpdateXbox_CreateAccountUpdate
@@ -3295,6 +3347,7 @@ loc_001B051B:
     esp = esp + 0xC;
     MEM32(esp + 0x10) = 0x16;
     MEM32(esp + 0x18) = esi;
+    fsw_cstate_xbox_bridge_start_input();
 
 loc_001B0541:
     ecx = MEM32(0x601F60);
@@ -3345,6 +3398,7 @@ loc_001B05B2:
     PUSH32(esp, 0); fn_002B7390_CDiskSpaceManager_HasSpace(); /* call 0x002B7390 */
 
 loc_001B05C8:
+    if (TEST_NZ(LO8(eax), LO8(eax))) goto loc_001B05E5; /* jne: host has enough save space */
     edx = MEM32(esp + 0x14);
     PUSH32(esp, edx);
     PUSH32(esp, 0x60F060);
@@ -3443,6 +3497,7 @@ loc_001B0676:
     if (TEST_NZ(LO8(eax), LO8(eax))) goto loc_001B0691; /* jne: not equal / not zero */
 
 loc_001B067F:
+    fsw_cstate_xbox_bridge_start_input();
     eax = MEM32(0x601F60);
     (void)0; /* test MEM8(eax + 0x218), 1 - flags set for next jcc */
 

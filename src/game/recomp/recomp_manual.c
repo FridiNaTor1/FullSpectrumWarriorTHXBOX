@@ -35,12 +35,22 @@ static void fsw_zero_xbox_block(uint32_t va, uint32_t size)
 
 uint32_t fsw_ensure_splash_surface(void)
 {
-    if (!fsw_va_is_valid(g_fsw_video_va)) {
+    uint32_t real_video = MEM32(0x5FA8E8);
+
+    if (fsw_va_is_valid(real_video) && fsw_va_is_valid(MEM32(real_video))) {
+        fprintf(stderr, "[FSW/Splash] using existing video=%08X vtable=%08X\n",
+                real_video, MEM32(real_video));
+        g_fsw_video_va = real_video;
+    } else if (!fsw_va_is_valid(g_fsw_video_va)) {
         g_fsw_video_va = xbox_HeapAlloc(0x7000, 16);
         fsw_zero_xbox_block(g_fsw_video_va, 0x7000);
         MEM32(0x5FA8E8) = g_fsw_video_va;
+        fprintf(stderr, "[FSW/Splash] allocated temporary video=%08X previous=%08X previous_vtable=%08X\n",
+                g_fsw_video_va, real_video, fsw_va_is_valid(real_video) ? MEM32(real_video) : 0);
     } else {
         MEM32(0x5FA8E8) = g_fsw_video_va;
+        fprintf(stderr, "[FSW/Splash] restoring temporary video=%08X previous=%08X previous_vtable=%08X\n",
+                g_fsw_video_va, real_video, fsw_va_is_valid(real_video) ? MEM32(real_video) : 0);
     }
 
     if (!fsw_va_is_valid(g_fsw_splash_surface_va)) {
@@ -61,7 +71,7 @@ uint32_t fsw_ensure_splash_surface(void)
         MEM32(g_fsw_splash_surface_va + 0x10) = FSW_SPLASH_PITCH;
     }
 
-    if (fsw_va_is_valid(g_fsw_video_va)) {
+    if (fsw_va_is_valid(g_fsw_video_va) && MEM32(g_fsw_video_va) == 0) {
         MEM32(g_fsw_video_va + 0x6C0C) = g_fsw_splash_surface_va;
     }
     return g_fsw_video_va;

@@ -7,6 +7,124 @@
 #define RECOMP_GENERATED_CODE
 #include "recomp_funcs.h"
 #include <math.h>
+#include <stdio.h>
+#include <string.h>
+
+extern uint32_t xbox_HeapAlloc(uint32_t size, uint32_t alignment);
+
+static int fsw_gameworld_va_range_is_valid(uint32_t va, uint32_t size)
+{
+    if (size == 0) {
+        return va >= 0x00010000u && va < 0x04000000u;
+    }
+    if (va < 0x00010000u || va >= 0x04000000u || va + size < va) {
+        return 0;
+    }
+    return va + size <= 0x04000000u;
+}
+
+static uint32_t g_fsw_gameworld_wld_next_cursor;
+static uint32_t g_fsw_gameworld_wld_next_remaining;
+
+static const char *fsw_gameworld_tag_name(uint32_t tag)
+{
+    switch (tag) {
+    case 0x41505250u: return "PRPA";
+    case 0x42454856u: return "VHEB";
+    case 0x42545247u: return "GRTB";
+    case 0x4349564Cu: return "LVIC";
+    case 0x46414354u: return "TCAF";
+    case 0x464C4147u: return "GALF";
+    case 0x47525044u: return "DPRG";
+    case 0x494D5532u: return "2UMI";
+    case 0x4C474854u: return "THGL";
+    case 0x4D504154u: return "TAPM";
+    case 0x4F434343u: return "CCCO";
+    case 0x50524F50u: return "PORP";
+    case 0x50525443u: return "CTRP";
+    case 0x534F4343u: return "CCOS";
+    case 0x5357504Eu: return "NPWS";
+    case 0x57524C44u: return "DLRW";
+    default: return "?";
+    }
+}
+
+static int fsw_gameworld_wld_tag_is_known(uint32_t tag)
+{
+    switch (tag) {
+    case 0x41505250u:
+    case 0x42454856u:
+    case 0x42545247u:
+    case 0x4349564Cu:
+    case 0x46414354u:
+    case 0x464C4147u:
+    case 0x47525044u:
+    case 0x494D5532u:
+    case 0x4C474854u:
+    case 0x4D504154u:
+    case 0x4F434343u:
+    case 0x50524F50u:
+    case 0x50525443u:
+    case 0x534F4343u:
+    case 0x5357504Eu:
+    case 0x57524C44u:
+        return 1;
+    default:
+        return 0;
+    }
+}
+
+static uint32_t fsw_gameworld_find_wld_tag(uint32_t data, uint32_t remaining)
+{
+    uint32_t cursor;
+    uint32_t end;
+
+    if (!fsw_gameworld_va_range_is_valid(data, 8) || remaining < 8 ||
+        !fsw_gameworld_va_range_is_valid(data, remaining)) {
+        return 0;
+    }
+
+    cursor = data;
+    end = data + remaining - 8u;
+    while (cursor <= end) {
+        uint32_t tag = MEM32(cursor);
+        uint32_t size = MEM32(cursor + 4);
+        if (fsw_gameworld_wld_tag_is_known(tag) && size <= remaining - (cursor - data) - 8u) {
+            return cursor;
+        }
+        cursor++;
+    }
+
+    return 0;
+}
+
+static uint32_t fsw_gameworld_alloc(uint32_t size, uint32_t out_slot, const char *reason)
+{
+    uint32_t allocator = MEM32(0x6135C8);
+    if (fsw_gameworld_va_range_is_valid(allocator, 4) &&
+        fsw_gameworld_va_range_is_valid(MEM32(allocator), 4)) {
+        uint32_t _icall_esp = g_esp;
+        PUSH32(esp, out_slot);
+        PUSH32(esp, size);
+        ecx = 0x6135C8;
+        if (fsw_gameworld_va_range_is_valid(out_slot, 4)) {
+            MEM32(out_slot) = 0;
+        }
+        RECOMP_ICALL_SAFE(MEM32(allocator), _icall_esp);
+        return eax;
+    }
+
+    eax = xbox_HeapAlloc(size, 16);
+    if (fsw_gameworld_va_range_is_valid(eax, size)) {
+        memset((void *)XBOX_PTR(eax), 0, size);
+    }
+    if (fsw_gameworld_va_range_is_valid(out_slot, 4)) {
+        MEM32(out_slot) = 0;
+    }
+    fprintf(stderr, "[FSW/GameWorld] fallback alloc %s size=%u object=%08X allocator=%08X\n",
+            reason, (unsigned)size, (unsigned)eax, (unsigned)allocator);
+    return eax;
+}
 
 /**
  * fn_0002D8A0_1CTriggerParser_UAE_XZ
@@ -1017,6 +1135,7 @@ void fn_002AFC40_CGameWorld_LoadWLD(void)
     uint32_t ebp;
     int _flags = 0; /* fallback flag var */
     float xmm0;
+    uint32_t wld_cursor_after_camera;
 
 loc_002AFC40:
     PUSH32(esp, ebp);
@@ -1033,6 +1152,8 @@ loc_002AFC40:
     esi = MEM32(ebp + 0xC);
     PUSH32(esp, edi);
     edi = MEM32(ebp + 8);
+    fprintf(stderr, "[FSW/GameWorld] LoadWLD begin data=%08X size=%d esp=%08X\n",
+            (unsigned)edi, (int32_t)esi, (unsigned)esp);
     eax = MEM32(edi + 4);
     edi = edi + 4;
     edi = edi + 4;
@@ -1082,6 +1203,11 @@ loc_002AFCAF:
     xmm0 = MEMF(0x561E78); /* movss */
     esi = esi - 4;
     MEM32(ebp + 0xC) = esi;
+    fprintf(stderr,
+            "[FSW/GameWorld] WLD strings skipped next=%08X remaining=%d video=%08X camera=%08X esp=%08X\n",
+            (unsigned)edi, (int32_t)esi, (unsigned)eax,
+            (unsigned)(fsw_gameworld_va_range_is_valid(eax + 0xD0, 4) ? MEM32(eax + 0xD0) : 0),
+            (unsigned)esp);
     esi = MEM32(eax + 0xD0);
     MEMF(esi + 0xF0) = xmm0; /* movss */
     xmm0 = MEMF(0x561C90); /* movss */
@@ -1114,10 +1240,42 @@ loc_002AFCAF:
     }
 
 loc_002AFD5D:
+    wld_cursor_after_camera = edi;
+    fprintf(stderr,
+            "[FSW/GameWorld] WLD camera prepared next=%08X remaining=%d camera=%08X esp=%08X\n",
+            (unsigned)edi, (int32_t)MEM32(ebp + 0xC), (unsigned)esi, (unsigned)esp);
+    if (!fsw_gameworld_va_range_is_valid(esi, 0x110)) {
+        fprintf(stderr, "[FSW/GameWorld] skipping WLD camera update invalid camera=%08X\n",
+                (unsigned)esi);
+        goto loc_002AFD63;
+    }
     PUSH32(esp, esi);
     PUSH32(esp, 0); fn_0011BEF0_ZeroCamera_UpdatePosition(); /* call 0x0011BEF0 */
 
 loc_002AFD63:
+    if (fsw_gameworld_va_range_is_valid(wld_cursor_after_camera, 8)) {
+        edi = wld_cursor_after_camera;
+    }
+    if (!fsw_gameworld_wld_tag_is_known(MEM32(edi)) ||
+        MEM32(edi + 4) > (uint32_t)MEM32(ebp + 0xC)) {
+        uint32_t repaired_cursor = fsw_gameworld_find_wld_tag(edi, MEM32(ebp + 0xC));
+        if (repaired_cursor != 0 && repaired_cursor != edi) {
+            uint32_t delta = repaired_cursor - edi;
+            fprintf(stderr,
+                    "[FSW/GameWorld] WLD cursor resync old=%08X tag=%08X size=%08X new=%08X tag=%08X/%s delta=%u remaining=%d\n",
+                    (unsigned)edi,
+                    (unsigned)MEM32(edi),
+                    (unsigned)MEM32(edi + 4),
+                    (unsigned)repaired_cursor,
+                    (unsigned)MEM32(repaired_cursor),
+                    fsw_gameworld_tag_name(MEM32(repaired_cursor)),
+                    (unsigned)delta,
+                    (int32_t)MEM32(ebp + 0xC));
+            edi = repaired_cursor;
+            MEM32(ebp + 8) = edi;
+            MEM32(ebp + 0xC) = MEM32(ebp + 0xC) - delta;
+        }
+    }
     eax = MEM32(ebp + 0xC);
     if (CMP_LE(eax & eax, 0)) { sub_002B0108(); return; } /* jle: less or equal (signed <=) */
 
@@ -1153,9 +1311,26 @@ loc_002AFD80:
 loc_002AFDA3:
     eax = MEM32(edi);
     ecx = MEM32(edi + 4);
+    {
+        static uint32_t wld_chunk_log_count = 0;
+        if (wld_chunk_log_count < 64 || (wld_chunk_log_count % 512) == 0) {
+            fprintf(stderr,
+                    "[FSW/GameWorld] WLD chunk #%u tag=%08X/%s size=%u data=%08X remaining=%d esp=%08X\n",
+                    (unsigned)(wld_chunk_log_count + 1),
+                    (unsigned)eax,
+                    fsw_gameworld_tag_name(eax),
+                    (unsigned)ecx,
+                    (unsigned)edi,
+                    (int32_t)esi,
+                    (unsigned)esp);
+        }
+        wld_chunk_log_count++;
+    }
     edi = edi + 4;
     edi = edi + 4;
     esi = esi - 8;
+    g_fsw_gameworld_wld_next_cursor = edi + ecx;
+    g_fsw_gameworld_wld_next_remaining = esi - ecx;
     esp = esp + 4;
     (void)0; /* cmp eax, 0x50525443 - flags set for next jcc */
     MEM32(esp + 0x34) = ecx;
@@ -1343,7 +1518,23 @@ loc_002AFF3D:
 /* Fallback for unresolved generated target 0x002AFF42. */
 void sub_002AFF42(void)
 {
-    recomp_missing_target(0x002AFF42u);
+    uint32_t ebp = g_seh_ebp;
+
+    if (TEST_Z(MEM8(0x616A0C), 1)) {
+        MEM32(0x616A0C) = MEM32(0x616A0C) | 1;
+        eax = 0;
+        MEM32(0x6168D8) = eax;
+        MEM32(0x6168DC) = eax;
+        MEM32(0x6168E0) = eax;
+        PUSH32(esp, 0x474CF0);
+        PUSH32(esp, 0); fn_0009B703_atexit(); /* call 0x0009B703 */
+        esp = esp + 4;
+    }
+
+    PUSH32(esp, 0x6168D8);
+    eax = edi;
+    PUSH32(esp, 0); fn_0025A7B0_CFlagManager_CreateFlag(); /* call 0x0025A7B0 */
+    g_seh_ebp = ebp; sub_002B00F2(); return;
 }
 
 /**
@@ -1415,7 +1606,60 @@ loc_002B002C:
 /* Fallback for unresolved generated target 0x002B0031. */
 void sub_002B0031(void)
 {
-    recomp_missing_target(0x002B0031u);
+    uint32_t ebp = g_seh_ebp;
+    float xmm0, xmm1;
+
+    xmm0 = MEMF(0x56143C);
+    SET_LO8(ecx, MEM8(edi + 0x1A));
+    SET_LO8(edx, MEM8(edi + 0x19));
+    xmm1 = (float)(int32_t)ZX8(LO8(ecx));
+    SET_LO8(ecx, MEM8(edi + 0x18));
+    xmm1 = xmm1 * xmm0;
+    MEMF(esp + 0x60) = xmm1;
+    xmm1 = (float)(int32_t)ZX8(LO8(edx));
+    SET_LO8(edx, MEM8(edi + 0x1B));
+    xmm1 = xmm1 * xmm0;
+    MEMF(esp + 0x64) = xmm1;
+    xmm1 = (float)(int32_t)ZX8(LO8(ecx));
+    SET_LO8(ecx, MEM8(edi + 0xE));
+    xmm1 = xmm1 * xmm0;
+    MEMF(esp + 0x68) = xmm1;
+    xmm1 = (float)(int32_t)ZX8(LO8(edx));
+    SET_LO8(edx, MEM8(edi + 0xD));
+    xmm1 = xmm1 * xmm0;
+    MEMF(esp + 0x6C) = xmm1;
+    xmm1 = (float)(int32_t)ZX8(LO8(ecx));
+    SET_LO8(ecx, MEM8(edi + 0xC));
+    xmm1 = xmm1 * xmm0;
+    MEMF(esp + 0x50) = xmm1;
+    xmm1 = (float)(int32_t)ZX8(LO8(edx));
+    SET_LO8(edx, MEM8(edi + 0xF));
+    xmm1 = xmm1 * xmm0;
+    MEMF(esp + 0x54) = xmm1;
+    xmm1 = (float)(int32_t)ZX8(LO8(ecx));
+    ecx = MEM32(edi + 0x10);
+    xmm1 = xmm1 * xmm0;
+    MEMF(esp + 0x68) = xmm1;
+    xmm1 = (float)(int32_t)ZX8(LO8(edx));
+    edx = MEM32(edi + 0x1C);
+    xmm1 = xmm1 * xmm0;
+    MEMF(esp + 0x70) = xmm1;
+    esi = esp + 0x74;
+    ebx = esp + 0x64;
+    PUSH32(esp, 0xBF800000u);
+    PUSH32(esp, ecx);
+    PUSH32(esp, edi);
+    PUSH32(esp, eax);
+    PUSH32(esp, ecx);
+    MEM32(esp + 0x2C) = esp;
+    MEM32(esp) = edx;
+    PUSH32(esp, 0); fn_00284E40_CSceneManager_Get(); /* call 0x00284E40 */
+    PUSH32(esp, eax);
+    edi = esi;
+    eax = ebx;
+    PUSH32(esp, 0); fn_002852D0_CSceneManager_CreateAnimLight(); /* call 0x002852D0 */
+    edi = MEM32(ebp + 8);
+    g_seh_ebp = ebp; sub_002B00F2(); return;
 }
 
 /**
@@ -1435,6 +1679,19 @@ loc_002B00F2:
     eax = MEM32(ebp + 0xC);
     eax = eax - ecx;
     edi = edi + ecx;
+    if (g_fsw_gameworld_wld_next_cursor != 0) {
+        if (edi != g_fsw_gameworld_wld_next_cursor || eax != g_fsw_gameworld_wld_next_remaining) {
+            fprintf(stderr,
+                    "[FSW/GameWorld] restoring WLD cursor after handler old_next=%08X/%d restored=%08X/%d size=%u esp=%08X\n",
+                    (unsigned)edi, (int32_t)eax,
+                    (unsigned)g_fsw_gameworld_wld_next_cursor,
+                    (int32_t)g_fsw_gameworld_wld_next_remaining,
+                    (unsigned)ecx,
+                    (unsigned)esp);
+        }
+        edi = g_fsw_gameworld_wld_next_cursor;
+        eax = g_fsw_gameworld_wld_next_remaining;
+    }
     (void)0; /* test eax, eax - flags set for next jcc */
     MEM32(ebp + 0xC) = eax;
     if (CMP_G(eax & eax, 0)) { sub_002AFD80(); return; } /* jg: greater (signed >) */
@@ -1467,25 +1724,145 @@ loc_002B0108:
 /* Fallback for unresolved generated target 0x002B011D. */
 void sub_002B011D(void)
 {
-    recomp_missing_target(0x002B011Du);
+    uint32_t ebp = g_seh_ebp;
+
+    PUSH32(esp, edi);
+    PUSH32(esp, 0); fn_00388400_CInteractiveMusic_Get(); /* call 0x00388400 */
+    esi = eax;
+    PUSH32(esp, 0); fn_00388140_CInteractiveMusic_Init(); /* call 0x00388140 */
+    g_seh_ebp = ebp; sub_002B00F2(); return;
 }
 
 /* Fallback for unresolved generated target 0x002B012C. */
 void sub_002B012C(void)
 {
-    recomp_missing_target(0x002B012Cu);
+    uint32_t ebp = g_seh_ebp;
+    uint32_t count;
+    uint32_t index;
+
+    PUSH32(esp, ecx);
+    ecx = MEM32(edi);
+    eax = esp;
+    MEM32(esp + 0x1C) = esp;
+    MEM32(eax) = ecx;
+    PUSH32(esp, 0); fn_001EDA80_CGroupManager_Get(); /* call 0x001EDA80 */
+    PUSH32(esp, 0); fn_001ED730_CGroupManager_CreateGroupDefinition(); /* call 0x001ED730 */
+    MEM8(eax + 1) = MEM8(edi + 4);
+    count = MEM32(edi + 8);
+    ebx = 0;
+    if ((int32_t)count <= 0) {
+        g_seh_ebp = ebp; sub_002B00F2(); return;
+    }
+    esi = eax + 0x14;
+    for (index = 0; index < count; index++) {
+        eax = MEM32(edi + index * 4 + 0xC);
+        ecx = esp + 0x1C;
+        PUSH32(esp, ecx);
+        MEM32(esp + 0x20) = eax;
+        PUSH32(esp, 0); fn_00028E60_PAVCParticleEffect_ZeroList_Append(); /* call 0x00028E60 */
+    }
+    g_seh_ebp = ebp; sub_002B00F2(); return;
 }
 
 /* Fallback for unresolved generated target 0x002B016F. */
 void sub_002B016F(void)
 {
-    recomp_missing_target(0x002B016Fu);
+    uint32_t ebp = g_seh_ebp;
+
+    PUSH32(esp, edi);
+    PUSH32(esp, 0); fn_003A1560_CMultiPath_ParseAndCreate(); /* call 0x003A1560 */
+    edx = MEM32(edi);
+    eax = esp;
+    MEM32(esp + 0x1C) = esp;
+    MEM32(eax) = edx;
+    PUSH32(esp, 0); fn_002047A0_CScriptManager_Get(); /* call 0x002047A0 */
+    PUSH32(esp, 0); fn_00202970_CScriptManager_GetPath(); /* call 0x00202970 */
+    if (eax == 0) {
+        g_seh_ebp = ebp; sub_002B00F2(); return;
+    }
+    PUSH32(esp, eax);
+    PUSH32(esp, 0); fn_00184970_CSpawnManager_Get(); /* call 0x00184970 */
+    PUSH32(esp, eax);
+    PUSH32(esp, 0); fn_001845F0_CSpawnManager_AddSpawnNode(); /* call 0x001845F0 */
+    g_seh_ebp = ebp; sub_002B00F2(); return;
 }
 
 /* Fallback for unresolved generated target 0x002B01A2. */
 void sub_002B01A2(void)
 {
-    recomp_missing_target(0x002B01A2u);
+    uint32_t ebp = g_seh_ebp;
+    uint32_t saved_ebx;
+    uint32_t saved_esi;
+    uint32_t saved_edi;
+    uint32_t prop_object;
+    uint32_t prop_desc;
+
+    if (eax == 0x4F434343u) {
+        esi = MEM32(edi);
+        PUSH32(esp, 0); fn_00284E40_CSceneManager_Get(); /* call 0x00284E40 */
+        MEM32(eax + 0xFE) = esi;
+        g_seh_ebp = ebp; sub_002B00F2(); return;
+    }
+
+    if (eax != 0x50524F50u) {
+        g_seh_ebp = ebp; sub_002B00F2(); return;
+    }
+
+    eax = fsw_gameworld_alloc(0x170, esp + 0x20, "wld-prop");
+    if (!fsw_gameworld_va_range_is_valid(eax, 0x170)) {
+        g_seh_ebp = ebp; sub_002B00F2(); return;
+    }
+	    fprintf(stderr,
+	            "[FSW/GameWorld] PORP create begin object=%08X desc=%08X mesh=%08X id=%08X esp=%08X\n",
+	            (unsigned)eax, (unsigned)edi, (unsigned)MEM32(edi + 0x44),
+	            (unsigned)MEM32(edi + 0x40), (unsigned)esp);
+	    prop_object = eax;
+	    prop_desc = edi;
+	    ecx = MEM32(esp + 0x20);
+	    MEM32(prop_object + 4) = ecx;
+	    MEM32(esp + 0x18) = prop_object;
+	    esi = prop_object;
+	    MEM32(esp + 0xEC) = 2;
+	    saved_ebx = ebx;
+	    saved_esi = esi;
+	    saved_edi = edi;
+	    PUSH32(esp, 0); fn_003A92D0_0CProp_QAE_XZ(); /* call 0x003A92D0 */
+	    ebx = saved_ebx;
+	    esi = saved_esi;
+	    edi = saved_edi;
+	    eax = prop_object;
+	    esi = prop_object;
+	    edi = prop_desc;
+	    fprintf(stderr,
+	            "[FSW/GameWorld] PORP after constructor object=%08X desc=%08X esp=%08X\n",
+	            (unsigned)esi, (unsigned)edi, (unsigned)esp);
+    SET_LO8(eax, 1);
+    ecx = esi;
+    MEM32(esp + 0xEC) = 0xFFFFFFFFu;
+	    fprintf(stderr,
+	            "[FSW/GameWorld] PORP before InitInstance object=%08X desc=%08X esp=%08X\n",
+	            (unsigned)esi, (unsigned)edi, (unsigned)esp);
+	    saved_ebx = ebx;
+	    saved_esi = esi;
+	    saved_edi = edi;
+	    PUSH32(esp, 0); fn_003A8430_CProp_InitInstance(); /* call 0x003A8430 */
+	    ebx = saved_ebx;
+	    esi = saved_esi;
+	    edi = saved_edi;
+	    fprintf(stderr,
+	            "[FSW/GameWorld] PORP after InitInstance object=%08X desc=%08X esp=%08X\n",
+	            (unsigned)esi, (unsigned)edi, (unsigned)esp);
+    MEM32(esi + 8) = MEM32(esi + 8) - 1;
+    if (MEM32(esi + 8) == 0) {
+        edx = MEM32(esi);
+        { uint32_t _icall_esp = g_esp;
+        PUSH32(esp, 1);
+        ecx = esi;
+        PUSH32(esp, 0); RECOMP_ICALL_SAFE(MEM32(edx + 0x10), _icall_esp); /* indirect call */
+        }
+    }
+    edi = MEM32(ebp + 8);
+    g_seh_ebp = ebp; sub_002B00F2(); return;
 }
 
 /**
@@ -1671,7 +2048,11 @@ loc_002B03A5:
 /* Fallback for unresolved generated target 0x002B03AA. */
 void sub_002B03AA(void)
 {
-    recomp_missing_target(0x002B03AAu);
+    uint32_t ebp = g_seh_ebp;
+
+    esi = edi;
+    PUSH32(esp, 0); fn_001CBBC0_CAmbientSound_ParseAndCreate(); /* call 0x001CBBC0 */
+    g_seh_ebp = ebp; sub_002B00F2(); return;
 }
 
 /**
@@ -1718,7 +2099,70 @@ loc_002B03ED:
 /* Fallback for unresolved generated target 0x002B03F2. */
 void sub_002B03F2(void)
 {
-    recomp_missing_target(0x002B03F2u);
+    uint32_t ebp = g_seh_ebp;
+    float xmm0, xmm1;
+
+    if (CMP_EQ(MEM32(edi + 0x4C), 0x722B0F02u)) {
+        MEMF(edi + 0x44) = MEMF(0x561418);
+    }
+
+    xmm0 = 0.0f;
+    eax = 0;
+    MEM32(esp + 0xCC) = eax;
+    MEMF(esp + 0xC0) = xmm0;
+    MEMF(esp + 0xC4) = xmm0;
+    MEMF(esp + 0xC8) = xmm0;
+    MEM32(esp + 0xD0) = eax;
+    MEM16(esp + 0xD6) = LO16(eax);
+    MEM16(esp + 0xD4) = LO16(eax);
+    MEM32(esp + 0xEC) = eax;
+
+    ecx = edi;
+    eax = esp + 0x70;
+    PUSH32(esp, 0); fn_0001ED80_4ZeroSphere_QAEAAV0_ABVZeroMatrix_Z(); /* call 0x0001ED80 */
+
+    xmm0 = MEMF(esp + 0xA4);
+    xmm0 = xmm0 * MEMF(0x561404);
+    xmm1 = MEMF(edi + 0x44);
+    MEMF(esp + 0xB4) = xmm0;
+    ecx = MEM32(esp + 0xB4);
+    MEMF(esp + 0xA4) = xmm0;
+    xmm0 = MEMF(edi + 0x48);
+    MEMF(esp + 0xB8) = xmm0;
+    edx = MEM32(esp + 0xB8);
+    MEM32(esp + 0x2C) = edx;
+    MEM32(esp + 0x28) = ecx;
+    MEMF(esp + 0xB0) = xmm1;
+    eax = MEM32(esp + 0xB0);
+    MEM32(esp + 0x24) = eax;
+    MEMF(esp + 0xD8) = 0.0f;
+    MEMF(esp + 0xBC) = sqrtf(MEMF(esp + 0x2C) * MEMF(esp + 0x2C) +
+                              MEMF(esp + 0x28) * MEMF(esp + 0x28) +
+                              MEMF(esp + 0x24) * MEMF(esp + 0x24));
+
+    PUSH32(esp, 0); fn_00284E40_CSceneManager_Get(); /* call 0x00284E40 */
+    ebx = eax + 0x18;
+    eax = (uint32_t)(int32_t)SMEM16(ebx + 4);
+    eax++;
+    PUSH32(esp, 1);
+    PUSH32(esp, 0); fn_0002D9B0_Utoccluder_ZeroDynArrayBase_Grow(); /* call 0x0002D9B0 */
+
+    eax = (uint32_t)(int32_t)SMEM16(ebx + 4);
+    edx = MEM32(ebx);
+    eax = (uint32_t)((int32_t)eax * (int32_t)0x70);
+    eax = eax + edx;
+    PUSH32(esp, eax);
+    PUSH32(esp, 0x70);
+    PUSH32(esp, 0); fn_000A4FC0_2_YAPAXIPAX_Z(); /* call 0x000A4FC0 */
+    esp = esp + 8;
+    if (TEST_NZ(eax, eax)) {
+        edx = esp + 0x70;
+        PUSH32(esp, 0); fn_0002DA70_0toccluder_QAE_ABU0_Z(); /* call 0x0002DA70 */
+    }
+
+    MEM16(ebx + 4) = LO16(MEM16(ebx + 4) + 1);
+    MEM32(esp + 0xEC) = 0xFFFFFFFFu;
+    g_seh_ebp = ebp; sub_002B00F2(); return;
 }
 
 /**
@@ -2298,7 +2742,66 @@ loc_002B0A26:
 /* Fallback for unresolved generated target 0x002B0A2B. */
 void sub_002B0A2B(void)
 {
-    recomp_missing_target(0x002B0A2Bu);
+    uint32_t ebp = g_seh_ebp;
+
+    eax = fsw_gameworld_alloc(0x170, esp + 0x1C, "wld-stationary-weapon");
+    if (!fsw_gameworld_va_range_is_valid(eax, 0x170)) {
+        g_seh_ebp = ebp; sub_002B00F2(); return;
+    }
+    ecx = MEM32(esp + 0x1C);
+    MEM32(eax + 4) = ecx;
+    MEM32(esp + 0x18) = eax;
+    esi = eax;
+    MEM32(esp + 0xEC) = 1;
+    PUSH32(esp, 0); fn_003A92D0_0CProp_QAE_XZ(); /* call 0x003A92D0 */
+    esi = eax;
+    eax = edi;
+    MEM32(esp + 0xEC) = 0xFFFFFFFFu;
+    PUSH32(esp, 0); fn_003A8EE0_CProp_InitInstance(); /* call 0x003A8EE0 */
+    PUSH32(esp, 0); fn_002047A0_CScriptManager_Get(); /* call 0x002047A0 */
+    ecx = MEM32(eax + 0x5B4);
+    PUSH32(esp, 0); fn_00208D70_CMultiplayerGameManager_CreateUseEmplacedWeapon(); /* call 0x00208D70 */
+    edx = MEM32(esi);
+    ecx = esi;
+    ebx = eax;
+    { uint32_t _icall_esp = g_esp;
+    PUSH32(esp, 0); RECOMP_ICALL_SAFE(MEM32(edx + 0x54), _icall_esp); /* indirect call */
+    }
+    if (eax != 0) {
+        MEM32(ebx + 0x24) = esi;
+    }
+    ecx = MEM32(ebx + 0x24);
+    if (ecx != 0) {
+        eax = MEM32(ecx);
+        { uint32_t _icall_esp = g_esp;
+        PUSH32(esp, 0); RECOMP_ICALL_SAFE(MEM32(eax + 0x54), _icall_esp); /* indirect call */
+        }
+        if (eax != 0) {
+            ecx = MEM32(ebx + 0x24);
+            edx = MEM32(ecx);
+            { uint32_t _icall_esp = g_esp;
+            PUSH32(esp, 0); RECOMP_ICALL_SAFE(MEM32(edx + 0x54), _icall_esp); /* indirect call */
+            }
+            eax = MEM32(eax + 0x16C);
+            edx = MEM32(ebx);
+            eax = eax + 0xB0;
+            { uint32_t _icall_esp = g_esp;
+            PUSH32(esp, eax);
+            ecx = ebx;
+            PUSH32(esp, 0); RECOMP_ICALL_SAFE(MEM32(edx + 0x28), _icall_esp); /* indirect call */
+            }
+        }
+    }
+    MEM32(esi + 8) = MEM32(esi + 8) - 1;
+    if (MEM32(esi + 8) == 0) {
+        edx = MEM32(esi);
+        { uint32_t _icall_esp = g_esp;
+        PUSH32(esp, 1);
+        ecx = esi;
+        PUSH32(esp, 0); RECOMP_ICALL_SAFE(MEM32(edx + 0x10), _icall_esp); /* indirect call */
+        }
+    }
+    g_seh_ebp = ebp; sub_002B00F2(); return;
 }
 
 /**

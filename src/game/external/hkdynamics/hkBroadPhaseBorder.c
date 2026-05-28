@@ -419,6 +419,9 @@ loc_000B04D1:
 void fn_000B04E0_0hkBroadPhaseBorder_QAE_PAVhkWorld_W4BroadPhaseBorderBehaviour_hkWorldCinfo_Z(void)
 {
     uint32_t ebp;
+    uint32_t saved_this;
+    uint32_t saved_world;
+    uint32_t saved_listener;
     int _flags = 0; /* fallback flag var */
 
 loc_000B04E0:
@@ -443,6 +446,9 @@ loc_000B04E0:
     MEM32(ebx) = 0x531BB8;
     MEM32(esi + 0x10) = edi;
     MEM32(esi + 0x2C) = ecx;
+    saved_this = esi;
+    saved_world = edi;
+    saved_listener = ebx;
     if (CMP_EQ(MEM16(esi + 4), 0)) goto loc_000B0530; /* je: equal / zero */
 
 loc_000B052C:
@@ -452,6 +458,9 @@ loc_000B0530:
     PUSH32(esp, eax);
     ecx = edi;
     PUSH32(esp, 0); fn_000AD240_hkWorld_addWorldDeletionListener(); /* call 0x000AD240 */
+    esi = saved_this;
+    edi = saved_world;
+    ebx = saved_listener;
 
 loc_000B0538:
     eax = MEM32(esi + 0x10);
@@ -492,6 +501,9 @@ loc_000B0538:
     eax = MEM32(ecx);
     PUSH32(esp, 0xA0);
     PUSH32(esp, 0); RECOMP_ICALL_SAFE(MEM32(eax + 0x10), _icall_esp); /* indirect call */
+    esi = saved_this;
+    edi = saved_world;
+    ebx = saved_listener;
     }
 
 loc_000B05CA:
@@ -501,12 +513,18 @@ loc_000B05CA:
     ecx = eax;
     MEM16(eax + 4) = 0xA0;
     PUSH32(esp, 0); fn_000AB5B0_0hkAabbPhantom_QAE_ABVhkAabb_I_Z(); /* call 0x000AB5B0 */
+    esi = saved_this;
+    edi = saved_world;
+    ebx = saved_listener;
 
 loc_000B05DE:
     PUSH32(esp, ebx);
     ecx = eax;
     MEM32(esp + 0x10) = eax;
     PUSH32(esp, 0); fn_000AB9F0_hkPhantom_addPhantomOverlapListener(); /* call 0x000AB9F0 */
+    esi = saved_this;
+    edi = saved_world;
+    ebx = saved_listener;
 
 loc_000B05EA:
     eax = MEM32(esp + 0xC);
@@ -514,6 +532,9 @@ loc_000B05EA:
     ecx = edi;
     MEM32(esi + 0x14) = eax;
     PUSH32(esp, 0); fn_000AD090_hkWorld_addPhantom(); /* call 0x000AD090 */
+    esi = saved_this;
+    edi = saved_world;
+    ebx = saved_listener;
 
 loc_000B05F9:
     ecx = MEM32(esp + 0x28);
@@ -535,6 +556,9 @@ loc_000B05F9:
     edx = MEM32(ecx);
     PUSH32(esp, 0xA0);
     PUSH32(esp, 0); RECOMP_ICALL_SAFE(MEM32(edx + 0x10), _icall_esp); /* indirect call */
+    esi = saved_this;
+    edi = saved_world;
+    ebx = saved_listener;
     }
 
 loc_000B0647:
@@ -544,12 +568,18 @@ loc_000B0647:
     ecx = eax;
     MEM16(eax + 4) = 0xA0;
     PUSH32(esp, 0); fn_000AB5B0_0hkAabbPhantom_QAE_ABVhkAabb_I_Z(); /* call 0x000AB5B0 */
+    esi = saved_this;
+    edi = saved_world;
+    ebx = saved_listener;
 
 loc_000B065B:
     MEM32(esp + 0xC) = eax;
     PUSH32(esp, ebx);
     ecx = eax;
     PUSH32(esp, 0); fn_000AB9F0_hkPhantom_addPhantomOverlapListener(); /* call 0x000AB9F0 */
+    esi = saved_this;
+    edi = saved_world;
+    ebx = saved_listener;
 
 loc_000B0667:
     eax = MEM32(esp + 0xC);
@@ -557,6 +587,9 @@ loc_000B0667:
     ecx = edi;
     MEM32(esi + 0x18) = eax;
     PUSH32(esp, 0); fn_000AD090_hkWorld_addPhantom(); /* call 0x000AD090 */
+    esi = saved_this;
+    edi = saved_world;
+    ebx = saved_listener;
 
 loc_000B0676:
     ecx = MEM32(esp + 0x28);
@@ -578,6 +611,9 @@ loc_000B0676:
     edx = MEM32(ecx);
     PUSH32(esp, 0xA0);
     PUSH32(esp, 0); RECOMP_ICALL_SAFE(MEM32(edx + 0x10), _icall_esp); /* indirect call */
+    esi = saved_this;
+    edi = saved_world;
+    ebx = saved_listener;
     }
 
 loc_000B06C4:
@@ -587,12 +623,18 @@ loc_000B06C4:
     ecx = eax;
     MEM16(eax + 4) = 0xA0;
     PUSH32(esp, 0); fn_000AB5B0_0hkAabbPhantom_QAE_ABVhkAabb_I_Z(); /* call 0x000AB5B0 */
+    esi = saved_this;
+    edi = saved_world;
+    ebx = saved_listener;
 
 loc_000B06D8:
     PUSH32(esp, ebx);
     ecx = eax;
     MEM32(esp + 0x10) = eax;
     PUSH32(esp, 0); fn_000AB9F0_hkPhantom_addPhantomOverlapListener(); /* call 0x000AB9F0 */
+    esi = saved_this;
+    edi = saved_world;
+    ebx = saved_listener;
 
 loc_000B06E4:
     eax = MEM32(esp + 0xC);
@@ -600,6 +642,9 @@ loc_000B06E4:
     ecx = edi;
     MEM32(esi + 0x1C) = eax;
     PUSH32(esp, 0); fn_000AD090_hkWorld_addPhantom(); /* call 0x000AD090 */
+    esi = saved_this;
+    edi = saved_world;
+    ebx = saved_listener;
 
 loc_000B06F3:
     ecx = MEM32(esp + 0x28);
@@ -621,6 +666,9 @@ loc_000B06F3:
     edx = MEM32(ecx);
     PUSH32(esp, 0xA0);
     PUSH32(esp, 0); RECOMP_ICALL_SAFE(MEM32(edx + 0x10), _icall_esp); /* indirect call */
+    esi = saved_this;
+    edi = saved_world;
+    ebx = saved_listener;
     }
 
 loc_000B0741:
@@ -630,12 +678,18 @@ loc_000B0741:
     ecx = eax;
     MEM16(eax + 4) = 0xA0;
     PUSH32(esp, 0); fn_000AB5B0_0hkAabbPhantom_QAE_ABVhkAabb_I_Z(); /* call 0x000AB5B0 */
+    esi = saved_this;
+    edi = saved_world;
+    ebx = saved_listener;
 
 loc_000B0755:
     PUSH32(esp, ebx);
     ecx = eax;
     MEM32(esp + 0x10) = eax;
     PUSH32(esp, 0); fn_000AB9F0_hkPhantom_addPhantomOverlapListener(); /* call 0x000AB9F0 */
+    esi = saved_this;
+    edi = saved_world;
+    ebx = saved_listener;
 
 loc_000B0761:
     eax = MEM32(esp + 0xC);
@@ -643,6 +697,9 @@ loc_000B0761:
     ecx = edi;
     MEM32(esi + 0x20) = eax;
     PUSH32(esp, 0); fn_000AD090_hkWorld_addPhantom(); /* call 0x000AD090 */
+    esi = saved_this;
+    edi = saved_world;
+    ebx = saved_listener;
 
 loc_000B0770:
     edx = MEM32(esp + 0x20);
@@ -664,6 +721,9 @@ loc_000B0770:
     edx = MEM32(ecx);
     PUSH32(esp, 0xA0);
     PUSH32(esp, 0); RECOMP_ICALL_SAFE(MEM32(edx + 0x10), _icall_esp); /* indirect call */
+    esi = saved_this;
+    edi = saved_world;
+    ebx = saved_listener;
     }
 
 loc_000B07BE:
@@ -673,12 +733,18 @@ loc_000B07BE:
     ecx = eax;
     MEM16(eax + 4) = 0xA0;
     PUSH32(esp, 0); fn_000AB5B0_0hkAabbPhantom_QAE_ABVhkAabb_I_Z(); /* call 0x000AB5B0 */
+    esi = saved_this;
+    edi = saved_world;
+    ebx = saved_listener;
 
 loc_000B07D2:
     PUSH32(esp, ebx);
     ecx = eax;
     MEM32(esp + 0x10) = eax;
     PUSH32(esp, 0); fn_000AB9F0_hkPhantom_addPhantomOverlapListener(); /* call 0x000AB9F0 */
+    esi = saved_this;
+    edi = saved_world;
+    ebx = saved_listener;
 
 loc_000B07DE:
     eax = MEM32(esp + 0xC);
@@ -686,6 +752,9 @@ loc_000B07DE:
     ecx = edi;
     MEM32(esi + 0x24) = eax;
     PUSH32(esp, 0); fn_000AD090_hkWorld_addPhantom(); /* call 0x000AD090 */
+    esi = saved_this;
+    edi = saved_world;
+    ebx = saved_listener;
 
 loc_000B07ED:
     edx = MEM32(esp + 0x20);
@@ -707,6 +776,9 @@ loc_000B07ED:
     edx = MEM32(ecx);
     PUSH32(esp, 0xA0);
     PUSH32(esp, 0); RECOMP_ICALL_SAFE(MEM32(edx + 0x10), _icall_esp); /* indirect call */
+    esi = saved_this;
+    edi = saved_world;
+    ebx = saved_listener;
     }
 
 loc_000B083B:
@@ -716,12 +788,18 @@ loc_000B083B:
     ecx = eax;
     MEM16(eax + 4) = 0xA0;
     PUSH32(esp, 0); fn_000AB5B0_0hkAabbPhantom_QAE_ABVhkAabb_I_Z(); /* call 0x000AB5B0 */
+    esi = saved_this;
+    edi = saved_world;
+    ebx = saved_listener;
 
 loc_000B084F:
     PUSH32(esp, ebx);
     ecx = eax;
     MEM32(esp + 0x10) = eax;
     PUSH32(esp, 0); fn_000AB9F0_hkPhantom_addPhantomOverlapListener(); /* call 0x000AB9F0 */
+    esi = saved_this;
+    edi = saved_world;
+    ebx = saved_listener;
 
 loc_000B085B:
     eax = MEM32(esp + 0xC);
@@ -729,6 +807,9 @@ loc_000B085B:
     ecx = edi;
     MEM32(esi + 0x28) = eax;
     PUSH32(esp, 0); fn_000AD090_hkWorld_addPhantom(); /* call 0x000AD090 */
+    esi = saved_this;
+    edi = saved_world;
+    ebx = saved_listener;
 
 loc_000B086A:
     POP32(esp, edi);

@@ -7,6 +7,82 @@
 #define RECOMP_GENERATED_CODE
 #include "recomp_funcs.h"
 #include <math.h>
+#include <stdio.h>
+
+extern uint32_t g_fsw_xbvideo_global_video;
+extern uint32_t g_fsw_xbvideo_global_vtable;
+extern void fsw_xbvideo_ensure_default_render_surfaces(uint32_t video, const char *reason);
+
+static int scenemanager_va_range_is_valid(uint32_t va, uint32_t size)
+{
+    return va >= 0x00010000u && va < 0x04000000u && size <= 0x04000000u - va;
+}
+
+static int scenemanager_video_is_valid(uint32_t video)
+{
+    uint32_t vtable;
+
+    if (!scenemanager_va_range_is_valid(video, 0x70B4)) {
+        return 0;
+    }
+
+    vtable = MEM32(video);
+    return vtable >= 0x00400000u && vtable < 0x00700000u;
+}
+
+static uint32_t scenemanager_restore_video(const char *reason)
+{
+    uint32_t video = MEM32(0x5FA8E8);
+
+    if (!scenemanager_video_is_valid(video)) {
+        if (scenemanager_va_range_is_valid(video, 4) &&
+            video == g_fsw_xbvideo_global_video &&
+            g_fsw_xbvideo_global_vtable >= 0x00400000u &&
+            g_fsw_xbvideo_global_vtable < 0x00700000u) {
+            static uint32_t vtable_logs;
+            if (vtable_logs < 16 || (vtable_logs % 240) == 0) {
+                fprintf(stderr,
+                        "[FSW/Scene] restoring video vtable reason=%s video=%08X old=%08X new=%08X count=%u\n",
+                        reason, (unsigned)video, (unsigned)MEM32(video),
+                        (unsigned)g_fsw_xbvideo_global_vtable, (unsigned)(vtable_logs + 1));
+            }
+            vtable_logs++;
+            MEM32(video) = g_fsw_xbvideo_global_vtable;
+        } else if (scenemanager_video_is_valid(g_fsw_xbvideo_global_video)) {
+            static uint32_t singleton_logs;
+            if (singleton_logs < 16 || (singleton_logs % 240) == 0) {
+                fprintf(stderr,
+                        "[FSW/Scene] restoring video singleton reason=%s current=%08X cached=%08X count=%u\n",
+                        reason, (unsigned)video, (unsigned)g_fsw_xbvideo_global_video,
+                        (unsigned)(singleton_logs + 1));
+            }
+            singleton_logs++;
+            MEM32(0x5FA8E8) = g_fsw_xbvideo_global_video;
+            video = g_fsw_xbvideo_global_video;
+        }
+    }
+
+    if (scenemanager_video_is_valid(video)) {
+        fsw_xbvideo_ensure_default_render_surfaces(video, reason);
+    }
+
+    return video;
+}
+
+static int scenemanager_object_vtable_is_valid(uint32_t object, uint32_t min_size)
+{
+    uint32_t vtbl;
+    if (!scenemanager_va_range_is_valid(object, 4)) {
+        return 0;
+    }
+    vtbl = MEM32(object);
+    return vtbl < 0x00800000u && scenemanager_va_range_is_valid(vtbl, min_size);
+}
+
+static int scenemanager_manager_is_valid(uint32_t manager)
+{
+    return scenemanager_va_range_is_valid(manager, 0xF8);
+}
 
 /**
  * fn_0002F900_1_ZeroDynArray_Utoccluder_0BAA_QAE_XZ
@@ -2925,11 +3001,17 @@ loc_00280884:
 void fn_00280890_CSceneManager_PostLoad(void)
 {
     uint32_t ebp;
+    uint32_t entry_array;
+    uint32_t entry;
     int _flags = 0; /* fallback flag var */
     float xmm0;
     ebp = g_seh_ebp; /* fpo_leaf: inherit caller's frame */
 
 loc_00280890:
+    if (!scenemanager_va_range_is_valid(ebx, 0xE4)) {
+        fprintf(stderr, "[FSW/Scene] PostLoad skipped invalid scene manager=%08X\n", ebx);
+        esp += 4; return; /* ret */
+    }
     eax = MEM32(ebx + 0xE0);
     PUSH32(esp, ebp);
     PUSH32(esp, esi);
@@ -2937,13 +3019,30 @@ loc_00280890:
     (void)0; /* test eax, eax - flags set for next jcc */
     PUSH32(esp, edi);
     if (CMP_BE(eax & eax, 0)) goto loc_002808EB; /* jbe: below or equal (unsigned <=) */
+    if (eax > 0x4000) {
+        fprintf(stderr, "[FSW/Scene] PostLoad clamping corrupt object count manager=%08X count=%u\n", ebx, eax);
+        MEM32(ebx + 0xE0) = 0;
+        goto loc_002808EB;
+    }
 
 loc_0028089F:
     edi = 0; /* xor self */
 
 loc_002808A1:
     eax = MEM32(ebx + 0xDC);
-    esi = MEM32(edi + eax);
+    entry_array = eax;
+    entry = edi + entry_array;
+    if (!scenemanager_va_range_is_valid(entry, 4)) {
+        fprintf(stderr, "[FSW/Scene] PostLoad stopping invalid object entry array=%08X index=%u entry=%08X\n",
+                entry_array, ebp, entry);
+        goto loc_002808EB;
+    }
+    esi = MEM32(entry);
+    if (!scenemanager_object_vtable_is_valid(esi, 8)) {
+        fprintf(stderr, "[FSW/Scene] PostLoad skipping invalid object index=%u entry=%08X object=%08X vtbl=%08X\n",
+                ebp, entry, esi, scenemanager_va_range_is_valid(esi, 4) ? MEM32(esi) : 0);
+        goto loc_002808DD;
+    }
     { uint32_t _icall_esp = g_esp;
     PUSH32(esp, ecx);
     ecx = MEM32(0x60B824);
@@ -2958,7 +3057,16 @@ loc_002808BC:
     if (TEST_Z(LO8(eax), LO8(eax))) goto loc_002808DD; /* je: equal / zero */
 
 loc_002808C0:
+    if (!scenemanager_va_range_is_valid(esi, 0x4DC)) {
+        fprintf(stderr, "[FSW/Scene] PostLoad skipping object state invalid object=%08X index=%u\n", esi, ebp);
+        goto loc_002808DD;
+    }
     eax = MEM32(esi + 0x478);
+    if (!scenemanager_va_range_is_valid(eax, 0x1A)) {
+        fprintf(stderr, "[FSW/Scene] PostLoad skipping invalid scene object aux object=%08X aux=%08X index=%u\n",
+                esi, eax, ebp);
+        goto loc_002808DD;
+    }
     SET_LO8(ecx, MEM8(eax + 0x19));
     if (TEST_Z(LO8(ecx), LO8(ecx))) goto loc_002808DD; /* je: equal / zero */
 
@@ -2990,9 +3098,16 @@ loc_002808EB:
 void fn_002808F0_CSceneManager_ProcessDelayedReleases(void)
 {
     uint32_t ebp;
+    uint32_t delayed_list = 0;
+    uint32_t delayed_node = 0;
+    uint32_t delayed_object = 0;
     int _flags = 0; /* fallback flag var */
 
 loc_002808F0:
+    if (!scenemanager_va_range_is_valid(eax, 0x18)) {
+        fprintf(stderr, "[FSW/Scene] ProcessDelayedReleases skipped invalid manager=%08X\n", (unsigned)eax);
+        esp += 4; return; /* ret */
+    }
     PUSH32(esp, ebp);
     ebp = esp;
     esp = esp & 0xFFFFFFF8u;
@@ -3001,6 +3116,7 @@ loc_002808F0:
     PUSH32(esp, edi);
     edi = eax;
     edi = edi + 0xC;
+    delayed_list = edi;
     eax = edi;
     ecx = MEM32(eax + 8);
     (void)0; /* test ecx, ecx - flags set for next jcc */
@@ -3009,6 +3125,16 @@ loc_002808F0:
     if (TEST_Z(ecx, ecx)) goto loc_0028094F; /* je: equal / zero */
 
 loc_00280911:
+    delayed_node = ecx;
+    if (!scenemanager_va_range_is_valid(delayed_node, 0xC)) {
+        fprintf(stderr, "[FSW/Scene] clearing corrupt delayed release node list=%08X node=%08X\n",
+                (unsigned)delayed_list, (unsigned)delayed_node);
+        if (scenemanager_va_range_is_valid(delayed_list, 0xC)) {
+            MEM32(delayed_list + 4) = 0;
+            MEM32(delayed_list + 8) = 0;
+        }
+        goto loc_0028094F;
+    }
     edx = MEM32(ecx + 4);
     edx--;
     eax = edx;
@@ -3018,6 +3144,14 @@ loc_00280911:
 
 loc_0028091E:
     ecx = MEM32(ecx);
+    delayed_object = ecx;
+    if (!scenemanager_va_range_is_valid(delayed_object, 0xC)) {
+        fprintf(stderr, "[FSW/Scene] removing corrupt delayed release object node=%08X object=%08X\n",
+                (unsigned)delayed_node, (unsigned)delayed_object);
+        ecx = delayed_node;
+        MEM32(esp + 8) = delayed_node;
+        goto loc_0028092C;
+    }
     MEM32(ecx + 8) = MEM32(ecx + 8) - 1;
     if ((MEM32(ecx + 8) != 0)) goto loc_0028092C; /* jne: not equal / not zero */
 
@@ -3195,6 +3329,15 @@ loc_00280A11:
 void fn_00280A20_CSceneManager_SubmitObjects(void)
 {
     uint32_t ebp;
+    uint32_t saved_video = 0;
+    uint32_t saved_index = 0;
+    uint32_t saved_entry = 0;
+    uint32_t saved_object = 0;
+    uint32_t saved_child_index = 0;
+    uint32_t saved_child_remaining = 0;
+    uint32_t saved_child_mask = 0;
+    uint32_t scene_ptr = 0;
+    uint32_t object_count = 0;
     int _flags = 0; /* fallback flag var */
     int _cf = 0; /* carry flag */
     ebp = g_seh_ebp; /* fpo_leaf: inherit caller's frame */
@@ -3202,7 +3345,20 @@ void fn_00280A20_CSceneManager_SubmitObjects(void)
 loc_00280A20:
     esp = esp - 8;
     eax = MEM32(esp + 0xC);
+    if (!scenemanager_va_range_is_valid(eax, 0xF8)) {
+        fprintf(stderr, "[FSW/Scene] SubmitObjects skipped invalid scene=%08X\n", (unsigned)eax);
+        esp = esp + 8;
+        esp += 8; return; /* ret 4 */
+    }
     ecx = MEM32(eax + 0xF4);
+    if (ecx > 0x1000u) {
+        fprintf(stderr, "[FSW/Scene] SubmitObjects skipped corrupt object count scene=%08X count=%u\n",
+                (unsigned)eax, (unsigned)ecx);
+        esp = esp + 8;
+        esp += 8; return; /* ret 4 */
+    }
+    scene_ptr = eax;
+    object_count = ecx;
     PUSH32(esp, ebx);
     PUSH32(esp, ebp);
     ebp = MEM32(0x5FA8E8);
@@ -3218,9 +3374,24 @@ loc_00280A47:
     /* nop */
 
 loc_00280A50:
-    eax = MEM32(eax + 0xF0);
+    eax = MEM32(scene_ptr + 0xF0);
+    if (!scenemanager_va_range_is_valid(eax + ebx * 4, 4)) {
+        fprintf(stderr, "[FSW/Scene] SubmitObjects stopping invalid object array=%08X index=%u\n",
+                (unsigned)eax, (unsigned)ebx);
+        goto loc_00280B1A;
+    }
     edi = MEM32(eax + ebx * 4);
+    if (!scenemanager_va_range_is_valid(edi, 0x4C)) {
+        fprintf(stderr, "[FSW/Scene] SubmitObjects skipping invalid entry=%08X index=%u\n",
+                (unsigned)edi, (unsigned)ebx);
+        goto loc_00280B03;
+    }
     esi = MEM32(edi);
+    if (!scenemanager_va_range_is_valid(esi, 0xCC)) {
+        fprintf(stderr, "[FSW/Scene] SubmitObjects skipping invalid object=%08X entry=%08X index=%u\n",
+                (unsigned)esi, (unsigned)edi, (unsigned)ebx);
+        goto loc_00280B03;
+    }
     ecx = MEM32(esi + 0xC8);
     ecx = ecx >> 1;
     if (TEST_NZ(LO8(ecx), 1)) goto loc_00280B03; /* jne: not equal / not zero */
@@ -3229,6 +3400,10 @@ loc_00280A6C:
     SET_LO16(edx, MEM16(edi + 0x48));
     eax = MEM32(ebp);
     ecx = edi + 0x38;
+    saved_video = ebp;
+    saved_index = ebx;
+    saved_entry = edi;
+    saved_object = esi;
     { uint32_t _icall_esp = g_esp;
     PUSH32(esp, ecx);
     ecx = ebp;
@@ -3237,10 +3412,18 @@ loc_00280A6C:
     }
 
 loc_00280A86:
+    ebp = saved_video;
+    ebx = saved_index;
+    edi = saved_entry;
+    esi = saved_object;
     if (TEST_NZ(MEM32(esi + 0xC8), 0x10B)) goto loc_00280A9B; /* jne: not equal / not zero */
 
 loc_00280A92:
     edx = MEM32(esi);
+    saved_video = ebp;
+    saved_index = ebx;
+    saved_entry = edi;
+    saved_object = esi;
     { uint32_t _icall_esp = g_esp;
     PUSH32(esp, 0);
     ecx = esi;
@@ -3248,6 +3431,10 @@ loc_00280A92:
     }
 
 loc_00280A9B:
+    ebp = saved_video;
+    ebx = saved_index;
+    edi = saved_entry;
+    esi = saved_object;
     ecx = MEM32(edi + 0x44);
     SET_LO16(eax, MEM16(edi + 0x14));
     SET_LO8(ecx, LO8(ecx) & 4);
@@ -3264,6 +3451,10 @@ loc_00280AB1:
     /* nop */
 
 loc_00280AC0:
+    saved_child_index = esi;
+    saved_child_remaining = ebp;
+    saved_child_mask = ebx;
+    saved_entry = edi;
     eax = MEM32(edi + 0x10);
     edx = MEM32(eax + esi * 4);
     ecx = esi;
@@ -3287,6 +3478,10 @@ loc_00280AEF:
     }
 
 loc_00280AF7:
+    esi = saved_child_index;
+    ebp = saved_child_remaining;
+    ebx = saved_child_mask;
+    edi = saved_entry;
     esi++;
     ebp--;
     if ((ebp != 0)) goto loc_00280AC0; /* jne: not equal / not zero */
@@ -3296,8 +3491,8 @@ loc_00280AFB:
     ebp = MEM32(esp + 0x14);
 
 loc_00280B03:
-    eax = MEM32(esp + 0x1C);
-    ecx = MEM32(eax + 0xF4);
+    eax = scene_ptr;
+    ecx = object_count;
     ebx++;
     (void)0; /* cmp ebx, ecx - flags set for next jcc */
     MEM32(esp + 0x10) = ebx;
@@ -4447,6 +4642,22 @@ loc_00281440:
     MEM32(esp + 0x114) = eax;
     PUSH32(esp, esi);
     esi = MEM32(0x5FA8E8);
+    if (!scenemanager_video_is_valid(esi)) {
+        esi = scenemanager_restore_video("shadow-quad-entry");
+    }
+    if (!scenemanager_video_is_valid(esi)) {
+        static uint32_t log_count;
+        if (log_count < 32 || (log_count % 240) == 0) {
+            fprintf(stderr, "[FSW/Scene] RenderShadowQuad skipped invalid video=%08X\n", (unsigned)esi);
+        }
+        log_count++;
+        ecx = MEM32(esp + 0x11C);
+        POP32(esp, esi);
+        MEM32(0) = ecx;
+        POP32(esp, ebx);
+        esp = esp + 0x120;
+        esp += 4; return; /* ret */
+    }
     eax = esp + 0x14;
     PUSH32(esp, 0); fn_00025E70_0ZeroVertexRecord_QAE_XZ(); /* call 0x00025E70 */
 
@@ -4525,6 +4736,22 @@ loc_00281572:
     PUSH32(esp, 0); fn_0009D720_ftol2(); /* call 0x0009D720 */
 
 loc_00281587:
+    if (!scenemanager_va_range_is_valid(MEM32(esp + 0x14), 0x40) ||
+        !scenemanager_va_range_is_valid(MEM32(esp + 0x44), 0x10) ||
+        MEM32(esp + 0x18) == 0 ||
+        MEM32(esp + 0x18) > 0x100 ||
+        MEM32(esp + 0x48) == 0 ||
+        MEM32(esp + 0x48) > 0x100) {
+        static uint32_t log_count;
+        if (log_count < 64 || (log_count % 240) == 0) {
+            fprintf(stderr,
+                    "[FSW/Scene] RenderShadowQuad skipped invalid lock data vertex=%08X stride=%08X color=%08X color_stride=%08X\n",
+                    (unsigned)MEM32(esp + 0x14), (unsigned)MEM32(esp + 0x18),
+                    (unsigned)MEM32(esp + 0x44), (unsigned)MEM32(esp + 0x48));
+        }
+        log_count++;
+        goto loc_002816DD;
+    }
     fp_push(MEMF(esp + 0xC)); /* fld float */
     edx = MEM32(esp + 0x14);
     xmm1 = 0.0f; /* xorps self = zero */
@@ -8196,16 +8423,29 @@ loc_00283F28:
  */
 void fn_00283F40_CBoundObject_Create(void)
 {
+    uint32_t bound_object;
+    uint32_t scene_object;
+    uint32_t saved_arg0;
+    uint32_t saved_arg1;
+    static uint32_t create_warn_count;
     int _flags = 0; /* fallback flag var */
 
 loc_00283F40:
     PUSH32(esp, ebx);
+    bound_object = esi;
+    scene_object = edi;
+    saved_arg0 = MEM32(esp + 8);
+    saved_arg1 = MEM32(esp + 0xC);
     SET_LO8(ebx, LO8(eax));
     eax = MEM32(0x5FA3E0);
     if (TEST_NZ(eax, eax)) goto loc_00283F51; /* jne: not equal / not zero */
 
 loc_00283F4C:
     PUSH32(esp, 0); fn_002833C0_CBoundObject_CreateGeometry(); /* call 0x002833C0 */
+    esi = bound_object;
+    edi = scene_object;
+    MEM32(esp + 8) = saved_arg0;
+    MEM32(esp + 0xC) = saved_arg1;
 
 loc_00283F51:
     eax = MEM32(esp + 0xC);
@@ -8221,6 +8461,19 @@ loc_00283F51:
     MEM32(esi + 0x10) = 0;
     POP32(esp, ebx);
     if (TEST_Z(edi, edi)) goto loc_00283F81; /* je: equal / zero */
+    if (!scenemanager_object_vtable_is_valid(edi, 0x48)) {
+        if (create_warn_count < 16 || (create_warn_count % 256) == 0) {
+            fprintf(stderr,
+                    "[FSW/Scene] CBoundObject_Create dropping invalid object link bound=%08X object=%08X parent=%08X count=%u\n",
+                    (unsigned)esi,
+                    (unsigned)edi,
+                    (unsigned)eax,
+                    (unsigned)(create_warn_count + 1));
+        }
+        create_warn_count++;
+        MEM32(esi) = 0;
+        goto loc_00283F81;
+    }
 
 loc_00283F7E:
     MEM32(edi + 8) = MEM32(edi + 8) + 1;
@@ -8228,6 +8481,19 @@ loc_00283F7E:
 loc_00283F81:
     eax = MEM32(esi + 4);
     if (TEST_Z(eax, eax)) goto loc_00283F8B; /* je: equal / zero */
+    if (!scenemanager_va_range_is_valid(eax, 8)) {
+        if (create_warn_count < 16 || (create_warn_count % 256) == 0) {
+            fprintf(stderr,
+                    "[FSW/Scene] CBoundObject_Create dropping invalid parent link bound=%08X object=%08X parent=%08X count=%u\n",
+                    (unsigned)esi,
+                    (unsigned)MEM32(esi),
+                    (unsigned)eax,
+                    (unsigned)(create_warn_count + 1));
+        }
+        create_warn_count++;
+        MEM32(esi + 4) = 0;
+        goto loc_00283F8B;
+    }
 
 loc_00283F88:
     MEM32(eax + 4) = esi;
@@ -8595,24 +8861,33 @@ loc_0028426F:
 void sub_00284275(void)
 {
     uint32_t ebp;
+    uint32_t scene_manager;
+    uint32_t bound_object;
+    uint32_t append_bound_to_list;
     int _flags = 0; /* fallback flag var */
     ebp = g_seh_ebp; /* fpo_leaf: inherit caller's frame */
 
 loc_00284275:
     edx = MEM32(esp + 0x18);
     ebp = eax;
+    scene_manager = ebx;
+    bound_object = ebp;
     eax = MEM32(ebx + 0x24);
     PUSH32(esp, edx);
     ecx = eax + 1;
     PUSH32(esp, eax);
     SET_LO8(eax, MEM8(esp + 0x1C));
+    append_bound_to_list = ZX8(LO8(eax));
     esi = ebp;
     MEM32(esp + 0x14) = ebp;
     MEM32(ebx + 0x24) = ecx;
     PUSH32(esp, 0); fn_00283F40_CBoundObject_Create(); /* call 0x00283F40 */
+    ebx = scene_manager;
+    ebp = bound_object;
+    MEM32(esp + 0xC) = bound_object;
 
 loc_00284295:
-    SET_LO8(eax, MEM8(esp + 0x14));
+    SET_LO8(eax, (uint8_t)append_bound_to_list);
     (void)0; /* test LO8(eax), LO8(eax) - flags set for next jcc */
     esi = ebx + 0x38;
     ebx = esp + 0xC;
@@ -8863,6 +9138,7 @@ loc_002843C9:
     MEM32(eax) = edx;
     MEM32(0x5FA8C4) = ecx;
     esi = eax + 0x10;
+    sub_002843F5(); return; /* fallthrough 0x002843F5 */
 
 }
 
@@ -8908,6 +9184,7 @@ void sub_00284418(void)
 
 loc_00284418:
     edi = 0; /* xor self */
+    sub_0028441A(); return; /* fallthrough 0x0028441A */
 
 }
 
@@ -9225,6 +9502,7 @@ loc_002845F8:
 void fn_00284600_CSceneManager_AddSceneObject(void)
 {
     uint32_t ebp;
+    static uint32_t add_scene_object_log_count;
     int _flags = 0; /* fallback flag var */
     float xmm0;
     ebp = g_seh_ebp; /* fpo_leaf: inherit caller's frame */
@@ -9236,6 +9514,36 @@ loc_00284600:
     PUSH32(esp, esi);
     PUSH32(esp, edi);
     edi = ecx;
+    if (add_scene_object_log_count < 48 || (add_scene_object_log_count % 512) == 0) {
+        fprintf(stderr,
+                "[FSW/Scene] AddSceneObject #%u manager=%08X object=%08X flags=%08X entries=%08X count=%u esp=%08X\n",
+                (unsigned)(add_scene_object_log_count + 1),
+                (unsigned)ebp,
+                (unsigned)edi,
+                (unsigned)eax,
+                (unsigned)(scenemanager_va_range_is_valid(ebp + 0xDC, 8) ? MEM32(ebp + 0xDC) : 0),
+                (unsigned)(scenemanager_va_range_is_valid(ebp + 0xE0, 4) ? MEM32(ebp + 0xE0) : 0xFFFFFFFFu),
+                (unsigned)esp);
+    }
+    add_scene_object_log_count++;
+    if (edi < 0x00800000u || !scenemanager_object_vtable_is_valid(edi, 0x48)) {
+        static uint32_t invalid_add_scene_object_count = 0;
+        if (invalid_add_scene_object_count < 24 || (invalid_add_scene_object_count % 256) == 0) {
+            fprintf(stderr,
+                    "[FSW/Scene] skipping AddSceneObject invalid object=%08X vtbl=%08X manager=%08X flags=%08X count=%u\n",
+                    (unsigned)edi,
+                    (unsigned)(scenemanager_va_range_is_valid(edi, 4) ? MEM32(edi) : 0),
+                    (unsigned)ebp,
+                    (unsigned)eax,
+                    (unsigned)(invalid_add_scene_object_count + 1));
+        }
+        invalid_add_scene_object_count++;
+        POP32(esp, edi);
+        POP32(esp, esi);
+        POP32(esp, ebp);
+        POP32(esp, ebx);
+        esp += 8; return; /* ret 4 */
+    }
     MEM32(edi + 8) = MEM32(edi + 8) + 1;
     edx = MEM32(ebp + 0xDC);
     ebx = eax;
@@ -10722,8 +11030,18 @@ loc_00285515:
 
 loc_0028551A:
     edi = MEM32(ebp + 8);
+    if (!scenemanager_va_range_is_valid(edi, 0xEC)) {
+        fprintf(stderr, "[FSW/Scene] skipping UpdateLights invalid scene=%08X\n", (unsigned)edi);
+        goto loc_002855A4;
+    }
     eax = MEM32(edi + 0xE8);
     if (CMP_BE(eax & eax, 0)) goto loc_002855A4; /* jbe: below or equal (unsigned <=) */
+    if (CMP_A(eax, 4096)) {
+        fprintf(stderr, "[FSW/Scene] clamping UpdateLights count scene=%08X count=%u\n",
+                (unsigned)edi, (unsigned)eax);
+        MEM32(edi + 0xE8) = 0;
+        goto loc_002855A4;
+    }
 
 loc_00285527:
     goto loc_00285530;
@@ -10732,7 +11050,17 @@ loc_00285527:
 
 loc_00285530:
     ecx = MEM32(edi + 0xE4);
+    if (!scenemanager_va_range_is_valid(ecx + esi * 4, 4)) {
+        fprintf(stderr, "[FSW/Scene] stopping UpdateLights invalid light array=%08X index=%u\n",
+                (unsigned)ecx, (unsigned)esi);
+        goto loc_002855A4;
+    }
     edx = MEM32(ecx + esi * 4);
+    if (!scenemanager_va_range_is_valid(edx, 0x4A)) {
+        fprintf(stderr, "[FSW/Scene] skipping UpdateLights invalid light=%08X index=%u\n",
+                (unsigned)edx, (unsigned)esi);
+        goto loc_00285599;
+    }
     if (CMP_NE(MEM16(edx + 0x48), 3)) goto loc_00285599; /* jne: not equal / not zero */
 
 loc_00285540:
@@ -12304,6 +12632,7 @@ loc_00286680:
     }
 
 loc_0028669C:
+    ebx = MEM32(0x5FA8E8);
     edx = MEM32(ebx);
     esi = eax;
     ecx = ebx;
@@ -12313,6 +12642,7 @@ loc_0028669C:
     }
 
 loc_002866AC:
+    ebx = MEM32(0x5FA8E8);
     edi = eax;
     eax = MEM32(ebx);
     ecx = ebx;
@@ -12322,6 +12652,27 @@ loc_002866AC:
     }
 
 loc_002866BC:
+    ebx = MEM32(0x5FA8E8);
+    if (!scenemanager_va_range_is_valid(ebx, 0xE0) ||
+        !scenemanager_va_range_is_valid(esi, 0x20) ||
+        !scenemanager_va_range_is_valid(edi, 0x20)) {
+        static uint32_t invalid_render_surface_count;
+        if (invalid_render_surface_count < 16 || (invalid_render_surface_count % 256) == 0) {
+            fprintf(stderr,
+                    "[FSW/Scene] skipping Render_Xbox invalid video/surfaces video=%08X color=%08X depth=%08X count=%u\n",
+                    (unsigned)ebx,
+                    (unsigned)esi,
+                    (unsigned)edi,
+                    (unsigned)(invalid_render_surface_count + 1));
+        }
+        invalid_render_surface_count++;
+        POP32(esp, edi);
+        POP32(esp, esi);
+        POP32(esp, ebx);
+        esp = ebp;
+        POP32(esp, ebp);
+        esp += 12; return; /* ret 8 */
+    }
     fp_push((double)SMEM32(ebx + 0xD8)); /* fild */
     ecx = MEM32(esi + 0x1C);
     edx = MEM32(edi + 0x18);
@@ -12396,7 +12747,7 @@ loc_00286782:
     SET_LO8(ecx, (CMP_EQ(ecx, edi)) ? 1 : 0); /* sete */
     SET_LO8(ecx, LO8(ecx) | LO8(eax));
     esi = 1;
-    if ((LO8(ecx) == 0)) { sub_002867DA(); return; } /* je: equal / zero */
+    if ((LO8(ecx) == 0)) { g_seh_ebp = ebp; sub_002867DA(); return; } /* je: equal / zero */
 
 loc_0028679F:
     edx = MEM32(0x5FA38C);
@@ -12415,7 +12766,7 @@ loc_002867C1:
     PUSH32(esp, 0); fn_00128D90_CalcLowerCRC(); /* call 0x00128D90 */
 
 loc_002867CD:
-    if (CMP_NE(MEM32(esp + 0x14), eax)) { sub_002867DA(); return; } /* jne: not equal / not zero */
+    if (CMP_NE(MEM32(esp + 0x14), eax)) { g_seh_ebp = ebp; sub_002867DA(); return; } /* jne: not equal / not zero */
 
 loc_002867D3:
     MEM8(esp + 0x13) = 1;
@@ -12436,9 +12787,12 @@ loc_002867D3:
  */
 void sub_002867DA(void)
 {
+    uint32_t ebp;
+    ebp = g_seh_ebp; /* fpo_leaf: inherit caller's frame */
 
 loc_002867DA:
     MEM8(esp + 0x13) = 0;
+    g_seh_ebp = ebp; sub_002867DF(); return; /* fallthrough 0x002867DF */
 
 }
 
@@ -12518,6 +12872,7 @@ loc_00286857:
     }
 
 loc_00286873:
+    ebx = MEM32(0x5FA8E8);
     SET_LO8(eax, MEM8(ebx + 0x4EE9));
     SET_LO8(eax, LO8(eax) | 1);
     { uint32_t _icall_esp = g_esp;
@@ -12531,12 +12886,14 @@ loc_00286873:
     }
 
 loc_00286896:
+    ebx = MEM32(0x5FA8E8);
     PUSH32(esp, esi);
     PUSH32(esp, ebx);
     eax = 5;
     PUSH32(esp, 0); fn_00141080_XBVideo_RenderBucket(); /* call 0x00141080 */
 
 loc_002868A2:
+    ebx = MEM32(0x5FA8E8);
     MEM8(ebx + 0x4EE9) = MEM8(ebx + 0x4EE9) & 0xFE;
     MEM32(ebx + 0x6734) = esi;
     MEM32(ebx + 0x6738) = esi;
@@ -12559,6 +12916,7 @@ loc_002868A2:
     }
 
 loc_00286901:
+    ebx = MEM32(0x5FA8E8);
     MEM8(ebx + 0x4DBD) = MEM8(ebx + 0x4DBD) | 1;
     edx = MEM32(ebx);
     { uint32_t _icall_esp = g_esp;
@@ -12569,12 +12927,14 @@ loc_00286901:
     }
 
 loc_00286915:
+    ebx = MEM32(0x5FA8E8);
     PUSH32(esp, esi);
     PUSH32(esp, ebx);
     eax = 0xE;
     PUSH32(esp, 0); fn_00141080_XBVideo_RenderBucket(); /* call 0x00141080 */
 
 loc_00286921:
+    ebx = MEM32(0x5FA8E8);
     MEM8(ebx + 0x4DBD) = MEM8(ebx + 0x4DBD) & 0xFE;
     MEM32(ebx + 0x6734) = esi;
     MEM32(ebx + 0x6738) = esi;
@@ -12607,6 +12967,7 @@ loc_00286921:
     }
 
 loc_002869C4:
+    ebx = scenemanager_restore_video("render-xbox-869C4");
     MEM8(ebx + 0x4DBD) = MEM8(ebx + 0x4DBD) | 1;
     edx = MEM32(ebx);
     { uint32_t _icall_esp = g_esp;
@@ -12617,12 +12978,14 @@ loc_002869C4:
     }
 
 loc_002869D8:
+    ebx = scenemanager_restore_video("render-xbox-869D8");
     PUSH32(esp, esi);
     PUSH32(esp, ebx);
     eax = 0xD;
     PUSH32(esp, 0); fn_00141080_XBVideo_RenderBucket(); /* call 0x00141080 */
 
 loc_002869E4:
+    ebx = scenemanager_restore_video("render-xbox-869E4");
     MEM8(ebx + 0x4DBD) = MEM8(ebx + 0x4DBD) & 0xFE;
     MEM32(ebx + 0x6734) = esi;
     MEM32(ebx + 0x6738) = esi;
@@ -12639,12 +13002,14 @@ loc_002869E4:
     PUSH32(esp, 0); fn_00141080_XBVideo_RenderBucket(); /* call 0x00141080 */
 
 loc_00286A31:
+    ebx = scenemanager_restore_video("render-xbox-86A31");
     PUSH32(esp, esi);
     PUSH32(esp, ebx);
     eax = 0xB;
     PUSH32(esp, 0); fn_00141080_XBVideo_RenderBucket(); /* call 0x00141080 */
 
 loc_00286A3D:
+    ebx = scenemanager_restore_video("render-xbox-86A3D");
     SET_LO8(eax, MEM8(ebx + 0x4EE9));
     xmm0 = 0.0f; /* xorps self = zero */
     SET_LO8(eax, LO8(eax) & 0xFE);
@@ -12688,12 +13053,14 @@ loc_00286B07:
     PUSH32(esp, 0); fn_00141080_XBVideo_RenderBucket(); /* call 0x00141080 */
 
 loc_00286B10:
+    ebx = scenemanager_restore_video("render-xbox-86B10");
     PUSH32(esp, esi);
     PUSH32(esp, ebx);
     eax = 0xC;
     PUSH32(esp, 0); fn_00141080_XBVideo_RenderBucket(); /* call 0x00141080 */
 
 loc_00286B1C:
+    ebx = scenemanager_restore_video("render-xbox-86B1C");
     SET_LO8(edx, MEM8(ebx + 0x4DBD));
     xmm0 = MEMF(0x561418); /* movss */
     SET_LO8(edx, LO8(edx) & 0xFE);
@@ -12723,6 +13090,7 @@ loc_00286B1C:
     if (TEST_Z(MEM8(0x57F6D0), 0x10)) goto loc_00286C1C; /* je: equal / zero */
 
 loc_00286BD8:
+    ebx = scenemanager_restore_video("render-xbox-86BD8");
     MEM8(ebx + 0x4C41) = MEM8(ebx + 0x4C41) & 0xFE;
     MEM32(ebx + 0x6734) = esi;
     MEM32(ebx + 0x6738) = esi;
@@ -12739,6 +13107,7 @@ loc_00286C1C:
     if (TEST_NZ(eax, eax)) goto loc_00286C79; /* jne: not equal / not zero */
 
 loc_00286C25:
+    ebx = scenemanager_restore_video("render-xbox-86C25");
     SET_LO8(eax, MEM8(ebx + 0x18D));
     if (TEST_Z(LO8(eax), LO8(eax))) goto loc_00286C79; /* je: equal / zero */
 
@@ -12746,6 +13115,7 @@ loc_00286C2F:
     if (CMP_EQ(MEM16(ebx + 0x4A44), 0)) goto loc_00286C79; /* je: equal / zero */
 
 loc_00286C39:
+    ebx = scenemanager_restore_video("render-xbox-86C39");
     edx = MEM32(ebx);
     { uint32_t _icall_esp = g_esp;
     PUSH32(esp, 5);
@@ -12754,6 +13124,7 @@ loc_00286C39:
     }
 
 loc_00286C45:
+    ebx = scenemanager_restore_video("render-xbox-86C45");
     PUSH32(esp, esi);
     PUSH32(esp, ebx);
     eax = 2;
@@ -12767,6 +13138,7 @@ loc_00286C56:
     PUSH32(esp, 0); fn_00377B30_CParticleManager_Render(); /* call 0x00377B30 */
 
 loc_00286C5D:
+    ebx = scenemanager_restore_video("render-xbox-86C5D");
     eax = MEM32(ebx);
     { uint32_t _icall_esp = g_esp;
     PUSH32(esp, 0);
@@ -12775,6 +13147,7 @@ loc_00286C5D:
     }
 
 loc_00286C69:
+    ebx = scenemanager_restore_video("render-xbox-86C69");
     SET_LO8(eax, MEM8(0x5D1C35));
     if (TEST_Z(LO8(eax), LO8(eax))) goto loc_00286C85; /* je: equal / zero */
 
@@ -12782,9 +13155,11 @@ loc_00286C72:
     PUSH32(esp, 0); fn_00281440_CSceneManager_RenderShadowQuad(); /* call 0x00281440 */
 
 loc_00286C77:
+    ebx = scenemanager_restore_video("render-xbox-86C77");
     goto loc_00286C85;
 
 loc_00286C79:
+    ebx = scenemanager_restore_video("render-xbox-86C79");
     PUSH32(esp, 0); fn_00377630_CParticleManager_Get(); /* call 0x00377630 */
 
 loc_00286C7E:
@@ -12792,6 +13167,7 @@ loc_00286C7E:
     PUSH32(esp, 0); fn_00377B30_CParticleManager_Render(); /* call 0x00377B30 */
 
 loc_00286C85:
+    ebx = scenemanager_restore_video("render-xbox-86C85");
     edx = MEM32(ebx);
     { uint32_t _icall_esp = g_esp;
     PUSH32(esp, 2);
@@ -12800,6 +13176,7 @@ loc_00286C85:
     }
 
 loc_00286C91:
+    ebx = scenemanager_restore_video("render-xbox-86C91");
     SET_LO8(eax, MEM8(0x5D1C38));
     if (TEST_Z(LO8(eax), LO8(eax))) { sub_00286CA6(); return; } /* je: equal / zero */
 
@@ -12846,6 +13223,7 @@ loc_00286CB1:
     if (TEST_NZ(LO8(eax), LO8(eax))) goto loc_00286CEA; /* jne: not equal / not zero */
 
 loc_00286CB5:
+    ebx = scenemanager_restore_video("render-xbox-86CB5");
     SET_LO8(eax, MEM8(ebx + 0x4EE9));
     SET_LO8(eax, LO8(eax) | 1);
     { uint32_t _icall_esp = g_esp;
@@ -12858,17 +13236,20 @@ loc_00286CB5:
     }
 
 loc_00286CD4:
+    ebx = scenemanager_restore_video("render-xbox-86CD4");
     PUSH32(esp, 0);
     PUSH32(esp, ebx);
     eax = 0; /* xor self */
     PUSH32(esp, 0); fn_00141080_XBVideo_RenderBucket(); /* call 0x00141080 */
 
 loc_00286CDE:
+    ebx = scenemanager_restore_video("render-xbox-86CDE");
     edx = 0x36;
     eax = ebx;
     PUSH32(esp, 0); fn_00029D60_ZeroVideo_ClearOverride(); /* call 0x00029D60 */
 
 loc_00286CEA:
+    ebx = scenemanager_restore_video("render-xbox-86CEA");
     edx = MEM32(ebx);
     { uint32_t _icall_esp = g_esp;
     PUSH32(esp, 4);
@@ -12877,11 +13258,13 @@ loc_00286CEA:
     }
 
 loc_00286CF6:
+    ebx = scenemanager_restore_video("render-xbox-86CF6");
     edx = esp + 0x60;
     ecx = 0xBF;
     PUSH32(esp, 0); fn_004D4C50_D3DDevice_SetVertexShaderConstant1Fast_8(); /* call 0x004D4C50 */
 
 loc_00286D04:
+    ebx = scenemanager_restore_video("render-xbox-86D04");
     SET_LO8(eax, MEM8(ebx + 0x4EE9));
     SET_LO8(eax, LO8(eax) | 1);
     { uint32_t _icall_esp = g_esp;
@@ -12894,6 +13277,7 @@ loc_00286D04:
     }
 
 loc_00286D23:
+    ebx = scenemanager_restore_video("render-xbox-86D23");
     SET_LO8(eax, MEM8(ebx + 0x4B3D));
     SET_LO8(eax, LO8(eax) | 1);
     { uint32_t _icall_esp = g_esp;
@@ -12909,6 +13293,7 @@ loc_00286D3F:
     if (TEST_Z(MEM8(0x57F6D0), 4)) goto loc_002870F6; /* je: equal / zero */
 
 loc_00286D4C:
+    ebx = scenemanager_restore_video("render-xbox-86D4C");
     SET_LO8(eax, MEM8(ebx + 0x4DBD));
     SET_LO8(eax, LO8(eax) | 1);
     { uint32_t _icall_esp = g_esp;
@@ -12921,12 +13306,14 @@ loc_00286D4C:
     }
 
 loc_00286D67:
+    ebx = scenemanager_restore_video("render-xbox-86D67");
     PUSH32(esp, 0);
     PUSH32(esp, ebx);
     eax = 0xD;
     PUSH32(esp, 0); fn_00141080_XBVideo_RenderBucket(); /* call 0x00141080 */
 
 loc_00286D74:
+    ebx = scenemanager_restore_video("render-xbox-86D74");
     MEM8(ebx + 0x4DBD) = MEM8(ebx + 0x4DBD) & 0xFE;
     MEM32(ebx + 0x6734) = esi;
     MEM32(ebx + 0x6738) = esi;
@@ -12953,6 +13340,7 @@ loc_00286D74:
     }
 
 loc_00286DED:
+    ebx = scenemanager_restore_video("render-xbox-86DED");
     SET_LO8(eax, MEM8(ebx + 0x4D09));
     SET_LO8(eax, LO8(eax) | 1);
     { uint32_t _icall_esp = g_esp;
@@ -12965,6 +13353,7 @@ loc_00286DED:
     }
 
 loc_00286E0C:
+    ebx = scenemanager_restore_video("render-xbox-86E0C");
     SET_LO8(eax, MEM8(ebx + 0x4CE1));
     SET_LO8(eax, LO8(eax) | 1);
     { uint32_t _icall_esp = g_esp;
@@ -12977,6 +13366,7 @@ loc_00286E0C:
     }
 
 loc_00286E2B:
+    ebx = scenemanager_restore_video("render-xbox-86E2B");
     SET_LO8(eax, MEM8(ebx + 0x4CF5));
     SET_LO8(eax, LO8(eax) | 1);
     { uint32_t _icall_esp = g_esp;
@@ -12989,6 +13379,7 @@ loc_00286E2B:
     }
 
 loc_00286E4A:
+    ebx = scenemanager_restore_video("render-xbox-86E4A");
     SET_LO8(eax, MEM8(ebx + 0x4CCD));
     SET_LO8(eax, LO8(eax) | 1);
     { uint32_t _icall_esp = g_esp;
@@ -13006,9 +13397,11 @@ loc_00286E65:
     if (CMP_LE(eax & eax, 0)) goto loc_00286EA9; /* jle: less or equal (signed <=) */
 
 loc_00286E6F:
+    ebx = scenemanager_restore_video("render-xbox-86E6F");
     eax = 0; /* xor self */
 
 loc_00286E71:
+    ebx = scenemanager_restore_video("render-xbox-86E71");
     ecx = MEM32(ebx + 0x4A88);
     eax = (uint32_t)(int32_t)SMEM16(ecx + eax * 8 + 4);
     edx = eax + eax * 8;
@@ -13022,12 +13415,14 @@ loc_00286E71:
     PUSH32(esp, 0); fn_00140E70_XBVideo_RenderItem(); /* call 0x00140E70 */
 
 loc_00286E9D:
+    ebx = scenemanager_restore_video("render-xbox-86E9D");
     ecx = MEM32(esp + 0x14);
     edi++;
     eax = SX16(LO16(edi));
     if (CMP_L(eax, ecx)) goto loc_00286E71; /* jl: less (signed <) */
 
 loc_00286EA9:
+    ebx = scenemanager_restore_video("render-xbox-86EA9");
     MEM8(ebx + 0x4CCD) = MEM8(ebx + 0x4CCD) & 0xFE;
     MEM32(ebx + 0x6734) = esi;
     MEM32(ebx + 0x6738) = esi;
@@ -13052,6 +13447,7 @@ loc_00286F09:
     /* nop */
 
 loc_00286F10:
+    ebx = scenemanager_restore_video("render-xbox-86F10");
     ecx = MEM32(ebx + 0x4A38);
     eax = (uint32_t)(int32_t)SMEM16(ecx + eax * 8 + 4);
     edx = eax + eax * 8;
@@ -13067,6 +13463,7 @@ loc_00286F10:
     if (TEST_Z(MEM32(eax + 0x9C), 0x2000000)) goto loc_00286F6B; /* je: equal / zero */
 
 loc_00286F4A:
+    ebx = scenemanager_restore_video("render-xbox-86F4A");
     SET_LO8(edx, MEM8(ebx + 0x4CCD));
     SET_LO8(edx, LO8(edx) | 1);
     { uint32_t _icall_esp = g_esp;
@@ -13080,6 +13477,7 @@ loc_00286F4A:
     }
 
 loc_00286F6B:
+    ebx = scenemanager_restore_video("render-xbox-86F6B");
     eax = ZX16(MEM16(edi + 0x1A));
     eax = eax + eax * 8;
     ecx = MEM32(ebx + eax * 4 + 0x224);
@@ -13089,10 +13487,12 @@ loc_00286F6B:
     PUSH32(esp, 0); fn_00140E70_XBVideo_RenderItem(); /* call 0x00140E70 */
 
 loc_00286F82:
+    ebx = scenemanager_restore_video("render-xbox-86F82");
     SET_LO8(eax, MEM8(esp + 0x12));
     if (TEST_Z(LO8(eax), LO8(eax))) goto loc_00286FCE; /* je: equal / zero */
 
 loc_00286F8A:
+    ebx = scenemanager_restore_video("render-xbox-86F8A");
     MEM8(ebx + 0x4CCD) = MEM8(ebx + 0x4CCD) & 0xFE;
     MEM32(ebx + 0x6734) = esi;
     MEM32(ebx + 0x6738) = esi;
@@ -13113,6 +13513,7 @@ loc_00286FCE:
     if (CMP_L(eax, ecx)) goto loc_00286F10; /* jl: less (signed <) */
 
 loc_00286FE6:
+    ebx = scenemanager_restore_video("render-xbox-86FE6");
     MEM8(ebx + 0x4CF5) = MEM8(ebx + 0x4CF5) & 0xFE;
     MEM32(ebx + 0x6734) = esi;
     MEM32(ebx + 0x6738) = esi;
@@ -13155,6 +13556,7 @@ loc_00286FE6:
     MEM8(ebx + 0x4D1C) = 0;
 
 loc_002870F6:
+    ebx = scenemanager_restore_video("render-xbox-870F6");
     MEM8(ebx + 0x4B3D) = MEM8(ebx + 0x4B3D) & 0xFE;
     MEM32(ebx + 0x6734) = esi;
     MEM32(ebx + 0x6738) = esi;
@@ -13184,10 +13586,12 @@ loc_002870F6:
     }
 
 loc_0028718B:
+    ebx = scenemanager_restore_video("render-xbox-8718B");
     SET_LO8(eax, MEM8(0x5D1C34));
     if (TEST_Z(LO8(eax), LO8(eax))) goto loc_002871AC; /* je: equal / zero */
 
 loc_00287194:
+    ebx = scenemanager_restore_video("render-xbox-87194");
     ecx = MEM32(esp + 0x20);
     edx = MEM32(esp + 0x30);
     eax = MEM32(ebx);
@@ -13201,6 +13605,7 @@ loc_00287194:
     }
 
 loc_002871AC:
+    ebx = scenemanager_restore_video("render-xbox-871AC");
     eax = MEM32(ebx);
     { uint32_t _icall_esp = g_esp;
     PUSH32(esp, 3);
@@ -13209,9 +13614,11 @@ loc_002871AC:
     }
 
 loc_002871B8:
+    ebx = scenemanager_restore_video("render-xbox-871B8");
     if (TEST_Z(MEM8(0x57F6D0), 2)) goto loc_00287297; /* je: equal / zero */
 
 loc_002871C5:
+    ebx = scenemanager_restore_video("render-xbox-871C5");
     MEM8(ebx + 0x4B3D) = MEM8(ebx + 0x4B3D) | 1;
     edx = MEM32(ebx);
     { uint32_t _icall_esp = g_esp;
@@ -13222,6 +13629,7 @@ loc_002871C5:
     }
 
 loc_002871D9:
+    ebx = scenemanager_restore_video("render-xbox-871D9");
     SET_LO8(eax, MEM8(ebx + 0x4DBD));
     SET_LO8(eax, LO8(eax) | 1);
     { uint32_t _icall_esp = g_esp;
@@ -13234,12 +13642,14 @@ loc_002871D9:
     }
 
 loc_002871F4:
+    ebx = scenemanager_restore_video("render-xbox-871F4");
     PUSH32(esp, 0);
     PUSH32(esp, ebx);
     eax = 0xC;
     PUSH32(esp, 0); fn_00141080_XBVideo_RenderBucket(); /* call 0x00141080 */
 
 loc_00287201:
+    ebx = scenemanager_restore_video("render-xbox-87201");
     MEM8(ebx + 0x4DBD) = MEM8(ebx + 0x4DBD) & 0xFE;
     MEM32(ebx + 0x6734) = esi;
     MEM32(ebx + 0x6738) = esi;
@@ -13258,6 +13668,7 @@ loc_00287201:
     PUSH32(esp, 0); fn_00141080_XBVideo_RenderBucket(); /* call 0x00141080 */
 
 loc_00287257:
+    ebx = scenemanager_restore_video("render-xbox-87257");
     MEM8(ebx + 0x4B3D) = MEM8(ebx + 0x4B3D) & 0xFE;
     MEM32(ebx + 0x6734) = esi;
     MEM32(ebx + 0x6738) = esi;
@@ -13270,6 +13681,7 @@ loc_00287257:
     MEM8(ebx + 0x4B3C) = 0;
 
 loc_00287297:
+    ebx = scenemanager_restore_video("render-xbox-87297");
     edx = MEM32(ebx);
     { uint32_t _icall_esp = g_esp;
     PUSH32(esp, 0);
@@ -13278,6 +13690,7 @@ loc_00287297:
     }
 
 loc_002872A3:
+    ebx = scenemanager_restore_video("render-xbox-872A3");
     eax = MEM32(0x5D1C30);
     if (TEST_Z(eax, eax)) goto loc_00287329; /* je: equal / zero */
 
@@ -13291,6 +13704,7 @@ loc_002872BE:
     goto loc_00287329;
 
 loc_002872C0:
+    ebx = scenemanager_restore_video("render-xbox-872C0");
     SET_LO8(edx, MEM8(ebx + 0x4EE9));
     SET_LO8(edx, LO8(edx) | 1);
     { uint32_t _icall_esp = g_esp;
@@ -13303,9 +13717,11 @@ loc_002872C0:
     }
 
 loc_002872E0:
+    ebx = scenemanager_restore_video("render-xbox-872E0");
     PUSH32(esp, 0); fn_00281160_CSceneManager_RenderFogQuad(); /* call 0x00281160 */
 
 loc_002872E5:
+    ebx = scenemanager_restore_video("render-xbox-872E5");
     MEM8(ebx + 0x4EE9) = MEM8(ebx + 0x4EE9) & 0xFE;
     MEM32(ebx + 0x6734) = esi;
     MEM32(ebx + 0x6738) = esi;
@@ -13318,6 +13734,7 @@ loc_002872E5:
     MEM8(ebx + 0x4EE8) = 0;
 
 loc_00287329:
+    ebx = scenemanager_restore_video("render-xbox-87329");
     SET_LO8(eax, MEM8(0x5D1C37));
     if (TEST_Z(LO8(eax), LO8(eax))) { sub_0028733E(); return; } /* je: equal / zero */
 
@@ -15433,6 +15850,7 @@ loc_00288BFD:
 void fn_00288C10_CSceneManager_RenderAll(void)
 {
     uint32_t ebp;
+    uint32_t scene_manager = 0;
     int _flags = 0; /* fallback flag var */
     float xmm0;
     ebp = g_seh_ebp; /* fpo_leaf: inherit caller's frame */
@@ -15441,13 +15859,16 @@ loc_00288C10:
     esp = esp - 0x40;
     PUSH32(esp, ebx);
     ebx = MEM32(esp + 0x48);
+    scene_manager = scenemanager_manager_is_valid(ebx) ? ebx : 0x643B60u;
     PUSH32(esp, ebp);
-    ebp = MEM32(0x5FA8E8);
+    ebp = scenemanager_restore_video("renderall-entry");
     PUSH32(esp, esi);
     PUSH32(esp, 1);
     PUSH32(esp, 0); fn_003AA8C0_CLODObject_UpdateAll(); /* call 0x003AA8C0 */
 
 loc_00288C27:
+    ebx = scene_manager;
+    ebp = scenemanager_restore_video("renderall-after-lod");
     esi = MEM32(esp + 0x58);
     esp = esp + 4;
     PUSH32(esp, esi);
@@ -15455,21 +15876,29 @@ loc_00288C27:
     PUSH32(esp, 0); fn_00288430_CSceneManager_UpdateObjects(); /* call 0x00288430 */
 
 loc_00288C35:
+    ebx = scene_manager;
+    ebp = scenemanager_restore_video("renderall-after-update-objects");
     PUSH32(esp, esi);
     PUSH32(esp, ebx);
     PUSH32(esp, 0); fn_00285490_CSceneManager_UpdateLights(); /* call 0x00285490 */
 
 loc_00288C3C:
+    ebx = scene_manager;
+    ebp = scenemanager_restore_video("renderall-after-update-lights");
     PUSH32(esp, ebx);
     PUSH32(esp, 0); fn_00280A20_CSceneManager_SubmitObjects(); /* call 0x00280A20 */
 
 loc_00288C42:
+    ebx = scene_manager;
+    ebp = scenemanager_restore_video("renderall-after-submit-objects");
     PUSH32(esp, ebx);
     MEM8(ebp + 0x170) = 1;
     MEM32(ebp + 0x16C) = 0xF;
     PUSH32(esp, 0); fn_00281DE0_CSceneManager_SubmitReflectObjects(); /* call 0x00281DE0 */
 
 loc_00288C59:
+    ebx = scene_manager;
+    ebp = scenemanager_restore_video("renderall-after-reflect");
     MEM8(ebp + 0x170) = 0;
     PUSH32(esp, 0); fn_001BB770_CVideoMemoryManager_Get(); /* call 0x001BB770 */
 
@@ -15477,6 +15906,8 @@ loc_00288C65:
     if (CMP_A(MEM32(eax), 0)) goto loc_00288D38; /* ja: above (unsigned >) */
 
 loc_00288C6E:
+    ebx = scene_manager;
+    ebp = scenemanager_restore_video("renderall-pre-hud-copy");
     eax = MEM32(ebp + 0xD0);
     PUSH32(esp, edi);
     esi = eax + 0xD0;
@@ -15512,6 +15943,8 @@ loc_00288CAC:
     PUSH32(esp, 0); fn_0011BE50_ZeroCamera_SetZoom(); /* call 0x0011BE50 */
 
 loc_00288CCE:
+    ebx = scene_manager;
+    ebp = scenemanager_restore_video("renderall-pre-begin");
     eax = MEM32(ebp);
     ecx = ebp;
     { uint32_t _icall_esp = g_esp;
@@ -15519,12 +15952,16 @@ loc_00288CCE:
     }
 
 loc_00288CD6:
+    ebx = scene_manager;
+    ebp = scenemanager_restore_video("renderall-pre-render-xbox");
     edi = MEM32(ebp + 0x6C1C);
     PUSH32(esp, ebx);
     esi = eax;
     PUSH32(esp, 0); fn_00286680_CSceneManager_Render_Xbox(); /* call 0x00286680 */
 
 loc_00288CE4:
+    ebx = scene_manager;
+    ebp = scenemanager_restore_video("renderall-post-render-xbox");
     edx = MEM32(ebp);
     { uint32_t _icall_esp = g_esp;
     PUSH32(esp, edi);
@@ -15534,6 +15971,8 @@ loc_00288CE4:
     }
 
 loc_00288CF1:
+    ebx = scene_manager;
+    ebp = scenemanager_restore_video("renderall-post-target-restore");
     PUSH32(esp, 0); fn_002E2320_CHUDGPSManager_Get(); /* call 0x002E2320 */
 
 loc_00288CF6:
@@ -15564,6 +16003,8 @@ loc_00288D18:
     PUSH32(esp, 0); fn_0011BE50_ZeroCamera_SetZoom(); /* call 0x0011BE50 */
 
 loc_00288D38:
+    ebx = scene_manager;
+    ebp = scenemanager_restore_video("renderall-pre-end");
     eax = MEM32(ebp);
     { uint32_t _icall_esp = g_esp;
     PUSH32(esp, 0);
@@ -15572,11 +16013,15 @@ loc_00288D38:
     }
 
 loc_00288D45:
+    ebx = scene_manager;
+    ebp = scenemanager_restore_video("renderall-pre-lighting");
     edx = ebp + 0x214;
     eax = ebp;
     PUSH32(esp, 0); fn_00124190_ZeroVideo_SubmitLighting(); /* call 0x00124190 */
 
 loc_00288D52:
+    ebx = scene_manager;
+    ebp = scenemanager_restore_video("renderall-pre-delayed");
     eax = ebx;
     MEM8(0x5CD978) = 0;
     PUSH32(esp, 0); fn_002808F0_CSceneManager_ProcessDelayedReleases(); /* call 0x002808F0 */

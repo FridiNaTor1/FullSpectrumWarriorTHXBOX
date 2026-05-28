@@ -7,6 +7,8 @@
 #define RECOMP_GENERATED_CODE
 #include "recomp_funcs.h"
 #include <math.h>
+#include <stdio.h>
+#include <stdlib.h>
 
 static int cnetmanager_va_is_valid(uint32_t va)
 {
@@ -11866,6 +11868,16 @@ void fn_0027AEB0_CNetManager_FrameLock_Begin(void)
     ebp = g_seh_ebp; /* fpo_leaf: inherit caller's frame */
 
 loc_0027AEB0:
+    if (getenv("FSW_TH_LEVEL") != NULL && getenv("FSW_TH_NET_PASSTHROUGH") == NULL) {
+        static uint32_t frame_lock_skip_count = 0;
+        if (frame_lock_skip_count < 8 || (frame_lock_skip_count % 120) == 0) {
+            fprintf(stderr, "[FSW/Net] skipping FrameLock_Begin for forced level bring-up count=%u esp=%08X\n",
+                    (unsigned)(frame_lock_skip_count + 1), (unsigned)esp);
+        }
+        frame_lock_skip_count++;
+        eax = 0;
+        esp += 4; return; /* ret */
+    }
     esp = esp - 0xC;
     PUSH32(esp, ebx);
     PUSH32(esp, ebp);

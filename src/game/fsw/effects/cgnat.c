@@ -7,6 +7,32 @@
 #define RECOMP_GENERATED_CODE
 #include "recomp_funcs.h"
 #include <math.h>
+#include <stdio.h>
+
+static int cgnat_va_range_is_valid(uint32_t va, uint32_t size)
+{
+    if (size == 0) {
+        return va >= 0x00010000u && va < 0x04000000u;
+    }
+    if (va < 0x00010000u || va >= 0x04000000u || va + size < va) {
+        return 0;
+    }
+    return va + size <= 0x04000000u;
+}
+
+static void cgnat_clear_target_list(void)
+{
+    MEM32(0x613278) = 0;
+    MEM32(0x61327C) = 0;
+    MEM32(0x613280) = 0;
+}
+
+static void cgnat_clear_active_list(void)
+{
+    MEM32(0x61326C) = 0;
+    MEM32(0x613270) = 0;
+    MEM32(0x613274) = 0;
+}
 
 /**
  * fn_0003E000_PAVCHavokBody_ZeroList_Remove
@@ -17,9 +43,50 @@
  */
 void fn_0003E000_PAVCHavokBody_ZeroList_Remove(void)
 {
+    static uint32_t remove_invalid_log_count;
+    uint32_t list;
+    uint32_t node;
+    uint32_t next;
+    uint32_t prev;
+    uint32_t head;
+    uint32_t tail;
     int _flags = 0; /* fallback flag var */
 
 loc_0003E000:
+    list = ecx;
+    node = eax;
+    if (!cgnat_va_range_is_valid(list, 0xC) || !cgnat_va_range_is_valid(node, 0xC)) {
+        if (remove_invalid_log_count < 32 || (remove_invalid_log_count % 256) == 0) {
+            fprintf(stderr, "[FSW/ZeroList] Remove skipped invalid list/node list=%08X node=%08X\n",
+                    (unsigned)list, (unsigned)node);
+        }
+        remove_invalid_log_count++;
+        esp += 4; return; /* ret */
+    }
+    head = MEM32(list + 4);
+    tail = MEM32(list + 8);
+    next = MEM32(node + 4);
+    prev = MEM32(node + 8);
+    if ((head != 0 && !cgnat_va_range_is_valid(head, 0xC)) ||
+        (tail != 0 && !cgnat_va_range_is_valid(tail, 0xC)) ||
+        (next != 0 && !cgnat_va_range_is_valid(next, 0xC)) ||
+        (prev != 0 && !cgnat_va_range_is_valid(prev, 0xC))) {
+        if (remove_invalid_log_count < 32 || (remove_invalid_log_count % 256) == 0) {
+            fprintf(stderr, "[FSW/ZeroList] Remove skipped corrupt links list=%08X node=%08X head=%08X tail=%08X next=%08X prev=%08X\n",
+                    (unsigned)list, (unsigned)node, (unsigned)head, (unsigned)tail,
+                    (unsigned)next, (unsigned)prev);
+        }
+        remove_invalid_log_count++;
+        if (!cgnat_va_range_is_valid(head, 0xC)) {
+            MEM32(list + 4) = 0;
+        }
+        if (!cgnat_va_range_is_valid(tail, 0xC)) {
+            MEM32(list + 8) = 0;
+        }
+        MEM32(node + 4) = 0;
+        MEM32(node + 8) = 0;
+        esp += 4; return; /* ret */
+    }
     MEM32(ecx) = MEM32(ecx) - 1;
     edx = MEM32(ecx + 8);
     if (CMP_NE(eax, edx)) goto loc_0003E00F; /* jne: not equal / not zero */
@@ -731,6 +798,7 @@ loc_0037A2FB:
 void fn_0037A300_CGnat_UpdateData(void)
 {
     uint32_t ebp;
+    uint32_t gnat_steps = 0;
     int _flags = 0; /* fallback flag var */
     float xmm0;
 
@@ -740,6 +808,14 @@ loc_0037A300:
     esp = esp & 0xFFFFFFF8u;
     esp = esp - 0x18;
     eax = MEM32(0x613274);
+    if (eax != 0 &&
+        (!cgnat_va_range_is_valid(eax, 0xC) ||
+         !cgnat_va_range_is_valid(MEM32(eax), 0x54))) {
+        fprintf(stderr, "[FSW/Effects] clearing invalid active gnat list head=%08X count=%08X\n",
+                (unsigned)eax, (unsigned)MEM32(0x61326C));
+        cgnat_clear_active_list();
+        eax = 0;
+    }
     PUSH32(esp, ebx);
     ebx = 0; /* xor self */
     (void)0; /* cmp eax, ebx - flags set for next jcc */
@@ -755,6 +831,15 @@ loc_0037A327:
     /* nop */
 
 loc_0037A330:
+    gnat_steps++;
+    if (gnat_steps > 4096 ||
+        !cgnat_va_range_is_valid(eax, 0xC) ||
+        !cgnat_va_range_is_valid(MEM32(eax), 0x54)) {
+        fprintf(stderr, "[FSW/Effects] stopping active gnat iterator node=%08X steps=%u\n",
+                (unsigned)eax, (unsigned)gnat_steps);
+        cgnat_clear_active_list();
+        goto loc_0037A3FA;
+    }
     esi = MEM32(eax);
     eax = esp + 0x18;
     ecx = esp + 0x10;
@@ -786,6 +871,11 @@ loc_0037A36B:
     if (CMP_EQ(eax, ebx)) goto loc_0037A3DE; /* je: equal / zero */
 
 loc_0037A377:
+    if (!cgnat_va_range_is_valid(eax, 0xC)) {
+        fprintf(stderr, "[FSW/Effects] stopping active gnat search invalid node=%08X\n",
+                (unsigned)eax);
+        goto loc_0037A3DE;
+    }
     if (CMP_EQ(esi, MEM32(eax))) goto loc_0037A384; /* je: equal / zero */
 
 loc_0037A37B:
@@ -823,7 +913,12 @@ loc_0037A3B5:
 
 loc_0037A3BC:
     edx = MEM32(eax + 4);
-    MEM32(ecx + 4) = edx;
+    if (cgnat_va_range_is_valid(ecx, 8)) {
+        MEM32(ecx + 4) = edx;
+    } else {
+        fprintf(stderr, "[FSW/Effects] skipping active gnat prev unlink node=%08X prev=%08X\n",
+                (unsigned)eax, (unsigned)ecx);
+    }
 
 loc_0037A3C2:
     ecx = MEM32(eax + 4);
@@ -831,7 +926,12 @@ loc_0037A3C2:
 
 loc_0037A3C9:
     edx = MEM32(eax + 8);
-    MEM32(ecx + 8) = edx;
+    if (cgnat_va_range_is_valid(ecx, 0xC)) {
+        MEM32(ecx + 8) = edx;
+    } else {
+        fprintf(stderr, "[FSW/Effects] skipping active gnat next unlink node=%08X next=%08X\n",
+                (unsigned)eax, (unsigned)ecx);
+    }
 
 loc_0037A3CF:
     PUSH32(esp, eax);
@@ -2707,6 +2807,12 @@ loc_0037B4C0:
 loc_0037B4EE:
     eax = MEM32(0x613278);
     if (TEST_Z(eax, eax)) goto loc_0037B76A; /* je: equal / zero */
+    if (!cgnat_va_range_is_valid(MEM32(0x613280), 8)) {
+        fprintf(stderr, "[FSW/Effects] clearing invalid gnat target list head=%08X count=%08X\n",
+                MEM32(0x613280), MEM32(0x613278));
+        cgnat_clear_target_list();
+        goto loc_0037B76A;
+    }
 
 loc_0037B4FB:
     PUSH32(esp, 0); fn_00299110_CRandomManager_Get(); /* call 0x00299110 */
@@ -2736,6 +2842,12 @@ loc_0037B541:
     esi = edx;
 
 loc_0037B543:
+    if (!cgnat_va_range_is_valid(MEM32(esp + 0x24), 8)) {
+        fprintf(stderr, "[FSW/Effects] stopping gnat target iterator node=%08X remaining=%08X\n",
+                MEM32(esp + 0x24), esi);
+        cgnat_clear_target_list();
+        goto loc_0037B76A;
+    }
     eax = esp + 0x14;
     ecx = esp + 0x24;
     PUSH32(esp, 0); fn_0004E360_EIterator_ZeroList_K_QAE_AV01_H_Z(); /* call 0x0004E360 */
@@ -2746,6 +2858,13 @@ loc_0037B550:
 
 loc_0037B553:
     ecx = MEM32(esp + 0x24);
+    if (!cgnat_va_range_is_valid(ecx, 8) ||
+        !cgnat_va_range_is_valid(MEM32(ecx), 0x5C)) {
+        fprintf(stderr, "[FSW/Effects] skipping gnat creation invalid target node=%08X target=%08X\n",
+                ecx, cgnat_va_range_is_valid(ecx, 4) ? MEM32(ecx) : 0);
+        cgnat_clear_target_list();
+        goto loc_0037B76A;
+    }
     esi = MEM32(ecx);
     ecx = MEM32(esi + 0x58);
     (void)0; /* cmp MEM32(esi + 0x54), ecx - flags set for next jcc */

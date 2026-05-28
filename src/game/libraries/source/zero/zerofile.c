@@ -14,6 +14,135 @@ static int fsw_zerofile_va_is_valid(uint32_t va)
     return va >= 0x00010000u && va < 0x04000000u;
 }
 
+static int fsw_zerofile_va_range_is_valid(uint32_t va, uint32_t size)
+{
+    if (size == 0) {
+        return fsw_zerofile_va_is_valid(va);
+    }
+    if (!fsw_zerofile_va_is_valid(va) || va + size < va) {
+        return 0;
+    }
+    return va + size <= 0x04000000u;
+}
+
+static int fsw_zerofile_stream_is_valid(uint32_t stream)
+{
+    uint32_t vtable;
+
+    if (!fsw_zerofile_va_range_is_valid(stream, 0x10)) {
+        return 0;
+    }
+
+    vtable = MEM32(stream);
+    return vtable == 0x00560CE8u || vtable == 0x00560CC4u;
+}
+
+static int fsw_zerofile_memfs_is_valid(uint32_t memfs)
+{
+    uint32_t count;
+
+    if (!fsw_zerofile_va_range_is_valid(memfs, 4)) {
+        return 0;
+    }
+
+    count = MEM32(memfs);
+    if (count == 0 || count > 0x10000u) {
+        return 0;
+    }
+
+    return fsw_zerofile_va_range_is_valid(memfs + 4, count * 0xCu);
+}
+
+static int fsw_zerofile_memfs_list_is_valid(void)
+{
+    uint32_t node = MEM32(0x613AC8);
+    uint32_t steps = 0;
+
+    while (node != 0 && steps++ < 64) {
+        uint32_t memfs;
+
+        if (!fsw_zerofile_va_range_is_valid(node, 0xCu)) {
+            return 0;
+        }
+
+        memfs = MEM32(node);
+        if (!fsw_zerofile_memfs_is_valid(memfs)) {
+            return 0;
+        }
+
+        node = MEM32(node + 4);
+    }
+
+    return node == 0;
+}
+
+static void fsw_zerofile_append_memfs_node(uint32_t memfs)
+{
+    uint32_t saved_esp;
+    uint32_t node;
+    uint32_t tail;
+
+    if (!fsw_zerofile_memfs_is_valid(memfs)) {
+        return;
+    }
+
+    for (node = MEM32(0x613AC8); node != 0; node = MEM32(node + 4)) {
+        if (!fsw_zerofile_va_range_is_valid(node, 0xCu)) {
+            break;
+        }
+        if (MEM32(node) == memfs) {
+            return;
+        }
+    }
+
+    saved_esp = esp;
+    PUSH32(esp, 0xC);
+    PUSH32(esp, 0);
+    fn_0009E3F2_malloc();
+    esp = saved_esp;
+    node = eax;
+    if (!fsw_zerofile_va_range_is_valid(node, 0xCu)) {
+        return;
+    }
+
+    tail = MEM32(0x613AC4);
+    MEM32(node) = memfs;
+    MEM32(node + 4) = 0;
+    MEM32(node + 8) = tail;
+    if (fsw_zerofile_va_range_is_valid(tail, 0xCu)) {
+        MEM32(tail + 4) = node;
+    } else {
+        MEM32(0x613AC8) = node;
+    }
+    MEM32(0x613AC4) = node;
+    MEM32(0x613AC0) = MEM32(0x613AC0) + 1;
+}
+
+static void fsw_zerofile_repair_memfs_list(const char *reason)
+{
+    static uint32_t repair_logs = 0;
+    uint32_t primary = MEM32(0x608204);
+    uint32_t secondary = MEM32(0x608208);
+
+    if (fsw_zerofile_memfs_list_is_valid()) {
+        return;
+    }
+
+    if (repair_logs < 16 || (repair_logs % 120) == 0) {
+        fprintf(stderr,
+                "[FSW/ZeroFile] repairing memfs list reason=%s old_count=%u old_head=%08X primary=%08X secondary=%08X\n",
+                reason, (unsigned)MEM32(0x613AC0), (unsigned)MEM32(0x613AC8),
+                (unsigned)primary, (unsigned)secondary);
+    }
+    repair_logs++;
+
+    MEM32(0x613AC0) = 0;
+    MEM32(0x613AC4) = 0;
+    MEM32(0x613AC8) = 0;
+    fsw_zerofile_append_memfs_node(primary);
+    fsw_zerofile_append_memfs_node(secondary);
+}
+
 /**
  * fn_00054150_MemFile_Tell
  * Symbol: ?Tell@MemFile@@UAEHXZ
@@ -705,6 +834,12 @@ loc_001221F0:
     PUSH32(esp, ecx);
     eax = MEM32(esi + 0x24);
     if (TEST_Z(eax, eax)) { sub_00122231(); return; } /* je: equal / zero */
+    if (!fsw_zerofile_va_is_valid(eax) ||
+        !fsw_zerofile_va_is_valid(MEM32(eax) + 0x14)) {
+        MEM32(esi + 0x24) = 0;
+        sub_00122231();
+        return;
+    }
 
 loc_001221F8:
     { uint32_t _icall_esp = g_esp;
@@ -774,6 +909,7 @@ loc_0012222A:
 void sub_00122231(void)
 {
     int _flags = 0; /* fallback flag var */
+    uint32_t saved_esi = esi;
 
 loc_00122231:
     ecx = MEM32(esi + 4);
@@ -784,6 +920,7 @@ loc_00122231:
     PUSH32(esp, 0); fn_0009EBFC_read(); /* call 0x0009EBFC */
 
 loc_00122241:
+    esi = saved_esi;
     esp = esp + 0xC;
     if (TEST_Z(eax, eax)) { sub_0012224F(); return; } /* je: equal / zero */
 
@@ -824,7 +961,25 @@ void fn_00122260_ZeroFile_Size(void)
     ebp = g_seh_ebp; /* fpo_leaf: inherit caller's frame */
 
 loc_00122260:
+    if (!fsw_zerofile_va_range_is_valid(esi, 0x28)) {
+        static uint32_t invalid_size_file_logs = 0;
+        if (invalid_size_file_logs < 8) {
+            fprintf(stderr, "[FSW/ZeroFile] Size invalid file object=%08X\n", esi);
+        }
+        invalid_size_file_logs++;
+        eax = 0xFFFFFFFFu;
+        esp += 4; return; /* ret */
+    }
     eax = MEM32(esi + 0x24);
+    if (eax != 0 && !fsw_zerofile_va_range_is_valid(eax, 4)) {
+        static uint32_t invalid_size_memfile_logs = 0;
+        if (invalid_size_memfile_logs < 8) {
+            fprintf(stderr, "[FSW/ZeroFile] Size ignoring invalid memfile=%08X file=%08X handle=%08X\n",
+                    eax, esi, MEM32(esi + 4));
+        }
+        invalid_size_memfile_logs++;
+        eax = 0;
+    }
     if (TEST_Z(eax, eax)) { sub_0012226E(); return; } /* je: equal / zero */
 
 loc_00122267:
@@ -3411,6 +3566,43 @@ void fn_001233C0_ZeroFile_Gets(void)
     int _flags = 0; /* fallback flag var */
 
 loc_001233C0:
+    {
+        uint32_t zf = eax;
+        uint32_t out = ebx;
+        uint32_t max = MEM32(esp + 4);
+        uint32_t memfile = fsw_zerofile_va_is_valid(zf + 0x28) ? MEM32(zf + 0x24) : 0;
+        if (max > 0 && fsw_zerofile_va_range_is_valid(out, max) &&
+            fsw_zerofile_va_range_is_valid(memfile, 0x10)) {
+            uint32_t base = MEM32(memfile + 4);
+            uint32_t size = MEM32(memfile + 8);
+            uint32_t cur = MEM32(memfile + 0xC);
+            if (cur < base) {
+                cur = base;
+            }
+            if (fsw_zerofile_va_range_is_valid(base, size) && cur <= base + size) {
+                uint32_t pos = cur - base;
+                uint32_t n = 0;
+                if (pos >= size) {
+                    MEM8(out) = 0;
+                    eax = 0;
+                    esp += 8; return; /* ret 4 */
+                }
+                while (n + 1 < max && pos < size) {
+                    uint8_t ch = MEM8(base + pos);
+                    pos++;
+                    MEM8(out + n) = ch;
+                    n++;
+                    if (ch == '\n') {
+                        break;
+                    }
+                }
+                MEM8(out + n) = 0;
+                MEM32(memfile + 0xC) = base + pos;
+                eax = out;
+                esp += 8; return; /* ret 4 */
+            }
+        }
+    }
     PUSH32(esp, ecx);
     PUSH32(esp, esi);
     esi = eax;
@@ -3418,6 +3610,11 @@ loc_001233C0:
     if (TEST_Z(LO8(eax), LO8(eax))) { sub_001233D7(); return; } /* je: equal / zero */
 
 loc_001233CB:
+    if (!fsw_zerofile_va_is_valid(MEM32(esi + 0x14))) {
+        MEM8(esi + 0x18) = 0;
+        sub_001233D7();
+        return;
+    }
     PUSH32(esp, ebx);
     PUSH32(esp, esi);
     PUSH32(esp, 0); fn_00122360_ZeroFile_BinGets(); /* call 0x00122360 */
@@ -3587,6 +3784,7 @@ loc_0012346F:
     PUSH32(esp, edi);
 
 loc_00123471:
+    if (!fsw_zerofile_va_range_is_valid(edx - 8, 0x14)) goto loc_001234D8;
     ecx = MEM32(edx + -8);
     (void)0; /* test ecx, ecx - flags set for next jcc */
     edi = edx + -8;
@@ -3598,6 +3796,9 @@ loc_0012347B:
 
 loc_00123481:
     ecx = MEM32(edx + -4);
+    if (ecx > 0x02000000u ||
+        !fsw_zerofile_va_range_is_valid(eax, ecx) ||
+        !fsw_zerofile_va_range_is_valid(esi, ecx)) goto loc_001234AB;
     ebp = ecx;
     ecx = ecx >> 2;
     edi = eax;
@@ -3631,6 +3832,12 @@ loc_001234B6:
     ecx = ecx + ecx * 2;
     ecx = ecx << 2;
     ebp = ecx;
+    if (ecx > 0x00100000u ||
+        !fsw_zerofile_va_range_is_valid(edi, ecx) ||
+        !fsw_zerofile_va_range_is_valid(edx + 4, ecx)) {
+        ebp = MEM32(esp + 0x14);
+        goto loc_001234D3;
+    }
     ecx = ecx >> 2;
     esi = edx + 4;
     memcpy((void*)XBOX_PTR(edi), (void*)XBOX_PTR(esi), ecx * 4);
@@ -4478,6 +4685,7 @@ loc_001238D4:
     edx = MEM32(esi + 8);
     SET_LO8(eax, MEM8(edx));
     esp = esp + 0x10;
+    if (TEST_Z(MEM32(esi + 0x10), MEM32(esi + 0x10))) goto loc_001238EE;
     if (CMP_G(LO8(eax), 5)) goto loc_001238EE; /* jg: greater (signed >) */
 
 loc_001238EA:
@@ -4556,6 +4764,7 @@ loc_00123950:
 
 loc_00123967:
     PUSH32(esp, edi);
+    fsw_zerofile_repair_memfs_list("open");
     edi = MEM32(0x613AC8);
     if (TEST_Z(edi, edi)) goto loc_00123A19; /* je: equal / zero */
 
@@ -4575,12 +4784,14 @@ loc_00123976:
     /* nop */
 
 loc_00123980:
+    if (!fsw_zerofile_va_is_valid(edi + 4)) goto loc_001239AF;
     ecx = MEM32(edi);
+    if (!fsw_zerofile_va_is_valid(ecx + 4)) goto loc_001239A8;
     esi = ecx + 4;
     ecx = MEM32(ecx);
     {
         static uint32_t zerofile_memfs_log_count = 0;
-        if (zerofile_memfs_log_count < 16) {
+        if (zerofile_memfs_log_count < 16 && fsw_zerofile_va_is_valid(esi + 8)) {
             fprintf(stderr, "[FSW/ZeroFile] memfs=%08X count=%u first=%08X/%08X/%08X\n",
                     (unsigned)MEM32(edi), (unsigned)ecx,
                     (unsigned)MEM32(esi), (unsigned)MEM32(esi + 4),
@@ -4596,6 +4807,7 @@ loc_0012398D:
     /* nop */
 
 loc_00123990:
+    if (!fsw_zerofile_va_is_valid(edx + 8)) goto loc_001239A8;
     if (CMP_EQ(MEM32(edx), ebx)) goto loc_0012399E; /* je: equal / zero */
 
 loc_00123994:
@@ -4612,6 +4824,7 @@ loc_0012399E:
     if (TEST_NZ(esi, esi)) goto loc_001239B6; /* jne: not equal / not zero */
 
 loc_001239A8:
+    if (!fsw_zerofile_va_is_valid(edi + 4)) goto loc_001239AF;
     edi = MEM32(edi + 4);
     if (TEST_NZ(edi, edi)) goto loc_00123980; /* jne: not equal / not zero */
 
@@ -4705,6 +4918,12 @@ loc_00123A20:
     PUSH32(esp, esi);
     esi = edx;
     MEM32(esp + 0x10C) = eax;
+    MEM32(esi + 4) = 0xFFFFFFFFu;
+    MEM32(esi + 8) = 0;
+    MEM32(esi + 0xC) = 0;
+    MEM32(esi + 0x10) = 0;
+    MEM32(esi + 0x14) = 0;
+    MEM8(esi + 0x18) = 0;
     MEM32(esi + 0x24) = 0;
     ecx = edi;
     PUSH32(esp, 0); fn_00122830_ZeroFile_CalcFlags(); /* call 0x00122830 */
@@ -5177,10 +5396,35 @@ loc_00123C40:
     ebp = MEM32(esp + 0x14);
     PUSH32(esp, esi);
     esi = eax;
+    if (!fsw_zerofile_va_is_valid(esi)) {
+        eax = 0;
+        POP32(esp, esi);
+        POP32(esp, ebp);
+        POP32(esp, ebx);
+        esp += 4; return;
+    }
     eax = MEM32(esi + 0x24);
     PUSH32(esp, edi);
     edi = 0; /* xor self */
     if (TEST_Z(eax, eax)) { sub_00123C67(); return; } /* je: equal / zero */
+    if (!fsw_zerofile_stream_is_valid(eax)) {
+        static uint32_t invalid_section_stream_count = 0;
+        if (invalid_section_stream_count < 16 || (invalid_section_stream_count % 120) == 0) {
+            fprintf(stderr,
+                    "[FSW/ZeroFile] ReadSectionToken skipped invalid stream file=%08X stream=%08X vtbl=%08X count=%u\n",
+                    (unsigned)esi,
+                    (unsigned)eax,
+                    (unsigned)(fsw_zerofile_va_range_is_valid(eax, 4) ? MEM32(eax) : 0),
+                    (unsigned)(invalid_section_stream_count + 1));
+        }
+        invalid_section_stream_count++;
+        eax = 0;
+        POP32(esp, edi);
+        POP32(esp, esi);
+        POP32(esp, ebp);
+        POP32(esp, ebx);
+        esp += 4; return;
+    }
 
 loc_00123C53:
     ecx = eax;

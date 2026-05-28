@@ -17,13 +17,15 @@
 
 static uint32_t g_wsa_last_error;
 static uint32_t g_xact_engine_va;
+uint32_t g_fsw_last_bink_handle;
+uint32_t g_fsw_last_bink_path;
 extern uint32_t xbox_HeapAlloc(uint32_t size, uint32_t alignment);
 
 #define FSW_BINK_MAGIC 0x42494E4Bu
 
 static int xbox_va_is_valid(uint32_t va);
 
-static uint32_t fsw_bink_alloc_synthetic(uint32_t path_va, uint32_t flags)
+static uint32_t fsw_bink_alloc_host(uint32_t path_va, uint32_t flags)
 {
     uint32_t bink = xbox_HeapAlloc(0x100, 16);
     if (!xbox_va_is_valid(bink)) {
@@ -38,8 +40,12 @@ static uint32_t fsw_bink_alloc_synthetic(uint32_t path_va, uint32_t flags)
     MEM32(bink + 0x10) = flags;
     MEM32(bink + 0x14) = path_va;
     MEM32(bink + 0x20) = FSW_BINK_MAGIC;
-    fprintf(stderr, "[FSW/Bink] synthetic open path=%08X flags=%08X bink=%08X\n",
-            (unsigned)path_va, (unsigned)flags, (unsigned)bink);
+    g_fsw_last_bink_handle = bink;
+    g_fsw_last_bink_path = path_va;
+    fprintf(stderr, "[FSW/Bink] host open path=%08X flags=%08X bink=%08X%s%s\n",
+            (unsigned)path_va, (unsigned)flags, (unsigned)bink,
+            xbox_va_is_valid(path_va) ? " " : "",
+            xbox_va_is_valid(path_va) ? (const char *)XBOX_PTR(path_va) : "");
     return bink;
 }
 
@@ -1323,7 +1329,7 @@ void fn_004D3F80_D3DDevice_DrawVertices_12(void)
                 (unsigned long long)g_fsw_d3d.skipped_draws);
     }
     eax = 0;
-    esp += 16; return; /* ret 12 */
+    esp += 8; return; /* ret 4 */
 }
 
 /* Fallback for unresolved generated target 0x004D4050. */
@@ -1428,7 +1434,7 @@ void fn_004D4D80_D3DVertexBuffer_Lock2_8(void)
         }
     }
     eax = data;
-    esp += 12; return; /* ret 8 */
+    esp += 8; return; /* ret 4 */
 }
 
 /* Fallback for unresolved generated target 0x004D4E00. */
@@ -1458,10 +1464,10 @@ void fn_004D52B0_D3D_SetFence(void)
     recomp_missing_target(0x004D52B0u);
 }
 
-/* Fallback for unresolved generated target 0x004D5590. */
 void fn_004D5590_D3D_BlockOnTime(void)
 {
-    recomp_missing_target(0x004D5590u);
+    eax = 0;
+    esp += 8; return; /* ret 4 */
 }
 
 /* Fallback for unresolved generated target 0x004D5700. */
@@ -1473,7 +1479,8 @@ void fn_004D5700_D3D_MakeRequestedSpace(void)
 /* Fallback for unresolved generated target 0x004D5850. */
 void fn_004D5850_D3D_CDevice_KickOff(void)
 {
-    recomp_missing_target(0x004D5850u);
+    /* Host Vulkan submits work through the translated D3D present path. */
+    esp += 4; return; /* ret */
 }
 
 /* Fallback for unresolved generated target 0x004D5970. */
@@ -1630,7 +1637,7 @@ void fn_004E6660_BinkOpen_8(void)
 {
     uint32_t path_va = MEM32(esp + 4);
     uint32_t flags = MEM32(esp + 8);
-    eax = fsw_bink_alloc_synthetic(path_va, flags);
+    eax = fsw_bink_alloc_host(path_va, flags);
     esp += 12; return;
 }
 
@@ -1863,7 +1870,8 @@ void fn_004F6D13_XACT_CEngine_GetNotification(void)
 /* Fallback for unresolved generated target 0x004F6E29. */
 void fn_004F6E29_XACT_CEngine_SetVariable(void)
 {
-    recomp_missing_target(0x004F6E29u);
+    eax = 0; /* S_OK */
+    esp += 12; return; /* ret 8 */
 }
 
 /* Fallback for unresolved generated target 0x004F6EFA. */

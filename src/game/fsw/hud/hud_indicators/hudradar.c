@@ -7,6 +7,12 @@
 #define RECOMP_GENERATED_CODE
 #include "recomp_funcs.h"
 #include <math.h>
+#include <stdio.h>
+
+static int hudradar_va_range_is_valid(uint32_t va, uint32_t size)
+{
+    return va > 0x00010000u && va < 0x04000000u && size <= 0x04000000u - va;
+}
 
 /**
  * fn_0002B310_0HUDRadar_QAE_XZ
@@ -944,6 +950,10 @@ loc_002D85CD:
  */
 void fn_002D85D0_HUDRadar_DetermineMaxSpawnPoints(void)
 {
+    uint32_t guard;
+    uint32_t manager;
+    uint32_t node_object;
+    uint32_t next;
     int _flags = 0; /* fallback flag var */
 
 loc_002D85D0:
@@ -952,14 +962,35 @@ loc_002D85D0:
     PUSH32(esp, 0); fn_00184970_CSpawnManager_Get(); /* call 0x00184970 */
 
 loc_002D85D8:
+    manager = eax;
+    if (!hudradar_va_range_is_valid(manager, 0xC)) {
+        fprintf(stderr, "[FSW/HUD] radar spawn count invalid spawn manager=%08X\n", manager);
+        goto loc_002D85FE;
+    }
     eax = MEM32(eax + 8);
     if (TEST_Z(eax, eax)) goto loc_002D85FE; /* je: equal / zero */
+    if (!hudradar_va_range_is_valid(eax, 0x64)) {
+        fprintf(stderr, "[FSW/HUD] radar spawn count invalid head=%08X manager=%08X\n", eax, manager);
+        goto loc_002D85FE;
+    }
 
 loc_002D85DF:
     /* nop */
+    guard = 0;
 
 loc_002D85E0:
+    if (!hudradar_va_range_is_valid(eax, 0x64)) {
+        fprintf(stderr, "[FSW/HUD] radar spawn count stopping invalid node=%08X manager=%08X\n", eax, manager);
+        goto loc_002D85FE;
+    }
     ecx = MEM32(eax + 4);
+    node_object = ecx;
+    if (!hudradar_va_range_is_valid(node_object, 8)) {
+        fprintf(stderr, "[FSW/HUD] radar spawn count skipping invalid node object node=%08X object=%08X\n",
+                eax, node_object);
+        ecx = 1;
+        goto loc_002D85F5;
+    }
     ecx = MEM32(ecx + 4);
     if (CMP_BE(ecx, 2)) goto loc_002D85F0; /* jbe: below or equal (unsigned <=) */
 
@@ -971,8 +1002,19 @@ loc_002D85F0:
     ecx = 1;
 
 loc_002D85F5:
-    eax = MEM32(eax + 0x60);
+    next = MEM32(eax + 0x60);
+    if (next != 0 && !hudradar_va_range_is_valid(next, 0x64)) {
+        fprintf(stderr, "[FSW/HUD] radar spawn count dropping invalid next node=%08X next=%08X\n", eax, next);
+        next = 0;
+    }
+    eax = next;
     esi = esi + ecx;
+    guard++;
+    if (guard >= 0x100) {
+        fprintf(stderr, "[FSW/HUD] radar spawn count stopped after bounded walk manager=%08X last=%08X\n",
+                manager, eax);
+        goto loc_002D85FE;
+    }
     if (TEST_NZ(eax, eax)) goto loc_002D85E0; /* jne: not equal / not zero */
 
 loc_002D85FE:

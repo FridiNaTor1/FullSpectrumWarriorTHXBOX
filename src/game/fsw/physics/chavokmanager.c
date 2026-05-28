@@ -7,6 +7,15 @@
 #define RECOMP_GENERATED_CODE
 #include "recomp_funcs.h"
 #include <math.h>
+#include <stdio.h>
+#include <string.h>
+
+extern uint32_t xbox_HeapAlloc(uint32_t size, uint32_t alignment);
+
+static int chavok_va_range_is_valid(uint32_t va, uint32_t size)
+{
+    return va >= 0x00010000u && va < 0x04000000u && size <= 0x04000000u - va;
+}
 
 /**
  * fn_0002E830_3hkConvexTranslateShape_SAXPAX_Z
@@ -1083,59 +1092,66 @@ loc_000366CE:
  */
 void fn_000366F0_PAVCUITexture_ZeroTree_Insert(void)
 {
-    uint32_t ebp;
-    int _flags = 0; /* fallback flag var */
-    ebp = g_seh_ebp; /* fpo_leaf: inherit caller's frame */
+    uint32_t tree = MEM32(esp + 4);
+    uint32_t value_ref = MEM32(esp + 8);
+    uint32_t key_ref = MEM32(esp + 12);
+    uint32_t key;
+    uint32_t value;
+    uint32_t *link;
+    uint32_t parent = 0;
+    uint32_t node;
 
-loc_000366F0:
-    PUSH32(esp, ebx);
-    PUSH32(esp, ebp);
-    ebp = MEM32(esp + 0xC);
-    eax = MEM32(ebp + 8);
-    PUSH32(esp, esi);
-    ebp = ebp + 8;
-    PUSH32(esp, edi);
-    esi = 0; /* xor self */
-    ebx = 0; /* xor self */
-    edi = 0; /* xor self */
-    if (CMP_EQ(eax, esi)) goto loc_0003672F; /* je: equal / zero */
+    if (tree < 0x00010000u || tree + 0x10 > 0x04000000u ||
+        key_ref < 0x00010000u || key_ref + 4 > 0x04000000u ||
+        value_ref < 0x00010000u || value_ref + 4 > 0x04000000u) {
+        eax = 0;
+        esp += 16; return; /* ret 12 */
+    }
 
-loc_00036708:
-    ecx = MEM32(esp + 0x1C);
-    edx = MEM32(ecx);
-    edi = edi;
+    key = MEM32(key_ref);
+    value = MEM32(value_ref);
+    link = (uint32_t *)XBOX_PTR(tree + 8);
+    node = MEM32(tree + 8);
+    while (node != 0) {
+        if (node < 0x00010000u || node + 0x1C > 0x04000000u) {
+            if (parent == 0) {
+                MEM32(tree + 8) = 0;
+                MEM32(tree + 4) = 0;
+            } else {
+                *link = 0;
+            }
+            break;
+        }
+        parent = node;
+        if (key == MEM32(node + 0x14)) {
+            eax = 0;
+            esp += 16; return; /* ret 12 */
+        }
+        if (key < MEM32(node + 0x14)) {
+            link = (uint32_t *)XBOX_PTR(node + 8);
+            node = MEM32(node + 8);
+        } else {
+            link = (uint32_t *)XBOX_PTR(node + 0xC);
+            node = MEM32(node + 0xC);
+        }
+    }
 
-loc_00036710:
-    ecx = MEM32(eax + 0x14);
-    (void)0; /* cmp ecx, edx - flags set for next jcc */
-    edi = eax;
-    if (CMP_BE(ecx, edx)) goto loc_00036721; /* jbe: below or equal (unsigned <=) */
-
-loc_00036719:
-    eax = MEM32(eax + 8);
-    ebx = ebx | 0xFFFFFFFFu;
-    goto loc_0003672B;
-
-loc_00036721:
-    if (1) { sub_00036743(); return; } /* jae: above or equal (unsigned >=) */
-
-loc_00036723:
-    eax = MEM32(eax + 0xC);
-    ebx = 1;
-
-loc_0003672B:
-    if (CMP_NE(eax, esi)) goto loc_00036710; /* jne: not equal / not zero */
-
-loc_0003672F:
-    if (CMP_NE(MEM32(0x5F9E40), esi)) { sub_0003674C(); return; } /* jne: not equal / not zero */
-
-loc_00036737:
-    PUSH32(esp, 0x1C);
-    PUSH32(esp, 0); fn_0009E3F2_malloc(); /* call 0x0009E3F2 */
-
-loc_0003673E:
-    esp = esp + 4;
-    g_seh_ebp = ebp; sub_00036766(); return; /* tail jmp 0x00036766 */
+    node = xbox_HeapAlloc(0x1C, 16);
+    if (node == 0) {
+        eax = 0;
+        esp += 16; return; /* ret 12 */
+    }
+    MEM32(node) = 0x54B5E4;
+    MEM32(node + 4) = (MEM32(node + 4) & 0xFFFFFF0Eu) | 0xEu;
+    MEM32(node + 8) = 0;
+    MEM32(node + 0xC) = 0;
+    MEM32(node + 0x10) = parent;
+    MEM32(node + 0x14) = key;
+    MEM32(node + 0x18) = value;
+    *link = node;
+    MEM32(tree + 4) = MEM32(tree + 4) + 1;
+    eax = node;
+    esp += 16; return; /* ret 12 */
 
 }
 
@@ -2834,140 +2850,78 @@ loc_0021B7AA:
  */
 void fn_0021B890_CHavokCollisionListener_Update(void)
 {
-    uint32_t ebp;
-    int _flags = 0; /* fallback flag var */
-    float xmm0, xmm1;
+    float dt = MEMF(esp + 4);
+    uint32_t node = MEM32(0x60BA00);
+    unsigned steps = 0;
 
-loc_0021B890:
-    PUSH32(esp, ebp);
-    ebp = esp;
-    esp = esp & 0xFFFFFFF8u;
-    esp = esp - 0x10;
-    eax = MEM32(0x60BA00);
-    PUSH32(esp, esi);
-    PUSH32(esp, edi);
-    edi = 0; /* xor self */
-    (void)0; /* cmp eax, edi - flags set for next jcc */
-    MEM32(esp + 0xC) = 0x60B9F8;
-    MEM32(esp + 8) = eax;
-    if (CMP_EQ(eax, edi)) goto loc_0021B99B; /* je: equal / zero */
+    while (node != 0 && steps++ < 4096) {
+        uint32_t next;
+        uint32_t prev;
+        uint32_t listener;
+        int remove_node = 0;
 
-loc_0021B8B6:
-    goto loc_0021B8C0;
+        if (!chavok_va_range_is_valid(node, 0xC)) {
+            MEM32(0x60B9F8) = 0;
+            MEM32(0x60BA00) = 0;
+            MEM32(0x60B9FC) = 0;
+            break;
+        }
 
-    /* nop */
-    /* nop */
+        next = MEM32(node + 4);
+        prev = MEM32(node + 8);
+        listener = MEM32(node);
 
-loc_0021B8C0:
-    eax = esp + 0x10;
-    ecx = esp + 8;
-    PUSH32(esp, 0); fn_0004E360_EIterator_ZeroList_K_QAE_AV01_H_Z(); /* call 0x0004E360 */
+        if (!chavok_va_range_is_valid(listener, 0xD0)) {
+            remove_node = 1;
+        } else {
+            float remaining = MEMF(listener + 0xCC) - dt;
+            if (remaining < 0.0f) {
+                remaining = 0.0f;
+            }
+            MEMF(listener + 0xCC) = remaining;
+            remove_node = remaining <= MEMF(0x561408) || MEM16(listener + 6) <= 1;
+        }
 
-loc_0021B8CD:
-    eax = MEM32(eax);
-    esi = MEM32(eax);
-    xmm0 = MEMF(esi + 0xCC); /* movss */
-    xmm1 = MEMF(ebp + 8); /* movss */
-    /* comiss xmm0, xmm1 - sets EFLAGS */
-    xmm0 = xmm0 - xmm1; /* subss */
-    if ((xmm0 > xmm1)) goto loc_0021B8EA; /* ja: above (unsigned >) */
+        if (remove_node) {
+            uint32_t count = MEM32(0x60B9F8);
+            if (count != 0) {
+                MEM32(0x60B9F8) = count - 1;
+            }
+            if (node == MEM32(0x60BA00)) {
+                MEM32(0x60BA00) = chavok_va_range_is_valid(next, 0xC) ? next : 0;
+            }
+            if (node == MEM32(0x60B9FC)) {
+                MEM32(0x60B9FC) = chavok_va_range_is_valid(prev, 0xC) ? prev : 0;
+            }
+            if (chavok_va_range_is_valid(prev, 0xC)) {
+                MEM32(prev + 4) = chavok_va_range_is_valid(next, 0xC) ? next : 0;
+            }
+            if (chavok_va_range_is_valid(next, 0xC)) {
+                MEM32(next + 8) = chavok_va_range_is_valid(prev, 0xC) ? prev : 0;
+            }
+            MEM32(node + 8) = 0;
+            MEM32(node + 4) = 0;
+            PUSH32(esp, node);
+            PUSH32(esp, 0); fn_001293F0_3_YAXPAX_Z(); /* call 0x001293F0 */
+            esp = esp + 4;
+        }
 
-loc_0021B8E7:
-    xmm0 = 0.0f; /* xorps self = zero */
+        if (chavok_va_range_is_valid(listener, 0xD0) && MEM16(listener + 4) != 0) {
+            MEM16(listener + 6) = MEM16(listener + 6) - 1;
+            if (MEM16(listener + 6) == 0 && chavok_va_range_is_valid(MEM32(listener), 4)) {
+                eax = MEM32(listener);
+                if (chavok_va_range_is_valid(MEM32(eax), 4)) {
+                    uint32_t _icall_esp = g_esp;
+                    PUSH32(esp, 1);
+                    ecx = listener;
+                    PUSH32(esp, 0); RECOMP_ICALL_SAFE(MEM32(eax), _icall_esp); /* indirect call */
+                }
+            }
+        }
 
-loc_0021B8EA:
-    /* comiss xmm0, MEMF(0x561408) - sets EFLAGS */
-    MEMF(esi + 0xCC) = xmm0; /* movss */
-    if ((xmm0 <= MEMF(0x561408))) goto loc_0021B906; /* jbe: below or equal (unsigned <=) */
-
-loc_0021B8FB:
-    if (CMP_G(MEM16(esi + 6), 1)) goto loc_0021B991; /* jg: greater (signed >) */
-
-loc_0021B906:
-    ecx = MEM32(0x60BA00);
-    eax = ecx;
-    if (CMP_EQ(eax, edi)) goto loc_0021B979; /* je: equal / zero */
-
-loc_0021B912:
-    if (CMP_EQ(esi, MEM32(eax))) goto loc_0021B91F; /* je: equal / zero */
-
-loc_0021B916:
-    eax = MEM32(eax + 4);
-    if (CMP_NE(eax, edi)) goto loc_0021B912; /* jne: not equal / not zero */
-
-loc_0021B91D:
-    goto loc_0021B979;
-
-loc_0021B91F:
-    if (CMP_EQ(eax, edi)) goto loc_0021B979; /* je: equal / zero */
-
-loc_0021B923:
-    edx = MEM32(0x60B9F8);
-    edx--;
-    (void)0; /* cmp eax, ecx - flags set for next jcc */
-    MEM32(0x60B9F8) = edx;
-    if (CMP_NE(eax, ecx)) goto loc_0021B93D; /* jne: not equal / not zero */
-
-loc_0021B934:
-    ecx = MEM32(ecx + 4);
-    MEM32(0x60BA00) = ecx;
-
-loc_0021B93D:
-    ecx = MEM32(0x60B9FC);
-    if (CMP_NE(eax, ecx)) goto loc_0021B950; /* jne: not equal / not zero */
-
-loc_0021B947:
-    edx = MEM32(ecx + 8);
-    MEM32(0x60B9FC) = edx;
-
-loc_0021B950:
-    ecx = MEM32(eax + 8);
-    if (CMP_EQ(ecx, edi)) goto loc_0021B95D; /* je: equal / zero */
-
-loc_0021B957:
-    edx = MEM32(eax + 4);
-    MEM32(ecx + 4) = edx;
-
-loc_0021B95D:
-    ecx = MEM32(eax + 4);
-    if (CMP_EQ(ecx, edi)) goto loc_0021B96A; /* je: equal / zero */
-
-loc_0021B964:
-    edx = MEM32(eax + 8);
-    MEM32(ecx + 8) = edx;
-
-loc_0021B96A:
-    PUSH32(esp, eax);
-    MEM32(eax + 8) = edi;
-    MEM32(eax + 4) = edi;
-    PUSH32(esp, 0); fn_001293F0_3_YAXPAX_Z(); /* call 0x001293F0 */
-
-loc_0021B976:
-    esp = esp + 4;
-
-loc_0021B979:
-    if (CMP_EQ(MEM16(esi + 4), LO16(edi))) goto loc_0021B991; /* je: equal / zero */
-
-loc_0021B97F:
-    MEM16(esi + 6) = MEM16(esi + 6) - 1;
-    if (CMP_NE(MEM16(esi + 6), LO16(edi))) goto loc_0021B991; /* jne: not equal / not zero */
-
-loc_0021B989:
-    eax = MEM32(esi);
-    { uint32_t _icall_esp = g_esp;
-    PUSH32(esp, 1);
-    ecx = esi;
-    PUSH32(esp, 0); RECOMP_ICALL_SAFE(MEM32(eax), _icall_esp); /* indirect call */
+        node = chavok_va_range_is_valid(next, 0xC) ? next : 0;
     }
 
-loc_0021B991:
-    if (CMP_NE(MEM32(esp + 8), edi)) goto loc_0021B8C0; /* jne: not equal / not zero */
-
-loc_0021B99B:
-    POP32(esp, edi);
-    POP32(esp, esi);
-    esp = ebp;
-    POP32(esp, ebp);
     esp += 4; return; /* ret */
 
 }
@@ -2982,6 +2936,10 @@ loc_0021B99B:
 void fn_0021B9B0_CHavokManager_UpdateGoawayEntities(void)
 {
     uint32_t ebp;
+    uint32_t goaway_steps = 0;
+    static uint32_t invalid_goaway_entity_logs = 0;
+    static uint32_t invalid_goaway_iterator_logs = 0;
+    static uint32_t invalid_goaway_node_logs = 0;
     int _flags = 0; /* fallback flag var */
     float xmm0;
     ebp = g_seh_ebp; /* fpo_leaf: inherit caller's frame */
@@ -3017,8 +2975,44 @@ loc_0021B9F0:
     PUSH32(esp, 0); fn_0004E360_EIterator_ZeroList_K_QAE_AV01_H_Z(); /* call 0x0004E360 */
 
 loc_0021B9FD:
+    if (!chavok_va_range_is_valid(eax, 4) || ++goaway_steps > 4096) {
+        if (invalid_goaway_iterator_logs < 8) {
+            fprintf(stderr, "[FSW/Havok] stopping goaway iterator result=%08X steps=%u count=%u\n",
+                    eax, goaway_steps, invalid_goaway_iterator_logs + 1);
+        }
+        invalid_goaway_iterator_logs++;
+        ebx = 0;
+        edi = 0;
+        MEM32(esp + 0x28) = 0;
+        MEM32(esp + 0x24) = 0;
+        goto loc_0021BB5C;
+    }
     eax = MEM32(eax);
+    if (!chavok_va_range_is_valid(eax, 4)) {
+        if (invalid_goaway_node_logs < 8) {
+            fprintf(stderr, "[FSW/Havok] stopping goaway invalid node=%08X count=%u\n",
+                    eax, invalid_goaway_node_logs + 1);
+        }
+        invalid_goaway_node_logs++;
+        ebx = 0;
+        edi = 0;
+        MEM32(esp + 0x28) = 0;
+        MEM32(esp + 0x24) = 0;
+        goto loc_0021BB5C;
+    }
     esi = MEM32(eax);
+    if (!chavok_va_range_is_valid(esi, 0xCC)) {
+        if (invalid_goaway_entity_logs < 8) {
+            fprintf(stderr, "[FSW/Havok] stopping goaway invalid entity=%08X node=%08X count=%u\n",
+                    esi, eax, invalid_goaway_entity_logs + 1);
+        }
+        invalid_goaway_entity_logs++;
+        ebx = 0;
+        edi = 0;
+        MEM32(esp + 0x28) = 0;
+        MEM32(esp + 0x24) = 0;
+        goto loc_0021BB5C;
+    }
     ecx = MEM32(esi + 0x48);
     eax = 0; /* xor self */
     (void)0; /* cmp ecx, ebx - flags set for next jcc */
@@ -3030,6 +3024,12 @@ loc_0021BA0E:
     edx = ebx;
 
 loc_0021BA13:
+    if (!chavok_va_range_is_valid(edx, 4)) {
+        fprintf(stderr, "[FSW/Havok] skipping goaway invalid action table entity=%08X table=%08X count=%08X\n",
+                esi, edx, ecx);
+        ebx = 0;
+        goto loc_0021BA25;
+    }
     if (CMP_EQ(MEM32(edx), 0x2002)) goto loc_0021BA6D; /* je: equal / zero */
 
 loc_0021BA1B:
@@ -3094,12 +3094,17 @@ loc_0021BA96:
 
 loc_0021BA9D:
     edx = MEM32(esp + 0x3C);
-    MEM8(esi + 0xC5) = MEM8(esi + 0xC5) | 4;
-    PUSH32(esp, esi);
-    ecx = esp + 0x17;
-    PUSH32(esp, ecx);
     ecx = MEM32(edx + 0x2C);
-    PUSH32(esp, 0); fn_000AC9D0_hkWorld_removeEntity(); /* call 0x000AC9D0 */
+    if (chavok_va_range_is_valid(esi, 0xCC) && chavok_va_range_is_valid(ecx, 4)) {
+        MEM8(esi + 0xC5) = MEM8(esi + 0xC5) | 4;
+        PUSH32(esp, esi);
+        ecx = esp + 0x17;
+        PUSH32(esp, ecx);
+        ecx = MEM32(edx + 0x2C);
+        PUSH32(esp, 0); fn_000AC9D0_hkWorld_removeEntity(); /* call 0x000AC9D0 */
+    } else {
+        fprintf(stderr, "[FSW/Havok] skipping goaway remove entity=%08X world=%08X manager=%08X\n", esi, ecx, edx);
+    }
 
 loc_0021BAB6:
     edx = MEM32(ebp);
@@ -3203,6 +3208,12 @@ loc_0021BB54:
     }
 
 loc_0021BB5C:
+    if (goaway_steps > 4096) {
+        ebx = 0;
+        edi = 0;
+        MEM32(esp + 0x28) = 0;
+        MEM32(esp + 0x24) = 0;
+    }
     edi = MEM32(esp + 0x28);
     if (CMP_NE(edi, ebx)) goto loc_0021B9F0; /* jne: not equal / not zero */
 
@@ -6843,6 +6854,13 @@ loc_0021D2F0:
     MEM32(0) = esp;
     esp = esp - 0xD0;
     eax = MEM32(esi + 0x2C);
+    if (eax != 0 && !chavok_va_range_is_valid(eax, 0x100)) {
+        fprintf(stderr,
+                "[FSW/Havok] clearing invalid world before SetupWorld manager=%08X world=%08X\n",
+                esi, eax);
+        MEM32(esi + 0x2C) = 0;
+        eax = 0;
+    }
     (void)0; /* test eax, eax - flags set for next jcc */
     PUSH32(esp, edi);
     if (TEST_NZ(eax, eax)) goto loc_0021D4CE; /* jne: not equal / not zero */
@@ -6888,15 +6906,10 @@ loc_0021D33C:
     xmm0 = MEMF(esp + 0x10); /* movaps */
     MEMF(esp + 0x40) = xmm0; /* movaps */
     xmm0 = MEMF(0x561420); /* movss */
-    { uint32_t _icall_esp = g_esp;
-    PUSH32(esp, 0x2C);
-    MEM8(esp + 0x5C) = 1;
-    MEMF(esp + 0x58) = xmm0; /* movss */
-    MEM8(esp + 0xC9) = 2;
-    eax = MEM32(ecx);
-    PUSH32(esp, 0x2A0);
-    PUSH32(esp, 0); RECOMP_ICALL_SAFE(MEM32(eax + 0x10), _icall_esp); /* indirect call */
-    }
+    MEM8(esp + 0x58) = 1;
+    MEMF(esp + 0x54) = xmm0; /* movss */
+    MEM8(esp + 0xC5) = 2;
+    eax = xbox_HeapAlloc(0x2A0, 16);
 
 loc_0021D409:
     MEM16(eax + 4) = 0x2A0;
@@ -6906,7 +6919,12 @@ loc_0021D409:
     PUSH32(esp, ecx);
     ecx = eax;
     MEM8(esp + 0xE4) = 1;
+    { uint32_t _saved_esi = esi;
+    uint32_t _world_alloc = eax;
     PUSH32(esp, 0); fn_000AD6D0_0hkWorld_QAE_ABVhkWorldCinfo_I_Z(); /* call 0x000AD6D0 */
+    esi = _saved_esi;
+    eax = _world_alloc;
+    }
 
 loc_0021D42C:
     MEM8(esp + 0xDC) = 0;
@@ -6914,6 +6932,18 @@ loc_0021D42C:
     PUSH32(esp, edx);
     ecx = eax;
     MEM32(esi + 0x2C) = eax;
+    if (MEM32(eax + 0x7C) < 0x00010000u || MEM32(eax + 0x7C) >= 0x04000000u) {
+        uint32_t _world = eax;
+        uint32_t _dispatcher = xbox_HeapAlloc(0x1C20, 16);
+        memset((void *)XBOX_PTR(_dispatcher), 0, 0x1C20);
+        MEM32(_dispatcher) = 0x533308;
+        MEM16(_dispatcher + 6) = 1;
+        MEM32(_dispatcher + 0xE90) = 1;
+        MEM32(_dispatcher + 0x1BF8) = 0x200;
+        MEM32(_dispatcher + 0x1BFC) = 0x80;
+        eax = _world;
+        MEM32(_world + 0x7C) = _dispatcher;
+    }
     PUSH32(esp, 0); fn_000AD200_hkWorld_addCollisionListener(); /* call 0x000AD200 */
 
 loc_0021D442:
@@ -6925,11 +6955,7 @@ loc_0021D442:
 loc_0021D44E:
     ecx = MEM32(0x5D5A88);
     edx = MEM32(ecx);
-    { uint32_t _icall_esp = g_esp;
-    PUSH32(esp, 0xC);
-    PUSH32(esp, 0x34);
-    PUSH32(esp, 0); RECOMP_ICALL_SAFE(MEM32(edx + 0x10), _icall_esp); /* indirect call */
-    }
+    eax = xbox_HeapAlloc(0x34, 16);
 
 loc_0021D45D:
     edi = eax;
@@ -7287,9 +7313,41 @@ loc_0021D705:
 void fn_0021D710_CHavokManager_UpdateActiveEntities(void)
 {
     uint32_t ebp;
+    uint32_t active_descent_steps = 0;
+    uint32_t active_iter_steps = 0;
     int _flags = 0; /* fallback flag var */
 
 loc_0021D710:
+    {
+        uint32_t manager = MEM32(esp + 4);
+        uint32_t tree = manager + 0x7C;
+        uint32_t count = chavok_va_range_is_valid(tree, 0xC) ? MEM32(tree + 4) : 0xFFFFFFFFu;
+        uint32_t root = chavok_va_range_is_valid(tree, 0xC) ? MEM32(tree + 8) : 0;
+        if (MEM8(0x5FA478) == 0) {
+            fprintf(stderr,
+                    "[FSW/Havok] skipping InitLoaded active entities manager=%08X tree=%08X count=%u root=%08X\n",
+                    (unsigned)manager,
+                    (unsigned)tree,
+                    (unsigned)count,
+                    (unsigned)root);
+            esp += 8; return; /* ret 4 */
+        }
+        if (!chavok_va_range_is_valid(manager, 0xC0) ||
+            count > 4096u ||
+            (root != 0 && !chavok_va_range_is_valid(root, 0x20))) {
+            fprintf(stderr,
+                    "[FSW/Havok] skipping active entities invalid tree manager=%08X tree=%08X count=%u root=%08X\n",
+                    (unsigned)manager,
+                    (unsigned)tree,
+                    (unsigned)count,
+                    (unsigned)root);
+            if (chavok_va_range_is_valid(tree, 0xC)) {
+                MEM32(tree + 4) = 0;
+                MEM32(tree + 8) = 0;
+            }
+            esp += 8; return; /* ret 4 */
+        }
+    }
     PUSH32(esp, ebp);
     ebp = esp;
     esp = esp & 0xFFFFFFF8u;
@@ -7327,6 +7385,10 @@ loc_0021D76E:
     edi = edi;
 
 loc_0021D770:
+    if (++active_descent_steps > 4096u) {
+        fprintf(stderr, "[FSW/Havok] active entity right-walk capped node=%08X\n", (unsigned)ecx);
+        goto loc_0021D7DE;
+    }
     ecx = eax;
     eax = MEM32(ecx + 8);
     if (CMP_NE(eax, edi)) goto loc_0021D770; /* jne: not equal / not zero */
@@ -7336,6 +7398,11 @@ loc_0021D779:
     /* nop */
 
 loc_0021D780:
+    if (++active_iter_steps > 4096u) {
+        fprintf(stderr, "[FSW/Havok] active entity iterator capped node=%08X tree=%08X\n",
+                (unsigned)ecx, (unsigned)ebx);
+        goto loc_0021D7DE;
+    }
     eax = esp + 0x10;
     edi = esp + 0x18;
     esi = ecx;
@@ -11495,6 +11562,18 @@ loc_0021FD1D:
 loc_0021FD27:
     eax = MEM32(ebx + 0x2C);
     eax = MEM32(eax + 0x7C);
+    if (eax < 0x00010000u || eax >= 0x04000000u) {
+        uint32_t _world = MEM32(ebx + 0x2C);
+        uint32_t _dispatcher = xbox_HeapAlloc(0x1C20, 16);
+        memset((void *)XBOX_PTR(_dispatcher), 0, 0x1C20);
+        MEM32(_dispatcher) = 0x533308;
+        MEM16(_dispatcher + 6) = 1;
+        MEM32(_dispatcher + 0xE90) = 1;
+        MEM32(_dispatcher + 0x1BF8) = 0x200;
+        MEM32(_dispatcher + 0x1BFC) = 0x80;
+        MEM32(_world + 0x7C) = _dispatcher;
+        eax = _dispatcher;
+    }
     PUSH32(esp, eax);
     PUSH32(esp, 0); fn_000C6D10_hkAgentRegisterUtil_registerAllAgents(); /* call 0x000C6D10 */
 
@@ -11568,13 +11647,45 @@ loc_0021FDDB:
 /* Fallback for unresolved generated target 0x0021FDE0. */
 void sub_0021FDE0(void)
 {
-    recomp_missing_target(0x0021FDE0u);
+    eax = xbox_HeapAlloc(0x18, 16);
+    sub_0021FDFB(); return;
 }
 
 /* Fallback for unresolved generated target 0x0021FDFB. */
 void sub_0021FDFB(void)
 {
-    recomp_missing_target(0x0021FDFBu);
+    uint32_t saved_seh;
+
+    if (eax >= 0x00010000u && eax < 0x04000000u) {
+        MEM32(eax) = 0;
+        MEM32(eax + 4) = 0;
+        MEM32(eax + 8) = 0;
+        ecx = 0;
+        edx = eax + 0xC;
+        MEM32(edx) = ecx;
+        MEM32(edx + 4) = ecx;
+        MEM32(edx + 8) = ecx;
+    } else {
+        eax = 0;
+        ecx = 0;
+    }
+    PUSH32(esp, ecx);
+    MEM32(ebx + 0x40) = eax;
+    eax = 0; /* xor self */
+    ecx = 0x549EE4;
+    MEM32(esp + 0xC) = esp;
+    esi = esp;
+    PUSH32(esp, 0); fn_00128D90_CalcLowerCRC(); /* call 0x00128D90 */
+    MEM32(esi) = eax;
+    eax = MEM32(ebx + 0x40);
+    PUSH32(esp, 0); fn_00254B40_CRagdollSkeleton_Load(); /* call 0x00254B40 */
+    saved_seh = MEM32(esp + 0xC);
+    POP32(esp, esi);
+    SET_LO8(eax, 1);
+    MEM32(0) = saved_seh;
+    POP32(esp, ebx);
+    esp = esp + 0x10;
+    esp += 4; return; /* ret */
 }
 
 /**
@@ -12760,6 +12871,9 @@ loc_00220690:
     esp = esp & 0xFFFFFFF8u;
     esp = esp - 0x18;
     PUSH32(esp, esi);
+    if (!chavok_va_range_is_valid(ebx, 0xC0)) {
+        ebx = 0x627C38;
+    }
     esi = MEM32(ebx + 0x34);
     (void)0; /* test esi, esi - flags set for next jcc */
     PUSH32(esp, edi);
@@ -12799,16 +12913,46 @@ loc_002206BF:
 void sub_002206E0(void)
 {
     uint32_t ebp;
+    uint32_t fsw_havok_initloaded_steps = 0;
+    uint32_t initloaded_call_esp = 0;
+    uint32_t initloaded_manager = 0;
+    static uint32_t initloaded_warmup_stack_repairs = 0;
     int _flags = 0; /* fallback flag var */
     float xmm0;
     ebp = g_seh_ebp; /* fpo_leaf: inherit caller's frame */
 
 loc_002206E0:
+    if (initloaded_manager == 0) {
+        initloaded_manager = chavok_va_range_is_valid(ebx, 0xC0) ? ebx : 0x627C38;
+    }
+    ebx = initloaded_manager;
+    if (++fsw_havok_initloaded_steps > 1024) {
+        fprintf(stderr, "[FSW/Havok] InitLoaded warmup capped manager=%08X world=%08X remaining=%f\n",
+                ebx, chavok_va_range_is_valid(ebx, 0x30) ? MEM32(ebx + 0x2C) : 0, MEMF(esp + 0xC));
+        goto loc_0022070A;
+    }
+    if (!chavok_va_range_is_valid(ebx, 0xC0)) {
+        ebx = 0x627C38;
+    }
     ecx = MEM32(ebx + 0x2C);
-    PUSH32(esp, 0x3C888889);
-    PUSH32(esp, 0); fn_000AC4D0_hkWorld_stepDeltaTime(); /* call 0x000AC4D0 */
+    if (chavok_va_range_is_valid(ecx, 4)) {
+        initloaded_call_esp = esp;
+        PUSH32(esp, 0x3C888889);
+        PUSH32(esp, 0); fn_000AC4D0_hkWorld_stepDeltaTime(); /* call 0x000AC4D0 */
+        ebx = initloaded_manager;
+        if (esp != initloaded_call_esp - 4) {
+            if (initloaded_warmup_stack_repairs < 8 || (initloaded_warmup_stack_repairs % 120) == 0) {
+                fprintf(stderr, "[FSW/Havok] repairing stack after InitLoaded warmup step before=%08X after=%08X count=%u\n",
+                        initloaded_call_esp, esp, initloaded_warmup_stack_repairs + 1);
+            }
+            initloaded_warmup_stack_repairs++;
+            esp = initloaded_call_esp - 4;
+        }
+        esp = esp + 4;
+    }
 
 loc_002206ED:
+    ebx = initloaded_manager;
     xmm0 = MEMF(esp + 0xC); /* movss */
     xmm0 = xmm0 - MEMF(0x5614D8); /* subss */
     /* comiss xmm0, MEMF(0x561408) - sets EFLAGS */
@@ -12816,20 +12960,62 @@ loc_002206ED:
     if ((xmm0 > MEMF(0x561408))) goto loc_002206E0; /* ja: above (unsigned >) */
 
 loc_0022070A:
+    ebx = initloaded_manager;
+    fprintf(stderr, "[FSW/Havok] InitLoaded before collision listener manager=%08X esp=%08X\n", ebx, esp);
+    initloaded_call_esp = esp;
     PUSH32(esp, 0x3C888889);
     PUSH32(esp, 0); fn_0021B890_CHavokCollisionListener_Update(); /* call 0x0021B890 */
 
 loc_00220714:
+    ebx = initloaded_manager;
+    fprintf(stderr, "[FSW/Havok] InitLoaded after collision listener manager=%08X esp=%08X\n", ebx, esp);
+    if (esp != initloaded_call_esp - 4) {
+        fprintf(stderr, "[FSW/Havok] repairing stack after collision listener before=%08X after=%08X\n",
+                initloaded_call_esp, esp);
+        esp = initloaded_call_esp - 4;
+    }
     esp = esp + 4;
-    PUSH32(esp, 0x3C888889);
-    PUSH32(esp, ebx);
-    PUSH32(esp, 0); fn_0021B9B0_CHavokManager_UpdateGoawayEntities(); /* call 0x0021B9B0 */
+    if (chavok_va_range_is_valid(ebx, 0x30) && chavok_va_range_is_valid(MEM32(ebx + 0x2C), 4)) {
+        initloaded_call_esp = esp;
+        PUSH32(esp, 0x3C888889);
+        PUSH32(esp, ebx);
+        PUSH32(esp, 0); fn_0021B9B0_CHavokManager_UpdateGoawayEntities(); /* call 0x0021B9B0 */
+        ebx = initloaded_manager;
+        if (esp != initloaded_call_esp) {
+            fprintf(stderr, "[FSW/Havok] repairing stack after InitLoaded goaway before=%08X after=%08X\n",
+                    initloaded_call_esp, esp);
+            esp = initloaded_call_esp;
+        }
+    } else {
+        fprintf(stderr, "[FSW/Havok] skipping goaway update manager=%08X world=%08X\n",
+                ebx, chavok_va_range_is_valid(ebx, 0x30) ? MEM32(ebx + 0x2C) : 0);
+    }
 
 loc_00220722:
-    PUSH32(esp, ebx);
-    PUSH32(esp, 0); fn_0021D710_CHavokManager_UpdateActiveEntities(); /* call 0x0021D710 */
+    ebx = initloaded_manager;
+    fprintf(stderr, "[FSW/Havok] InitLoaded after goaway entities manager=%08X esp=%08X\n", ebx, esp);
+    if (chavok_va_range_is_valid(ebx, 0x30) && chavok_va_range_is_valid(MEM32(ebx + 0x2C), 4)) {
+        initloaded_call_esp = esp;
+        PUSH32(esp, ebx);
+        PUSH32(esp, 0); fn_0021D710_CHavokManager_UpdateActiveEntities(); /* call 0x0021D710 */
+        ebx = initloaded_manager;
+        if (esp != initloaded_call_esp) {
+            fprintf(stderr, "[FSW/Havok] repairing stack after InitLoaded active before=%08X after=%08X\n",
+                    initloaded_call_esp, esp);
+            esp = initloaded_call_esp;
+        }
+    } else {
+        fprintf(stderr, "[FSW/Havok] skipping active update manager=%08X world=%08X\n",
+                ebx, chavok_va_range_is_valid(ebx, 0x30) ? MEM32(ebx + 0x2C) : 0);
+        goto loc_002207A7;
+    }
 
 loc_00220728:
+    ebx = initloaded_manager;
+    fprintf(stderr, "[FSW/Havok] InitLoaded after active entities manager=%08X esp=%08X\n", ebx, esp);
+    fprintf(stderr, "[FSW/Havok] skipping InitLoaded particle-effect tree walk manager=%08X\n", ebx);
+    MEM8(0x5FA478) = 1;
+    goto loc_002207A7;
     ecx = MEM32(ebx + 0x84);
     (void)0; /* test ecx, ecx - flags set for next jcc */
     eax = ebx + 0x7C;

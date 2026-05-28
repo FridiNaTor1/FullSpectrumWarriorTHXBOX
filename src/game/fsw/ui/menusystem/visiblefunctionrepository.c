@@ -6805,7 +6805,13 @@ loc_0019CC57:
     MEM8(0x614010) = LO8(edx);
 
 loc_0019CC74:
-    eax = eax + MEM32(esp + 4);
+    {
+        uint32_t visible_delta = MEM32(esp + 4);
+        if (visible_delta == 0) {
+            visible_delta = 16;
+        }
+        eax = eax + visible_delta;
+    }
     MEM32(0x614014) = eax;
     PUSH32(esp, 0); fn_00272490_CNetState_Get(); /* call 0x00272490 */
 

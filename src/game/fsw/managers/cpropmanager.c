@@ -7,6 +7,33 @@
 #define RECOMP_GENERATED_CODE
 #include "recomp_funcs.h"
 #include <math.h>
+#include <stdio.h>
+
+static int cpropmanager_va_range_is_valid(uint32_t va, uint32_t size)
+{
+    if (size == 0) {
+        return va >= 0x00010000u && va < 0x04000000u;
+    }
+    if (va < 0x00010000u || va >= 0x04000000u || va + size < va) {
+        return 0;
+    }
+    return va + size <= 0x04000000u;
+}
+
+static int cpropmanager_zero_object_is_valid(uint32_t object)
+{
+    uint32_t vtable;
+
+    if (object < 0x00800000u) {
+        return 0;
+    }
+    if (!cpropmanager_va_range_is_valid(object, 0xCC)) {
+        return 0;
+    }
+
+    vtable = MEM32(object);
+    return vtable >= 0x00400000u && vtable < 0x00700000u;
+}
 
 /**
  * fn_0002ED70_1_ZeroList_VCPropDamage_QAE_XZ
@@ -3157,11 +3184,13 @@ loc_0029A234:
 void fn_0029A240_CPropManager_SetupStaticProps(void)
 {
     uint32_t ebp;
+    uint32_t invalid_prop_streak;
     int _flags = 0; /* fallback flag var */
     int _cf = 0; /* carry flag */
     float xmm0, xmm1;
 
 loc_0029A240:
+    invalid_prop_streak = 0;
     PUSH32(esp, ebp);
     ebp = esp;
     esp = esp & 0xFFFFFFF8u;
@@ -3188,6 +3217,29 @@ loc_0029A275:
     (void)0; /* cmp edi, eax - flags set for next jcc */
     MEM32(esp + 0x18) = edi;
     if (CMP_EQ(edi, eax)) goto loc_0029A636; /* je: equal / zero */
+    if (!cpropmanager_zero_object_is_valid(edi) ||
+        !cpropmanager_va_range_is_valid(MEM32(edi), 8)) {
+        static uint32_t invalid_static_prop_early_count = 0;
+        invalid_prop_streak++;
+        if (invalid_static_prop_early_count < 16 || (invalid_static_prop_early_count % 120) == 0) {
+            fprintf(stderr,
+                    "[FSW/Prop] skipping static prop descriptor invalid object=%08X vtbl=%08X def=%08X count=%u streak=%u\n",
+                    (unsigned)edi,
+                    (unsigned)(cpropmanager_va_range_is_valid(edi, 4) ? MEM32(edi) : 0),
+                    (unsigned)ebx,
+                    (unsigned)(invalid_static_prop_early_count + 1),
+                    (unsigned)invalid_prop_streak);
+        }
+        invalid_static_prop_early_count++;
+        if (invalid_prop_streak > 128) {
+            fprintf(stderr,
+                    "[FSW/Prop] aborting static prop setup at descriptor validation count_arg=%u descriptor=%08X\n",
+                    (unsigned)MEM32(esp + 0x10),
+                    (unsigned)MEM32(esp + 0xC));
+            goto loc_0029A64C;
+        }
+        goto loc_0029A636;
+    }
 
 loc_0029A283:
     MEM32(esp + 0x2C) = eax;
@@ -3256,12 +3308,48 @@ loc_0029A31E:
 loc_0029A322:
     eax = MEM32(edi + 0x10);
     if (TEST_Z(eax, eax)) goto loc_0029A334; /* je: equal / zero */
+    if (!cpropmanager_zero_object_is_valid(eax)) {
+        static uint32_t invalid_static_prop_attached_count = 0;
+        if (invalid_static_prop_attached_count < 16 || (invalid_static_prop_attached_count % 120) == 0) {
+            fprintf(stderr,
+                    "[FSW/Prop] dropping invalid attached scene object prop=%08X attached=%08X count=%u\n",
+                    (unsigned)edi,
+                    (unsigned)eax,
+                    (unsigned)(invalid_static_prop_attached_count + 1));
+        }
+        invalid_static_prop_attached_count++;
+        MEM32(edi + 0x10) = 0;
+        goto loc_0029A334;
+    }
 
 loc_0029A329:
     ecx = MEM32(eax + 0xC8);
     if (TEST_NZ(HI8(ecx), 2)) goto loc_0029A376; /* jne: not equal / not zero */
 
 loc_0029A334:
+    if (!cpropmanager_zero_object_is_valid(edi) ||
+        !cpropmanager_va_range_is_valid(MEM32(edi), 8)) {
+        static uint32_t invalid_static_prop_pre_scene_count = 0;
+        invalid_prop_streak++;
+        if (invalid_static_prop_pre_scene_count < 16 || (invalid_static_prop_pre_scene_count % 120) == 0) {
+            fprintf(stderr,
+                    "[FSW/Prop] skipping static prop before scene add invalid object=%08X vtbl=%08X def=%08X count=%u streak=%u\n",
+                    (unsigned)edi,
+                    (unsigned)(cpropmanager_va_range_is_valid(edi, 4) ? MEM32(edi) : 0),
+                    (unsigned)ebx,
+                    (unsigned)(invalid_static_prop_pre_scene_count + 1),
+                    (unsigned)invalid_prop_streak);
+        }
+        invalid_static_prop_pre_scene_count++;
+        if (invalid_prop_streak > 128) {
+            fprintf(stderr,
+                    "[FSW/Prop] aborting static prop setup before scene add count_arg=%u descriptor=%08X\n",
+                    (unsigned)MEM32(esp + 0x10),
+                    (unsigned)MEM32(esp + 0xC));
+            goto loc_0029A64C;
+        }
+        goto loc_0029A636;
+    }
     if (TEST_NZ(MEM8(0x643E20), 1)) goto loc_0029A365; /* jne: not equal / not zero */
 
 loc_0029A33D:
@@ -3354,6 +3442,18 @@ loc_0029A40E:
     edi = edi;
 
 loc_0029A410:
+    if (!cpropmanager_zero_object_is_valid(edx)) {
+        static uint32_t invalid_static_prop_child_count = 0;
+        if (invalid_static_prop_child_count < 16 || (invalid_static_prop_child_count % 120) == 0) {
+            fprintf(stderr,
+                    "[FSW/Prop] stopping static prop flags invalid child=%08X prop=%08X count=%u\n",
+                    (unsigned)edx,
+                    (unsigned)edi,
+                    (unsigned)(invalid_static_prop_child_count + 1));
+        }
+        invalid_static_prop_child_count++;
+        goto loc_0029A424;
+    }
     PUSH32(esp, esi);
     PUSH32(esp, 0x180000);
     ecx = edx;
@@ -3364,6 +3464,30 @@ loc_0029A41D:
     if (TEST_NZ(edx, edx)) goto loc_0029A410; /* jne: not equal / not zero */
 
 loc_0029A424:
+    if (!cpropmanager_zero_object_is_valid(edi) ||
+        !cpropmanager_va_range_is_valid(MEM32(edi), 8)) {
+        static uint32_t invalid_static_prop_object_count = 0;
+        invalid_prop_streak++;
+        if (invalid_static_prop_object_count < 16 || (invalid_static_prop_object_count % 120) == 0) {
+            fprintf(stderr,
+                    "[FSW/Prop] skipping static prop invalid object=%08X vtbl=%08X def=%08X count=%u streak=%u\n",
+                    (unsigned)edi,
+                    (unsigned)(cpropmanager_va_range_is_valid(edi, 4) ? MEM32(edi) : 0),
+                    (unsigned)ebx,
+                    (unsigned)(invalid_static_prop_object_count + 1),
+                    (unsigned)invalid_prop_streak);
+        }
+        invalid_static_prop_object_count++;
+        if (invalid_prop_streak > 128) {
+            fprintf(stderr,
+                    "[FSW/Prop] aborting static prop setup after invalid descriptor streak count_arg=%u descriptor=%08X\n",
+                    (unsigned)MEM32(esp + 0x10),
+                    (unsigned)MEM32(esp + 0xC));
+            goto loc_0029A64C;
+        }
+        goto loc_0029A636;
+    }
+    invalid_prop_streak = 0;
     edx = MEM32(0x5FC77C);
     { uint32_t _icall_esp = g_esp;
     PUSH32(esp, ecx);
@@ -3620,6 +3744,9 @@ loc_0029A64C:
 void fn_0029A660_CPropManager_Update(void)
 {
     uint32_t ebp;
+    uint32_t prop_tree_steps = 0;
+    uint32_t tex_tree_steps = 0;
+    uint32_t damage_steps = 0;
     int _flags = 0; /* fallback flag var */
 
 loc_0029A660:
@@ -3639,10 +3766,25 @@ loc_0029A660:
     if (TEST_Z(ecx, ecx)) goto loc_0029A6D2; /* je: equal / zero */
 
 loc_0029A680:
+    if (!cpropmanager_va_range_is_valid(ecx, 0x1C) || ++prop_tree_steps > 4096) {
+        fprintf(stderr, "[FSW/Prop] stopping anim prop tree walk node=%08X steps=%u\n", ecx, prop_tree_steps);
+        MEM32(ebx + 0x20) = 0;
+        goto loc_0029A6D2;
+    }
     eax = MEM32(ecx + 8);
     if (TEST_Z(eax, eax)) goto loc_0029A690; /* je: equal / zero */
 
 loc_0029A687:
+    if (!cpropmanager_va_range_is_valid(ecx, 0x1C) || ++prop_tree_steps > 4096) {
+        fprintf(stderr, "[FSW/Prop] stopping anim prop right walk node=%08X steps=%u\n", ecx, prop_tree_steps);
+        MEM32(ebx + 0x20) = 0;
+        goto loc_0029A6D2;
+    }
+    if (!cpropmanager_va_range_is_valid(eax, 0x1C)) {
+        fprintf(stderr, "[FSW/Prop] stopping anim prop right walk invalid next=%08X\n", eax);
+        MEM32(ebx + 0x20) = 0;
+        goto loc_0029A6D2;
+    }
     ecx = eax;
     eax = MEM32(ecx + 8);
     if (TEST_NZ(eax, eax)) goto loc_0029A687; /* jne: not equal / not zero */
@@ -3651,7 +3793,16 @@ loc_0029A690:
     MEM32(esp + 0x14) = ecx;
 
 loc_0029A694:
+    if (!cpropmanager_va_range_is_valid(ecx, 0x1C)) {
+        fprintf(stderr, "[FSW/Prop] skipping invalid anim prop tree node=%08X\n", ecx);
+        MEM32(ebx + 0x20) = 0;
+        goto loc_0029A6D2;
+    }
     ecx = MEM32(ecx + 0x18);
+    if (!cpropmanager_va_range_is_valid(ecx, 0x118)) {
+        fprintf(stderr, "[FSW/Prop] skipping invalid anim prop object=%08X\n", ecx);
+        goto loc_0029A6BD;
+    }
     eax = MEM32(ecx + 0x114);
     eax = eax >> 2;
     if (TEST_Z(LO8(eax), 1)) goto loc_0029A6B7; /* je: equal / zero */
@@ -3689,10 +3840,22 @@ loc_0029A6D2:
     if (TEST_Z(ecx, ecx)) goto loc_0029A714; /* je: equal / zero */
 
 loc_0029A6E0:
+    if (!cpropmanager_va_range_is_valid(ecx, 0x1C) || ++tex_tree_steps > 4096) {
+        fprintf(stderr, "[FSW/Prop] stopping texture prop tree walk node=%08X steps=%u\n", ecx, tex_tree_steps);
+        goto loc_0029A714;
+    }
     eax = MEM32(ecx + 8);
     if (TEST_Z(eax, eax)) goto loc_0029A6F0; /* je: equal / zero */
 
 loc_0029A6E7:
+    if (!cpropmanager_va_range_is_valid(ecx, 0x1C) || ++tex_tree_steps > 4096) {
+        fprintf(stderr, "[FSW/Prop] stopping texture prop right walk node=%08X steps=%u\n", ecx, tex_tree_steps);
+        goto loc_0029A714;
+    }
+    if (!cpropmanager_va_range_is_valid(eax, 0x1C)) {
+        fprintf(stderr, "[FSW/Prop] stopping texture prop right walk invalid next=%08X\n", eax);
+        goto loc_0029A714;
+    }
     ecx = eax;
     eax = MEM32(ecx + 8);
     if (TEST_NZ(eax, eax)) goto loc_0029A6E7; /* jne: not equal / not zero */
@@ -3701,7 +3864,15 @@ loc_0029A6F0:
     MEM32(esp + 0x14) = ecx;
 
 loc_0029A6F4:
+    if (!cpropmanager_va_range_is_valid(ecx, 0x1C)) {
+        fprintf(stderr, "[FSW/Prop] skipping invalid texture prop tree node=%08X\n", ecx);
+        goto loc_0029A714;
+    }
     ecx = MEM32(ecx + 0x18);
+    if (!cpropmanager_va_range_is_valid(ecx, 4) || !cpropmanager_va_range_is_valid(MEM32(ecx), 0x50)) {
+        fprintf(stderr, "[FSW/Prop] skipping invalid texture prop object=%08X\n", ecx);
+        goto loc_0029A6FF;
+    }
     edx = MEM32(ecx);
     { uint32_t _icall_esp = g_esp;
     PUSH32(esp, 0);
@@ -3736,8 +3907,16 @@ loc_0029A720:
     if (TEST_Z(eax, eax)) goto loc_0029A764; /* je: equal / zero */
 
 loc_0029A734:
+    if (!cpropmanager_va_range_is_valid(eax, 0x20) || ++damage_steps > 4096) {
+        fprintf(stderr, "[FSW/Prop] stopping damage list walk node=%08X steps=%u\n", eax, damage_steps);
+        goto loc_0029A764;
+    }
     esi = MEM32(eax + 0x1C);
     ecx = MEM32(eax);
+    if (!cpropmanager_va_range_is_valid(ecx, 4) || !cpropmanager_va_range_is_valid(MEM32(ecx), 0x3C)) {
+        fprintf(stderr, "[FSW/Prop] skipping invalid damage callback object=%08X\n", ecx);
+        goto loc_0029A74F;
+    }
     edx = MEM32(ecx);
     { uint32_t _icall_esp = g_esp;
     PUSH32(esp, esi);

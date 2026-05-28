@@ -7,6 +7,17 @@
 #define RECOMP_GENERATED_CODE
 #include "recomp_funcs.h"
 #include <math.h>
+#include <stdio.h>
+
+static int shellcase_va_range_is_valid(uint32_t va, uint32_t size)
+{
+    return va >= 0x00010000u && va < 0x04000000u && size <= 0x04000000u - va;
+}
+
+static int shellcase_object_is_valid(uint32_t object)
+{
+    return shellcase_va_range_is_valid(object, 0x108) && MEM32(object) == 0x55F5B8u;
+}
 
 /**
  * fn_0004F440_GCShellCase_UAEPAXI_Z
@@ -586,6 +597,18 @@ void fn_003794D0_CShellCase_Evolve(void)
     float xmm0;
 
 loc_003794D0:
+    if (!shellcase_object_is_valid(esi)) {
+        static uint32_t invalid_evolve_count = 0;
+        if (invalid_evolve_count < 8 || (invalid_evolve_count % 120) == 0) {
+            fprintf(stderr, "[FSW/ShellCase] skipping Evolve invalid shell=%08X vtbl=%08X count=%u\n",
+                    (unsigned)esi,
+                    (unsigned)(shellcase_va_range_is_valid(esi, 4) ? MEM32(esi) : 0),
+                    (unsigned)(invalid_evolve_count + 1));
+        }
+        invalid_evolve_count++;
+        eax = 0;
+        esp += 8; return; /* ret 4 */
+    }
     xmm0 = MEMF(0x561C44); /* movss */
     SET_LO8(eax, MEM8(esi + 0xF4));
     esp = esp - 0x58;
@@ -991,8 +1014,24 @@ loc_00379A60:
     eax = MEM32(ebp + 8);
     PUSH32(esp, esi);
     PUSH32(esp, edi);
-    PUSH32(esp, eax);
     esi = ebx;
+    if (!shellcase_object_is_valid(esi)) {
+        static uint32_t invalid_update_count = 0;
+        if (invalid_update_count < 8 || (invalid_update_count % 120) == 0) {
+            fprintf(stderr, "[FSW/ShellCase] skipping Update invalid shell=%08X vtbl=%08X count=%u\n",
+                    (unsigned)esi,
+                    (unsigned)(shellcase_va_range_is_valid(esi, 4) ? MEM32(esi) : 0),
+                    (unsigned)(invalid_update_count + 1));
+        }
+        invalid_update_count++;
+        POP32(esp, edi);
+        SET_LO8(eax, 0);
+        POP32(esp, esi);
+        esp = ebp;
+        POP32(esp, ebp);
+        esp += 12; return; /* ret 8 */
+    }
+    PUSH32(esp, eax);
     PUSH32(esp, 0); fn_003794D0_CShellCase_Evolve(); /* call 0x003794D0 */
 
 loc_00379A79:

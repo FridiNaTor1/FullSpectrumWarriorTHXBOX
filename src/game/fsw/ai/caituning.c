@@ -8,6 +8,17 @@
 #include "recomp_funcs.h"
 #include <math.h>
 
+static int fsw_caituning_va_range_is_valid(uint32_t va, uint32_t size)
+{
+    return va >= 0x00010000u && va + size >= va && va + size <= 0x04000000u;
+}
+
+static void fsw_caituning_restore_parser_this(void)
+{
+    uint32_t saved_this = MEM32(esp);
+    esi = fsw_caituning_va_range_is_valid(saved_this, 0x130) ? saved_this : 0x614620;
+}
+
 /**
  * fn_00018CC0_BZeroFile_QBEHXZ
  * Symbol: ??BZeroFile@@QBEHXZ
@@ -220,6 +231,9 @@ void sub_0034AC77(void)
     float xmm0;
 
 loc_0034AC77:
+    if (!fsw_caituning_va_range_is_valid(esi, 0x130)) {
+        esi = 0x614620;
+    }
     PUSH32(esp, esi);
     PUSH32(esp, 0x539098);
     PUSH32(esp, 0x539074);
@@ -229,6 +243,7 @@ loc_0034AC77:
 
 loc_0034AC90:
     esp = esp + 0x10;
+    fsw_caituning_restore_parser_this();
     if (TEST_NZ(eax, eax)) goto loc_0034ACA3; /* jne: not equal / not zero */
 
 loc_0034AC97:
@@ -246,6 +261,7 @@ loc_0034ACA3:
 
 loc_0034ACBF:
     esp = esp + 0x10;
+    fsw_caituning_restore_parser_this();
     if (TEST_NZ(eax, eax)) goto loc_0034ACD2; /* jne: not equal / not zero */
 
 loc_0034ACC6:
@@ -263,6 +279,7 @@ loc_0034ACD2:
 
 loc_0034ACEE:
     esp = esp + 0x10;
+    fsw_caituning_restore_parser_this();
     if (TEST_NZ(eax, eax)) goto loc_0034AD01; /* jne: not equal / not zero */
 
 loc_0034ACF5:
@@ -280,6 +297,7 @@ loc_0034AD01:
 
 loc_0034AD1D:
     esp = esp + 0x10;
+    fsw_caituning_restore_parser_this();
     if (TEST_NZ(eax, eax)) goto loc_0034AD30; /* jne: not equal / not zero */
 
 loc_0034AD24:
@@ -297,6 +315,7 @@ loc_0034AD30:
 
 loc_0034AD4C:
     esp = esp + 0x10;
+    fsw_caituning_restore_parser_this();
     if (TEST_NZ(eax, eax)) goto loc_0034AD5F; /* jne: not equal / not zero */
 
 loc_0034AD53:
@@ -314,6 +333,7 @@ loc_0034AD5F:
 
 loc_0034AD7B:
     esp = esp + 0x10;
+    fsw_caituning_restore_parser_this();
     if (TEST_NZ(eax, eax)) goto loc_0034AD8E; /* jne: not equal / not zero */
 
 loc_0034AD82:
@@ -331,6 +351,7 @@ loc_0034AD8E:
 
 loc_0034ADAA:
     esp = esp + 0x10;
+    fsw_caituning_restore_parser_this();
     if (TEST_NZ(eax, eax)) goto loc_0034ADBD; /* jne: not equal / not zero */
 
 loc_0034ADB1:
@@ -348,6 +369,7 @@ loc_0034ADBD:
 
 loc_0034ADD9:
     esp = esp + 0x10;
+    fsw_caituning_restore_parser_this();
     if (TEST_NZ(eax, eax)) goto loc_0034ADEC; /* jne: not equal / not zero */
 
 loc_0034ADE0:
@@ -365,6 +387,7 @@ loc_0034ADEC:
 
 loc_0034AE08:
     esp = esp + 0x10;
+    fsw_caituning_restore_parser_this();
     if (TEST_NZ(eax, eax)) goto loc_0034AE1B; /* jne: not equal / not zero */
 
 loc_0034AE0F:
@@ -382,6 +405,7 @@ loc_0034AE1B:
 
 loc_0034AE37:
     esp = esp + 0x10;
+    fsw_caituning_restore_parser_this();
     if (TEST_NZ(eax, eax)) goto loc_0034AE4A; /* jne: not equal / not zero */
 
 loc_0034AE3E:
@@ -399,6 +423,7 @@ loc_0034AE4A:
 
 loc_0034AE66:
     esp = esp + 0x10;
+    fsw_caituning_restore_parser_this();
     if (TEST_NZ(eax, eax)) goto loc_0034AE79; /* jne: not equal / not zero */
 
 loc_0034AE6D:
@@ -416,6 +441,7 @@ loc_0034AE79:
 
 loc_0034AE95:
     esp = esp + 0x10;
+    fsw_caituning_restore_parser_this();
     if (TEST_NZ(eax, eax)) goto loc_0034AEA8; /* jne: not equal / not zero */
 
 loc_0034AE9C:
@@ -433,6 +459,7 @@ loc_0034AEA8:
 
 loc_0034AEC4:
     esp = esp + 0x10;
+    fsw_caituning_restore_parser_this();
     if (TEST_NZ(eax, eax)) goto loc_0034AED7; /* jne: not equal / not zero */
 
 loc_0034AECB:
@@ -450,6 +477,7 @@ loc_0034AED7:
 
 loc_0034AEF3:
     esp = esp + 0x10;
+    fsw_caituning_restore_parser_this();
     if (TEST_NZ(eax, eax)) goto loc_0034AF01; /* jne: not equal / not zero */
 
 loc_0034AEFA:
@@ -467,6 +495,7 @@ loc_0034AF01:
 
 loc_0034AF1D:
     esp = esp + 0x10;
+    fsw_caituning_restore_parser_this();
     if (TEST_NZ(eax, eax)) goto loc_0034AF30; /* jne: not equal / not zero */
 
 loc_0034AF24:
@@ -484,6 +513,7 @@ loc_0034AF30:
 
 loc_0034AF4C:
     esp = esp + 0x10;
+    fsw_caituning_restore_parser_this();
     if (TEST_NZ(eax, eax)) goto loc_0034AF5F; /* jne: not equal / not zero */
 
 loc_0034AF53:
@@ -501,6 +531,7 @@ loc_0034AF5F:
 
 loc_0034AF7B:
     esp = esp + 0x10;
+    fsw_caituning_restore_parser_this();
     if (TEST_NZ(eax, eax)) goto loc_0034AF87; /* jne: not equal / not zero */
 
 loc_0034AF82:
@@ -517,6 +548,7 @@ loc_0034AF87:
 
 loc_0034AFA3:
     esp = esp + 0x10;
+    fsw_caituning_restore_parser_this();
     if (TEST_NZ(eax, eax)) goto loc_0034AFB6; /* jne: not equal / not zero */
 
 loc_0034AFAA:
@@ -534,6 +566,7 @@ loc_0034AFB6:
 
 loc_0034AFD2:
     esp = esp + 0x10;
+    fsw_caituning_restore_parser_this();
     if (TEST_NZ(eax, eax)) goto loc_0034AFE5; /* jne: not equal / not zero */
 
 loc_0034AFD9:
@@ -551,6 +584,7 @@ loc_0034AFE5:
 
 loc_0034B001:
     esp = esp + 0x10;
+    fsw_caituning_restore_parser_this();
     if (TEST_NZ(eax, eax)) goto loc_0034B014; /* jne: not equal / not zero */
 
 loc_0034B008:
@@ -568,6 +602,7 @@ loc_0034B014:
 
 loc_0034B030:
     esp = esp + 0x10;
+    fsw_caituning_restore_parser_this();
     if (TEST_NZ(eax, eax)) goto loc_0034B043; /* jne: not equal / not zero */
 
 loc_0034B037:
@@ -585,6 +620,7 @@ loc_0034B043:
 
 loc_0034B05F:
     esp = esp + 0x10;
+    fsw_caituning_restore_parser_this();
     if (TEST_NZ(eax, eax)) goto loc_0034B072; /* jne: not equal / not zero */
 
 loc_0034B066:
@@ -602,6 +638,7 @@ loc_0034B072:
 
 loc_0034B08E:
     esp = esp + 0x10;
+    fsw_caituning_restore_parser_this();
     if (TEST_NZ(eax, eax)) goto loc_0034B0A1; /* jne: not equal / not zero */
 
 loc_0034B095:
@@ -619,6 +656,7 @@ loc_0034B0A1:
 
 loc_0034B0BD:
     esp = esp + 0x10;
+    fsw_caituning_restore_parser_this();
     if (TEST_NZ(eax, eax)) goto loc_0034B0D0; /* jne: not equal / not zero */
 
 loc_0034B0C4:
@@ -636,6 +674,7 @@ loc_0034B0D0:
 
 loc_0034B0EC:
     esp = esp + 0x10;
+    fsw_caituning_restore_parser_this();
     if (TEST_NZ(eax, eax)) goto loc_0034B0FF; /* jne: not equal / not zero */
 
 loc_0034B0F3:
@@ -653,6 +692,7 @@ loc_0034B0FF:
 
 loc_0034B11B:
     esp = esp + 0x10;
+    fsw_caituning_restore_parser_this();
     if (TEST_NZ(eax, eax)) goto loc_0034B12E; /* jne: not equal / not zero */
 
 loc_0034B122:
@@ -670,6 +710,7 @@ loc_0034B12E:
 
 loc_0034B14A:
     esp = esp + 0x10;
+    fsw_caituning_restore_parser_this();
     if (TEST_NZ(eax, eax)) goto loc_0034B15D; /* jne: not equal / not zero */
 
 loc_0034B151:
@@ -687,6 +728,7 @@ loc_0034B15D:
 
 loc_0034B179:
     esp = esp + 0x10;
+    fsw_caituning_restore_parser_this();
     if (TEST_NZ(eax, eax)) goto loc_0034B18C; /* jne: not equal / not zero */
 
 loc_0034B180:
@@ -704,6 +746,7 @@ loc_0034B18C:
 
 loc_0034B1A8:
     esp = esp + 0x10;
+    fsw_caituning_restore_parser_this();
     if (TEST_NZ(eax, eax)) goto loc_0034B1BB; /* jne: not equal / not zero */
 
 loc_0034B1AF:
@@ -721,6 +764,7 @@ loc_0034B1BB:
 
 loc_0034B1D7:
     esp = esp + 0x10;
+    fsw_caituning_restore_parser_this();
     if (TEST_NZ(eax, eax)) goto loc_0034B1EA; /* jne: not equal / not zero */
 
 loc_0034B1DE:
@@ -738,6 +782,7 @@ loc_0034B1EA:
 
 loc_0034B206:
     esp = esp + 0x10;
+    fsw_caituning_restore_parser_this();
     if (TEST_NZ(eax, eax)) goto loc_0034B219; /* jne: not equal / not zero */
 
 loc_0034B20D:
@@ -755,6 +800,7 @@ loc_0034B219:
 
 loc_0034B238:
     esp = esp + 0x10;
+    fsw_caituning_restore_parser_this();
     if (TEST_NZ(eax, eax)) goto loc_0034B24B; /* jne: not equal / not zero */
 
 loc_0034B23F:
@@ -772,6 +818,7 @@ loc_0034B24B:
 
 loc_0034B26A:
     esp = esp + 0x10;
+    fsw_caituning_restore_parser_this();
     if (TEST_NZ(eax, eax)) goto loc_0034B27D; /* jne: not equal / not zero */
 
 loc_0034B271:
@@ -789,6 +836,7 @@ loc_0034B27D:
 
 loc_0034B29C:
     esp = esp + 0x10;
+    fsw_caituning_restore_parser_this();
     if (TEST_NZ(eax, eax)) goto loc_0034B2AF; /* jne: not equal / not zero */
 
 loc_0034B2A3:
@@ -806,6 +854,7 @@ loc_0034B2AF:
 
 loc_0034B2CE:
     esp = esp + 0x10;
+    fsw_caituning_restore_parser_this();
     if (TEST_NZ(eax, eax)) goto loc_0034B2E1; /* jne: not equal / not zero */
 
 loc_0034B2D5:
@@ -823,6 +872,7 @@ loc_0034B2E1:
 
 loc_0034B300:
     esp = esp + 0x10;
+    fsw_caituning_restore_parser_this();
     if (TEST_NZ(eax, eax)) goto loc_0034B313; /* jne: not equal / not zero */
 
 loc_0034B307:
@@ -840,6 +890,7 @@ loc_0034B313:
 
 loc_0034B332:
     esp = esp + 0x10;
+    fsw_caituning_restore_parser_this();
     if (TEST_NZ(eax, eax)) goto loc_0034B33E; /* jne: not equal / not zero */
 
 loc_0034B339:
@@ -856,6 +907,7 @@ loc_0034B33E:
 
 loc_0034B35D:
     esp = esp + 0x10;
+    fsw_caituning_restore_parser_this();
     if (TEST_NZ(eax, eax)) goto loc_0034B369; /* jne: not equal / not zero */
 
 loc_0034B364:
@@ -872,6 +924,7 @@ loc_0034B369:
 
 loc_0034B388:
     esp = esp + 0x10;
+    fsw_caituning_restore_parser_this();
     if (TEST_NZ(eax, eax)) goto loc_0034B39B; /* jne: not equal / not zero */
 
 loc_0034B38F:
@@ -889,6 +942,7 @@ loc_0034B39B:
 
 loc_0034B3BA:
     esp = esp + 0x10;
+    fsw_caituning_restore_parser_this();
     if (TEST_NZ(eax, eax)) goto loc_0034B3CD; /* jne: not equal / not zero */
 
 loc_0034B3C1:
@@ -906,6 +960,7 @@ loc_0034B3CD:
 
 loc_0034B3EC:
     esp = esp + 0x10;
+    fsw_caituning_restore_parser_this();
     if (TEST_NZ(eax, eax)) goto loc_0034B3FF; /* jne: not equal / not zero */
 
 loc_0034B3F3:
@@ -923,6 +978,7 @@ loc_0034B3FF:
 
 loc_0034B41E:
     esp = esp + 0x10;
+    fsw_caituning_restore_parser_this();
     if (TEST_NZ(eax, eax)) goto loc_0034B431; /* jne: not equal / not zero */
 
 loc_0034B425:
@@ -940,6 +996,7 @@ loc_0034B431:
 
 loc_0034B450:
     esp = esp + 0x10;
+    fsw_caituning_restore_parser_this();
     if (TEST_NZ(eax, eax)) goto loc_0034B463; /* jne: not equal / not zero */
 
 loc_0034B457:
@@ -957,6 +1014,7 @@ loc_0034B463:
 
 loc_0034B482:
     esp = esp + 0x10;
+    fsw_caituning_restore_parser_this();
     if (TEST_NZ(eax, eax)) goto loc_0034B495; /* jne: not equal / not zero */
 
 loc_0034B489:
@@ -974,6 +1032,7 @@ loc_0034B495:
 
 loc_0034B4B4:
     esp = esp + 0x10;
+    fsw_caituning_restore_parser_this();
     if (TEST_NZ(eax, eax)) goto loc_0034B4C7; /* jne: not equal / not zero */
 
 loc_0034B4BB:
@@ -991,6 +1050,7 @@ loc_0034B4C7:
 
 loc_0034B4E6:
     esp = esp + 0x10;
+    fsw_caituning_restore_parser_this();
     if (TEST_NZ(eax, eax)) goto loc_0034B4F9; /* jne: not equal / not zero */
 
 loc_0034B4ED:
@@ -1008,6 +1068,7 @@ loc_0034B4F9:
 
 loc_0034B518:
     esp = esp + 0x10;
+    fsw_caituning_restore_parser_this();
     if (TEST_NZ(eax, eax)) goto loc_0034B52B; /* jne: not equal / not zero */
 
 loc_0034B51F:
@@ -1025,6 +1086,7 @@ loc_0034B52B:
 
 loc_0034B54A:
     esp = esp + 0x10;
+    fsw_caituning_restore_parser_this();
     if (TEST_NZ(eax, eax)) goto loc_0034B55D; /* jne: not equal / not zero */
 
 loc_0034B551:
@@ -1042,6 +1104,7 @@ loc_0034B55D:
 
 loc_0034B57C:
     esp = esp + 0x10;
+    fsw_caituning_restore_parser_this();
     if (TEST_NZ(eax, eax)) goto loc_0034B58F; /* jne: not equal / not zero */
 
 loc_0034B583:
@@ -1059,6 +1122,7 @@ loc_0034B58F:
 
 loc_0034B5AE:
     esp = esp + 0x10;
+    fsw_caituning_restore_parser_this();
     if (TEST_NZ(eax, eax)) goto loc_0034B5C1; /* jne: not equal / not zero */
 
 loc_0034B5B5:
@@ -1076,6 +1140,7 @@ loc_0034B5C1:
 
 loc_0034B5E0:
     esp = esp + 0x10;
+    fsw_caituning_restore_parser_this();
     if (TEST_NZ(eax, eax)) goto loc_0034B5F3; /* jne: not equal / not zero */
 
 loc_0034B5E7:
@@ -1093,6 +1158,7 @@ loc_0034B5F3:
 
 loc_0034B612:
     esp = esp + 0x10;
+    fsw_caituning_restore_parser_this();
     if (TEST_NZ(eax, eax)) goto loc_0034B625; /* jne: not equal / not zero */
 
 loc_0034B619:
@@ -1110,6 +1176,7 @@ loc_0034B625:
 
 loc_0034B644:
     esp = esp + 0x10;
+    fsw_caituning_restore_parser_this();
     if (TEST_NZ(eax, eax)) goto loc_0034B657; /* jne: not equal / not zero */
 
 loc_0034B64B:
@@ -1127,6 +1194,7 @@ loc_0034B657:
 
 loc_0034B676:
     esp = esp + 0x10;
+    fsw_caituning_restore_parser_this();
     if (TEST_NZ(eax, eax)) goto loc_0034B689; /* jne: not equal / not zero */
 
 loc_0034B67D:
@@ -1144,6 +1212,7 @@ loc_0034B689:
 
 loc_0034B6A8:
     esp = esp + 0x10;
+    fsw_caituning_restore_parser_this();
     if (TEST_NZ(eax, eax)) goto loc_0034B6BB; /* jne: not equal / not zero */
 
 loc_0034B6AF:
@@ -1161,6 +1230,7 @@ loc_0034B6BB:
 
 loc_0034B6DA:
     esp = esp + 0x10;
+    fsw_caituning_restore_parser_this();
     if (TEST_NZ(eax, eax)) goto loc_0034B6ED; /* jne: not equal / not zero */
 
 loc_0034B6E1:
@@ -1178,6 +1248,7 @@ loc_0034B6ED:
 
 loc_0034B70C:
     esp = esp + 0x10;
+    fsw_caituning_restore_parser_this();
     if (TEST_NZ(eax, eax)) goto loc_0034B71F; /* jne: not equal / not zero */
 
 loc_0034B713:
@@ -1195,6 +1266,7 @@ loc_0034B71F:
 
 loc_0034B73E:
     esp = esp + 0x10;
+    fsw_caituning_restore_parser_this();
     if (TEST_NZ(eax, eax)) goto loc_0034B751; /* jne: not equal / not zero */
 
 loc_0034B745:
@@ -1212,6 +1284,7 @@ loc_0034B751:
 
 loc_0034B770:
     esp = esp + 0x10;
+    fsw_caituning_restore_parser_this();
     if (TEST_NZ(eax, eax)) goto loc_0034B77E; /* jne: not equal / not zero */
 
 loc_0034B777:
@@ -1229,6 +1302,7 @@ loc_0034B77E:
 
 loc_0034B79D:
     esp = esp + 0x10;
+    fsw_caituning_restore_parser_this();
     if (TEST_NZ(eax, eax)) goto loc_0034B7B0; /* jne: not equal / not zero */
 
 loc_0034B7A4:
@@ -1246,6 +1320,7 @@ loc_0034B7B0:
 
 loc_0034B7CF:
     esp = esp + 0x10;
+    fsw_caituning_restore_parser_this();
     if (TEST_NZ(eax, eax)) goto loc_0034B7E2; /* jne: not equal / not zero */
 
 loc_0034B7D6:
@@ -1263,6 +1338,7 @@ loc_0034B7E2:
 
 loc_0034B801:
     esp = esp + 0x10;
+    fsw_caituning_restore_parser_this();
     if (TEST_NZ(eax, eax)) goto loc_0034B814; /* jne: not equal / not zero */
 
 loc_0034B808:
@@ -1280,6 +1356,7 @@ loc_0034B814:
 
 loc_0034B833:
     esp = esp + 0x10;
+    fsw_caituning_restore_parser_this();
     if (TEST_NZ(eax, eax)) goto loc_0034B846; /* jne: not equal / not zero */
 
 loc_0034B83A:
@@ -1297,6 +1374,7 @@ loc_0034B846:
 
 loc_0034B865:
     esp = esp + 0x10;
+    fsw_caituning_restore_parser_this();
     if (TEST_NZ(eax, eax)) goto loc_0034B878; /* jne: not equal / not zero */
 
 loc_0034B86C:
@@ -1314,6 +1392,7 @@ loc_0034B878:
 
 loc_0034B897:
     esp = esp + 0x10;
+    fsw_caituning_restore_parser_this();
     if (TEST_NZ(eax, eax)) goto loc_0034B8A5; /* jne: not equal / not zero */
 
 loc_0034B89E:
@@ -1331,6 +1410,7 @@ loc_0034B8A5:
 
 loc_0034B8C4:
     esp = esp + 0x10;
+    fsw_caituning_restore_parser_this();
     if (TEST_NZ(eax, eax)) goto loc_0034B8D7; /* jne: not equal / not zero */
 
 loc_0034B8CB:
@@ -1348,6 +1428,7 @@ loc_0034B8D7:
 
 loc_0034B8F6:
     esp = esp + 0x10;
+    fsw_caituning_restore_parser_this();
     if (TEST_NZ(eax, eax)) goto loc_0034B909; /* jne: not equal / not zero */
 
 loc_0034B8FD:
@@ -1365,6 +1446,7 @@ loc_0034B909:
 
 loc_0034B928:
     esp = esp + 0x10;
+    fsw_caituning_restore_parser_this();
     if (TEST_NZ(eax, eax)) goto loc_0034B93B; /* jne: not equal / not zero */
 
 loc_0034B92F:
@@ -1382,6 +1464,7 @@ loc_0034B93B:
 
 loc_0034B95A:
     esp = esp + 0x10;
+    fsw_caituning_restore_parser_this();
     if (TEST_NZ(eax, eax)) goto loc_0034B96D; /* jne: not equal / not zero */
 
 loc_0034B961:
@@ -1399,6 +1482,7 @@ loc_0034B96D:
 
 loc_0034B98C:
     esp = esp + 0x10;
+    fsw_caituning_restore_parser_this();
     if (TEST_NZ(eax, eax)) goto loc_0034B99F; /* jne: not equal / not zero */
 
 loc_0034B993:
@@ -1416,6 +1500,7 @@ loc_0034B99F:
 
 loc_0034B9BE:
     esp = esp + 0x10;
+    fsw_caituning_restore_parser_this();
     if (TEST_NZ(eax, eax)) goto loc_0034B9CC; /* jne: not equal / not zero */
 
 loc_0034B9C5:
@@ -1433,6 +1518,7 @@ loc_0034B9CC:
 
 loc_0034B9EB:
     esp = esp + 0x10;
+    fsw_caituning_restore_parser_this();
     if (TEST_NZ(eax, eax)) goto loc_0034B9F9; /* jne: not equal / not zero */
 
 loc_0034B9F2:
@@ -1450,6 +1536,7 @@ loc_0034B9F9:
 
 loc_0034BA18:
     esp = esp + 0x10;
+    fsw_caituning_restore_parser_this();
     if (TEST_NZ(eax, eax)) goto loc_0034BA26; /* jne: not equal / not zero */
 
 loc_0034BA1F:
@@ -1467,6 +1554,7 @@ loc_0034BA26:
 
 loc_0034BA45:
     esp = esp + 0x10;
+    fsw_caituning_restore_parser_this();
     if (TEST_NZ(eax, eax)) goto loc_0034BA53; /* jne: not equal / not zero */
 
 loc_0034BA4C:
@@ -1484,6 +1572,7 @@ loc_0034BA53:
 
 loc_0034BA72:
     esp = esp + 0x10;
+    fsw_caituning_restore_parser_this();
     if (TEST_NZ(eax, eax)) goto loc_0034BA85; /* jne: not equal / not zero */
 
 loc_0034BA79:
@@ -1501,6 +1590,7 @@ loc_0034BA85:
 
 loc_0034BAA4:
     esp = esp + 0x10;
+    fsw_caituning_restore_parser_this();
     if (TEST_NZ(eax, eax)) goto loc_0034BAB7; /* jne: not equal / not zero */
 
 loc_0034BAAB:

@@ -7,6 +7,18 @@
 #define RECOMP_GENERATED_CODE
 #include "recomp_funcs.h"
 #include <math.h>
+#include <stdio.h>
+
+static int hudstandardicon_va_range_is_valid(uint32_t va, uint32_t size)
+{
+    if (size == 0) {
+        return va >= 0x00010000u && va < 0x04000000u;
+    }
+    if (va < 0x00010000u || va >= 0x04000000u || va + size < va) {
+        return 0;
+    }
+    return va + size <= 0x04000000u;
+}
 
 /**
  * fn_002C3EB0_HUDStandardIcon_SetUVs
@@ -58,6 +70,11 @@ void fn_002C3EF0_HUDStandardIcon_SetManagedIcon(void)
     int _flags = 0; /* fallback flag var */
 
 loc_002C3EF0:
+    if (!hudstandardicon_va_range_is_valid(eax, 0x70)) {
+        fprintf(stderr, "[FSW/HUD] skipping HUDStandardIcon_SetManagedIcon invalid icon=%08X enabled=%02X\n",
+                eax, LO8(ecx));
+        esp += 4; return; /* ret */
+    }
     edx = MEM32(eax + 0x5C);
     ecx = ZX8(LO8(ecx));
     ecx = ecx << 4;
@@ -70,10 +87,19 @@ loc_002C3EF0:
     edx = MEM32(eax + 4);
     (void)0; /* test LO8(ecx), 0x10 - flags set for next jcc */
     ecx = MEM32(eax + 8);
-    MEM32(edx + 8) = ecx;
+    if (hudstandardicon_va_range_is_valid(edx, 0xC) && hudstandardicon_va_range_is_valid(ecx, 0xC)) {
+        MEM32(edx + 8) = ecx;
+    } else {
+        fprintf(stderr, "[FSW/HUD] repairing HUDStandardIcon list icon=%08X prev=%08X next=%08X\n",
+                eax - 0x14, edx, ecx);
+        edx = eax;
+        ecx = eax;
+    }
     ecx = MEM32(eax + 4);
     edx = MEM32(eax + 8);
-    MEM32(edx + 4) = ecx;
+    if (hudstandardicon_va_range_is_valid(edx, 0xC) && hudstandardicon_va_range_is_valid(ecx, 0xC)) {
+        MEM32(edx + 4) = ecx;
+    }
     MEM32(eax + 4) = eax;
     if (TEST_Z(LO8(ecx), 0x10)) { sub_002C3F3E(); return; } /* je: equal / zero */
 
@@ -176,6 +202,14 @@ void fn_002C3FE0_HUDStandardIcon_SetTextLabel(void)
     int _flags = 0; /* fallback flag var */
 
 loc_002C3FE0:
+    if (!hudstandardicon_va_range_is_valid(esi, 0x68)) {
+        fprintf(stderr, "[FSW/HUD] skipping HUDStandardIcon_SetTextLabel invalid icon=%08X text=%08X\n", esi, edi);
+        goto loc_002C4042;
+    }
+    if (!hudstandardicon_va_range_is_valid(edi, 2)) {
+        fprintf(stderr, "[FSW/HUD] skipping HUDStandardIcon_SetTextLabel invalid text=%08X icon=%08X\n", edi, esi);
+        goto loc_002C4042;
+    }
     if (TEST_Z(edi, edi)) goto loc_002C4042; /* je: equal / zero */
 
 loc_002C3FE4:
@@ -263,6 +297,11 @@ loc_002C4050:
     MEM32(esp + 0x108) = eax;
     PUSH32(esp, edi);
     if (TEST_Z(esi, esi)) goto loc_002C40B7; /* je: equal / zero */
+    if (!hudstandardicon_va_range_is_valid(esi, 1)) {
+        fprintf(stderr, "[FSW/HUD] skipping HUDStandardIcon_SetTextLabel invalid narrow text=%08X icon=%08X\n",
+                esi, MEM32(ebp + 8));
+        goto loc_002C40B7;
+    }
 
 loc_002C4070:
     eax = 0; /* xor self */

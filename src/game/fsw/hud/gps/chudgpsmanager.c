@@ -7,6 +7,31 @@
 #define RECOMP_GENERATED_CODE
 #include "recomp_funcs.h"
 #include <math.h>
+#include <stdio.h>
+
+static int chudgpsmanager_va_range_is_valid(uint32_t va, uint32_t size)
+{
+    if (size == 0) {
+        return va >= 0x00010000u && va < 0x04000000u;
+    }
+    if (va < 0x00010000u || va >= 0x04000000u || va + size < va) {
+        return 0;
+    }
+    return va + size <= 0x04000000u;
+}
+
+static int chudgpsmanager_vtable_is_valid(uint32_t object, uint32_t min_size)
+{
+    uint32_t vtbl;
+    if (!chudgpsmanager_va_range_is_valid(object, 4)) {
+        return 0;
+    }
+    vtbl = MEM32(object);
+    if (!chudgpsmanager_va_range_is_valid(vtbl, min_size)) {
+        return 0;
+    }
+    return vtbl < 0x00800000u;
+}
 
 /**
  * fn_0002A720_1CHUDGPSManager_IAE_XZ
@@ -342,6 +367,7 @@ loc_002E2030:
 void fn_002E20F0_CHUDGPSManager_Setup(void)
 {
     uint32_t ebp;
+    uint32_t gps_attach_iterations = 0;
     int _flags = 0; /* fallback flag var */
     ebp = g_seh_ebp; /* fpo_leaf: inherit caller's frame */
 
@@ -471,6 +497,14 @@ loc_002E21EC:
     if (CMP_EQ(edi, 0x600634)) goto loc_002E2224; /* je: equal / zero */
 
 loc_002E2203:
+    gps_attach_iterations++;
+    if (gps_attach_iterations > 1024 ||
+        !chudgpsmanager_va_range_is_valid(edi, 0xC) ||
+        !chudgpsmanager_vtable_is_valid(esi, 4)) {
+        fprintf(stderr, "[FSW/HUD] GPS setup stopping icon attach loop iter=%u node=%08X gps=%08X\n",
+                gps_attach_iterations, edi, esi);
+        goto loc_002E2224;
+    }
     eax = MEM32(esi);
     ebx = MEM32(edi);
     ecx = esi;
@@ -480,6 +514,11 @@ loc_002E2203:
 
 loc_002E220B:
     ebp = eax;
+    if (!chudgpsmanager_vtable_is_valid(ebp, 0x20) ||
+        !chudgpsmanager_va_range_is_valid(ebx, 0x24)) {
+        fprintf(stderr, "[FSW/HUD] GPS setup skipping invalid icon attach icon=%08X node_value=%08X\n", ebp, ebx);
+        goto loc_002E2216;
+    }
     edx = MEM32(ebp);
     { uint32_t _icall_esp = g_esp;
     PUSH32(esp, esi);
@@ -488,7 +527,13 @@ loc_002E220B:
     }
 
 loc_002E2216:
-    MEM32(ebx + 0x20) = ebp;
+    if (chudgpsmanager_va_range_is_valid(ebx, 0x24)) {
+        MEM32(ebx + 0x20) = ebp;
+    }
+    if (!chudgpsmanager_va_range_is_valid(edi, 0xC)) {
+        fprintf(stderr, "[FSW/HUD] GPS setup hit invalid next node=%08X\n", edi);
+        goto loc_002E2224;
+    }
     edi = MEM32(edi + 8);
     if (CMP_NE(edi, 0x600634)) goto loc_002E2203; /* jne: not equal / not zero */
 
@@ -858,6 +903,7 @@ loc_002E2469:
  */
 void fn_002E2470_CHUDGPSManager_Update(void)
 {
+    uint32_t gps_update_iterations = 0;
     int _flags = 0; /* fallback flag var */
 
 loc_002E2470:
@@ -871,6 +917,13 @@ loc_002E247F:
     edi = MEM32(esp + 0x10);
 
 loc_002E2485:
+    if (++gps_update_iterations > 1024 ||
+        !chudgpsmanager_va_range_is_valid(esi, 0xC) ||
+        !chudgpsmanager_vtable_is_valid(MEM32(esi) + 0x10, 4)) {
+        fprintf(stderr, "[FSW/HUD] GPS update stopping loop iter=%u node=%08X gps=%08X\n",
+                gps_update_iterations, esi, chudgpsmanager_va_range_is_valid(esi, 4) ? MEM32(esi) + 0x10 : 0);
+        goto loc_002E249B;
+    }
     ebx = MEM32(esi);
     PUSH32(esp, edi);
     ebx = ebx + 0x10;

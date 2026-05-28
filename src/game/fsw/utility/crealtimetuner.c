@@ -7,6 +7,12 @@
 #define RECOMP_GENERATED_CODE
 #include "recomp_funcs.h"
 #include <math.h>
+#include <stdio.h>
+
+static int realtimetuner_va_range_is_valid(uint32_t va, uint32_t size)
+{
+    return va > 0x00010000u && va < 0x04000000u && size <= 0x04000000u - va;
+}
 
 /**
  * fn_00193890_CRealtimeTuner_Setup
@@ -89,6 +95,10 @@ loc_001938F3:
 void fn_00193900_CRealtimeTuner_Update(void)
 {
     uint32_t ebp;
+    uint32_t list_steps;
+    uint32_t iter_steps;
+    uint32_t menu;
+    uint32_t vtbl;
     int _flags = 0; /* fallback flag var */
     ebp = g_seh_ebp; /* fpo_leaf: inherit caller's frame */
 
@@ -96,6 +106,10 @@ loc_00193900:
     esp = esp - 8;
     PUSH32(esp, ebp);
     ebp = MEM32(esp + 0x10);
+    if (!realtimetuner_va_range_is_valid(ebp, 0x34)) {
+        fprintf(stderr, "[FSW/Tuner] skipping update invalid tuner=%08X\n", ebp);
+        goto loc_00193999;
+    }
     if (TEST_Z(MEM8(ebp + 0x30), 2)) goto loc_00193999; /* je: equal / zero */
 
 loc_00193912:
@@ -122,16 +136,35 @@ loc_0019392F:
 loc_00193937:
     ebx = MEM32(ebp + 0x1C);
     if (TEST_Z(ebx, ebx)) goto loc_00193954; /* je: equal / zero */
+    if (!realtimetuner_va_range_is_valid(ebx, 8)) {
+        fprintf(stderr, "[FSW/Tuner] invalid source menu head=%08X tuner=%08X\n", ebx, ebp);
+        goto loc_00193954;
+    }
 
 loc_0019393E:
     edi = edi;
+    list_steps = 0;
 
 loc_00193940:
+    if (!realtimetuner_va_range_is_valid(ebx, 8) || ++list_steps > 4096) {
+        fprintf(stderr, "[FSW/Tuner] stopping source menu walk node=%08X steps=%u\n", ebx, list_steps);
+        goto loc_00193954;
+    }
     PUSH32(esp, 0); fn_0004F4A0_PAVCUIMenu_ZeroList_Append(); /* call 0x0004F4A0 */
 
 loc_00193945:
     ecx = MEM32(ebx);
+    menu = ecx;
+    if (!realtimetuner_va_range_is_valid(menu, 4)) {
+        fprintf(stderr, "[FSW/Tuner] skipping invalid menu node=%08X menu=%08X\n", ebx, menu);
+        goto loc_0019394D;
+    }
     edx = MEM32(ecx);
+    vtbl = edx;
+    if (!realtimetuner_va_range_is_valid(vtbl, 0x18)) {
+        fprintf(stderr, "[FSW/Tuner] skipping invalid menu vtbl menu=%08X vtbl=%08X\n", menu, vtbl);
+        goto loc_0019394D;
+    }
     { uint32_t _icall_esp = g_esp;
     PUSH32(esp, esi);
     PUSH32(esp, 0); RECOMP_ICALL_SAFE(MEM32(edx + 0x14), _icall_esp); /* indirect call */
@@ -155,14 +188,24 @@ loc_00193961:
 
 loc_00193969:
     ecx = MEM32(edi + 4);
+    if (!realtimetuner_va_range_is_valid(ecx, 0xC)) {
+        fprintf(stderr, "[FSW/Tuner] invalid active menu tail=%08X list=%08X\n", ecx, edi);
+        goto loc_0019398D;
+    }
     edx = MEM32(ecx + 8);
     eax = edx;
     (void)0; /* test eax, eax - flags set for next jcc */
     MEM32(edi) = edx;
     if (TEST_Z(eax, eax)) goto loc_0019398D; /* je: equal / zero */
+    iter_steps = 0;
 
 loc_00193977:
     eax = MEM32(edi);
+    if (!realtimetuner_va_range_is_valid(eax, 8) || ++iter_steps > 4096) {
+        fprintf(stderr, "[FSW/Tuner] stopping active menu iterator node=%08X steps=%u\n", eax, iter_steps);
+        MEM32(edi) = 0;
+        goto loc_0019398D;
+    }
     if (CMP_EQ(MEM32(eax), esi)) goto loc_0019398D; /* je: equal / zero */
 
 loc_0019397D:

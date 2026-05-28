@@ -7,6 +7,12 @@
 #define RECOMP_GENERATED_CODE
 #include "recomp_funcs.h"
 #include <math.h>
+#include <stdio.h>
+
+static int hudvehicle_va_range_is_valid(uint32_t va, uint32_t size)
+{
+    return va >= 0x00010000u && va < 0x04000000u && size <= 0x04000000u - va;
+}
 
 /**
  * fn_0002CD10_0HUDCursorVehicleMove_QAE_XZ
@@ -1647,9 +1653,21 @@ loc_002BF5DA:
  */
 void fn_002BF5F0_HUDCursorVehicleMove_UpdateCameraInfo(void)
 {
+    static int logged_invalid_vehicle_camera = 0;
 
 loc_002BF5F0:
     eax = MEM32(0x5FA8E8);
+    if (ebx < 0x00500000u || !hudvehicle_va_range_is_valid(ebx, 0x5A0) ||
+        !hudvehicle_va_range_is_valid(eax, 0xD4) ||
+        !hudvehicle_va_range_is_valid(MEM32(eax + 0xD0), 0xC0)) {
+        if (!logged_invalid_vehicle_camera) {
+            fprintf(stderr, "[FSW/HUD] skipping vehicle cursor camera update cursor=%08X app=%08X camera=%08X\n",
+                    ebx, eax, hudvehicle_va_range_is_valid(eax, 0xD4) ? MEM32(eax + 0xD0) : 0);
+            logged_invalid_vehicle_camera = 1;
+        }
+        eax = 0;
+        esp += 4; return; /* ret */
+    }
     ecx = MEM32(eax + 0xD0);
     PUSH32(esp, esi);
     esi = ecx + 0x80;

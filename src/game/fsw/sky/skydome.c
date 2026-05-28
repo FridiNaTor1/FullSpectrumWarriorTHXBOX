@@ -7,6 +7,138 @@
 #define RECOMP_GENERATED_CODE
 #include "recomp_funcs.h"
 #include <math.h>
+#include <stdio.h>
+#include <string.h>
+
+extern uint32_t xbox_HeapAlloc(uint32_t size, uint32_t alignment);
+extern uint32_t g_fsw_xbvideo_global_video;
+extern uint32_t g_fsw_xbvideo_global_vtable;
+extern void fsw_xbvideo_ensure_default_render_surfaces(uint32_t video, const char *reason);
+
+static int fsw_sky_va_is_valid(uint32_t va)
+{
+    return va >= 0x00010000u && va < 0x04000000u;
+}
+
+static uint32_t g_fsw_sky_scatter_depth;
+
+static int fsw_sky_va_range_is_valid(uint32_t va, uint32_t size)
+{
+    return va >= 0x00010000u && va < 0x04000000u && size <= 0x04000000u - va;
+}
+
+static int fsw_sky_video_is_valid(uint32_t video)
+{
+    uint32_t vtable;
+    if (!fsw_sky_va_range_is_valid(video, 4)) {
+        return 0;
+    }
+    vtable = MEM32(video);
+    return vtable >= 0x00400000u && vtable < 0x00700000u;
+}
+
+static uint32_t fsw_sky_restore_video(const char *reason)
+{
+    uint32_t video = MEM32(0x5FA8E8);
+
+    if (!fsw_sky_video_is_valid(video)) {
+        if (fsw_sky_va_range_is_valid(video, 4) &&
+            video == g_fsw_xbvideo_global_video &&
+            g_fsw_xbvideo_global_vtable >= 0x00400000u &&
+            g_fsw_xbvideo_global_vtable < 0x00700000u) {
+            fprintf(stderr,
+                    "[FSW/Sky] restoring video vtable reason=%s video=%08X old=%08X new=%08X\n",
+                    reason, (unsigned)video, (unsigned)MEM32(video),
+                    (unsigned)g_fsw_xbvideo_global_vtable);
+            MEM32(video) = g_fsw_xbvideo_global_vtable;
+        } else if (fsw_sky_video_is_valid(g_fsw_xbvideo_global_video)) {
+            fprintf(stderr,
+                    "[FSW/Sky] restoring video singleton reason=%s current=%08X cached=%08X vtable=%08X\n",
+                    reason, (unsigned)video, (unsigned)g_fsw_xbvideo_global_video,
+                    (unsigned)MEM32(g_fsw_xbvideo_global_video));
+            MEM32(0x5FA8E8) = g_fsw_xbvideo_global_video;
+            video = g_fsw_xbvideo_global_video;
+        }
+    }
+
+    if (fsw_sky_video_is_valid(video)) {
+        fsw_xbvideo_ensure_default_render_surfaces(video, reason);
+    }
+
+    return video;
+}
+
+static void fsw_sky_progress(const char *stage, uint32_t object)
+{
+    fprintf(stderr, "[FSW/Sky] %s object=%08X esp=%08X eax=%08X ebx=%08X ecx=%08X edx=%08X esi=%08X edi=%08X\n",
+            stage,
+            (unsigned)object,
+            (unsigned)esp,
+            (unsigned)eax,
+            (unsigned)ebx,
+            (unsigned)ecx,
+            (unsigned)edx,
+            (unsigned)esi,
+            (unsigned)edi);
+}
+
+static uint32_t fsw_sky_alloc_shader_record(uint32_t vtable, uint32_t field4,
+                                            uint32_t field8, uint32_t fieldc)
+{
+    uint32_t record = xbox_HeapAlloc(0x10, 16);
+    if (record >= 0x00010000u && record < 0x04000000u) {
+        MEM32(record) = vtable;
+        MEM32(record + 4) = field4;
+        MEM32(record + 8) = field8;
+        MEM32(record + 0xC) = fieldc;
+    }
+    return record;
+}
+
+static void fsw_sky_create_shader(uint32_t owner, uint32_t out_offset,
+                                  uint32_t record, uint32_t shader_desc)
+{
+    PUSH32(esp, 0); fn_0014D0F0_XBShaderFactory_Get(); /* call 0x0014D0F0 */
+    PUSH32(esp, shader_desc);
+    PUSH32(esp, record);
+    PUSH32(esp, 0x85);
+    PUSH32(esp, 0x1E6);
+    PUSH32(esp, eax);
+    eax = 0x60000000;
+    PUSH32(esp, 0); fn_0014CF00_XBShaderFactory_CreateShader(); /* call 0x0014CF00 */
+    MEM32(owner + out_offset) = eax;
+}
+
+static uint32_t fsw_sky_alloc_object(uint32_t size, const char *reason)
+{
+    uint32_t object = xbox_HeapAlloc(size ? size : 4u, 16);
+    if (fsw_sky_va_range_is_valid(object, size ? size : 4u)) {
+        memset((void *)XBOX_PTR(object), 0, size ? size : 4u);
+        fprintf(stderr, "[FSW/Sky] fallback alloc %s size=%u object=%08X\n",
+                reason, (unsigned)size, (unsigned)object);
+        return object;
+    }
+    fprintf(stderr, "[FSW/Sky] fallback alloc failed %s size=%u object=%08X\n",
+            reason, (unsigned)size, (unsigned)object);
+    return 0;
+}
+
+static uint32_t fsw_sky_init_zero_object_fallback(uint32_t object)
+{
+    uint32_t i;
+    if (!fsw_sky_va_range_is_valid(object, 0xD0)) {
+        return 0;
+    }
+    memset((void *)XBOX_PTR(object), 0, 0xD0);
+    MEM32(object) = 0x53BAF8;
+    MEM32(object + 8) = 1;
+    MEM32(object + 0xC4) = MEM32(0x5CE2D0);
+    for (i = 0; i < 16; i++) {
+        MEM32(object + 0x80 + i * 4) = (i == 0 || i == 5 || i == 10 || i == 15) ? 0x3F800000u : 0;
+    }
+    MEM32(0x5FA8CC) = MEM32(0x5FA8CC) + 1;
+    return object;
+}
 
 /**
  * fn_0004B330_4_SkyDynLight_t_QAEXABU0_Z
@@ -375,6 +507,7 @@ loc_001D5D60:
     ecx = MEM32(esp + 8);
     esp = esp - 0x20;
     if (TEST_Z(ecx, ecx)) goto loc_001D5FD9; /* je: equal / zero */
+    if (!fsw_sky_va_is_valid(ecx + 0x14)) goto loc_001D5FD9;
 
 loc_001D5D6F:
     edx = 0; /* xor self */
@@ -394,8 +527,10 @@ loc_001D5D8B:
     edi = edi;
 
 loc_001D5D90:
+    if (!fsw_sky_va_is_valid(ecx + 0x14)) goto loc_001D5FD5;
     ebx = MEM32(ecx + 0x10);
     edi = SX16(LO16(eax));
+    if (!fsw_sky_va_is_valid(ebx + edi * 4)) goto loc_001D5FC7;
     edi = MEM32(ebx + edi * 4);
     if (TEST_Z(edi, edi)) goto loc_001D5FC7; /* je: equal / zero */
 
@@ -403,6 +538,7 @@ loc_001D5DA1:
     if (CMP_EQ(edi, esi)) goto loc_001D5FC7; /* je: equal / zero */
 
 loc_001D5DA9:
+    if (!fsw_sky_va_is_valid(edi + 0x9C) || !fsw_sky_va_is_valid(MEM32(edi))) goto loc_001D5FC7;
     ebx = MEM32(edi + 0x98);
     eax = MEM32(edi);
     esi = MEM32(edi + 0x9C);
@@ -658,6 +794,10 @@ void fn_001D5FE0_CSkyDomeEnvironment_patchScatterObject(void)
     int _flags = 0; /* fallback flag var */
 
 loc_001D5FE0:
+    if (g_fsw_sky_scatter_depth >= 64) {
+        esp += 8; return; /* ret 4 */
+    }
+    g_fsw_sky_scatter_depth++;
     PUSH32(esp, esi);
     esi = MEM32(esp + 8);
     (void)0; /* test esi, esi - flags set for next jcc */
@@ -666,6 +806,7 @@ loc_001D5FE0:
     if (TEST_Z(esi, esi)) goto loc_001D600F; /* je: equal / zero */
 
 loc_001D5FEC:
+    if (!fsw_sky_va_is_valid(esi + 0xC0)) goto loc_001D600F;
     eax = MEM32(esi + 0xC0);
     PUSH32(esp, eax);
     PUSH32(esp, edi);
@@ -681,10 +822,14 @@ loc_001D6000:
     PUSH32(esp, 0); fn_001D5FE0_CSkyDomeEnvironment_patchScatterObject(); /* call 0x001D5FE0 */
 
 loc_001D6008:
+    if (!fsw_sky_va_is_valid(esi + 0x18)) goto loc_001D600F;
     esi = MEM32(esi + 0x18);
     if (TEST_NZ(esi, esi)) goto loc_001D6000; /* jne: not equal / not zero */
 
 loc_001D600F:
+    if (g_fsw_sky_scatter_depth != 0) {
+        g_fsw_sky_scatter_depth--;
+    }
     POP32(esp, edi);
     POP32(esp, esi);
     esp += 8; return; /* ret 4 */
@@ -948,6 +1093,7 @@ void fn_001D62A0_CSkyDomeEnvironment_updateScatterConstants(void)
     ebp = g_seh_ebp; /* fpo_leaf: inherit caller's frame */
 
 loc_001D62A0:
+    fsw_sky_progress("scatter constants start", eax);
     ecx = MEM32(0x61664C);
     xmm0 = MEMF(0x561418); /* movss */
     esp = esp - 0x10;
@@ -996,6 +1142,7 @@ void sub_001D6311(void)
     float xmm0, xmm1, xmm2, xmm3, xmm4;
 
 loc_001D6311:
+    fsw_sky_progress("scatter constants body", eax);
     if (TEST_NZ(LO8(ecx), 2)) goto loc_001D6357; /* jne: not equal / not zero */
 
 loc_001D6316:
@@ -1296,7 +1443,17 @@ void fn_001D6700_CSkyDomeEnvironment_patchScatterObjects(void)
     ebp = g_seh_ebp; /* fpo_leaf: inherit caller's frame */
 
 loc_001D6700:
+    fsw_sky_progress("patch scatter start", edi);
+    if (!fsw_sky_va_is_valid(edi + 0xA50)) {
+        esp += 4; return;
+    }
     eax = MEM32(edi + 0xA50);
+    if (eax > 0x80u) {
+        fprintf(stderr, "[FSW/Sky] clamping corrupt scatter count object=%08X count=%u\n",
+                (unsigned)edi, (unsigned)eax);
+        eax = 0;
+        MEM32(edi + 0xA50) = 0;
+    }
     PUSH32(esp, ebp);
     ebp = 0; /* xor self */
     if (CMP_BE(eax & eax, 0)) goto loc_001D674F; /* jbe: below or equal (unsigned <=) */
@@ -1307,16 +1464,19 @@ loc_001D670D:
     ebx = edi + 0x850;
 
 loc_001D6715:
+    if (!fsw_sky_va_is_valid(ebx)) goto loc_001D674D;
     esi = MEM32(ebx);
     if (TEST_Z(esi, esi)) goto loc_001D673F; /* je: equal / zero */
 
 loc_001D671B:
+    if (!fsw_sky_va_is_valid(esi + 0xC0)) goto loc_001D673F;
     eax = MEM32(esi + 0xC0);
     PUSH32(esp, eax);
     PUSH32(esp, edi);
     PUSH32(esp, 0); fn_001D5D60_CSkyDomeEnvironment_patchScatterMesh(); /* call 0x001D5D60 */
 
 loc_001D6728:
+    if (!fsw_sky_va_is_valid(esi + 0x14)) goto loc_001D673F;
     esi = MEM32(esi + 0x14);
     if (TEST_Z(esi, esi)) goto loc_001D673F; /* je: equal / zero */
 
@@ -1329,6 +1489,7 @@ loc_001D6730:
     PUSH32(esp, 0); fn_001D5FE0_CSkyDomeEnvironment_patchScatterObject(); /* call 0x001D5FE0 */
 
 loc_001D6738:
+    if (!fsw_sky_va_is_valid(esi + 0x18)) goto loc_001D673F;
     esi = MEM32(esi + 0x18);
     if (TEST_NZ(esi, esi)) goto loc_001D6730; /* jne: not equal / not zero */
 
@@ -1343,6 +1504,7 @@ loc_001D674D:
     POP32(esp, ebx);
 
 loc_001D674F:
+    fsw_sky_progress("patch scatter update constants", edi);
     eax = edi;
     POP32(esp, ebp);
     g_seh_ebp = ebp; fn_001D62A0_CSkyDomeEnvironment_updateScatterConstants(); return; /* tail jmp 0x001D62A0 */
@@ -1363,6 +1525,7 @@ void fn_001D6760_CSkyDomeEnvironment_init(void)
     ebp = g_seh_ebp; /* fpo_leaf: inherit caller's frame */
 
 loc_001D6760:
+    fsw_sky_progress("env init start", MEM32(esp + 4));
     eax = MEM32(0x5F9E40);
     PUSH32(esp, ebp);
     ebp = MEM32(esp + 8);
@@ -1464,6 +1627,7 @@ void sub_001D67BB(void)
     ebp = g_seh_ebp; /* fpo_leaf: inherit caller's frame */
 
 loc_001D67BB:
+    fsw_sky_progress("env init shader 0x834", ebp);
     PUSH32(esp, 0); fn_0014D0F0_XBShaderFactory_Get(); /* call 0x0014D0F0 */
 
 loc_001D67C0:
@@ -1579,6 +1743,7 @@ void sub_001D682C(void)
     ebp = g_seh_ebp; /* fpo_leaf: inherit caller's frame */
 
 loc_001D682C:
+    fsw_sky_progress("env init shader 0x83C", ebp);
     PUSH32(esp, 0); fn_0014D0F0_XBShaderFactory_Get(); /* call 0x0014D0F0 */
 
 loc_001D6831:
@@ -1607,13 +1772,50 @@ loc_001D6861:
 /* Fallback for unresolved generated target 0x001D6866. */
 void sub_001D6866(void)
 {
-    recomp_missing_target(0x001D6866u);
+    eax = fsw_sky_alloc_shader_record(0x5808F8, 0x48, ebx, esi);
+    sub_001D687F(); return;
 }
 
 /* Fallback for unresolved generated target 0x001D687F. */
 void sub_001D687F(void)
 {
-    recomp_missing_target(0x001D687Fu);
+    uint32_t ebp;
+    uint32_t record;
+    ebp = g_seh_ebp; /* fpo_leaf: inherit caller's frame */
+    fsw_sky_progress("env init fallback shaders", ebp);
+
+    if (eax >= 0x00010000u && eax < 0x04000000u) {
+        MEM32(eax) = 0x5808F8;
+        MEM32(eax + 4) = 0x48;
+        MEM32(eax + 8) = ebx;
+        MEM32(eax + 0xC) = esi;
+        edi = eax;
+    } else {
+        edi = 0;
+    }
+    fsw_sky_create_shader(ebp, 0x838, edi, 0x581DB8);
+
+    record = fsw_sky_alloc_shader_record(0x580D80, 0x28, ebx, esi);
+    fsw_sky_create_shader(ebp, 0x840, record, 0x581EA8);
+
+    ebx = 0x4F;
+    record = fsw_sky_alloc_shader_record(0x581008, ebx, 0xFFFFFFFFu, esi);
+    fsw_sky_create_shader(ebp, 0x848, record, 0x581F98);
+
+    record = fsw_sky_alloc_shader_record(0x581500, ebx, 0xFFFFFFFFu, esi);
+    fsw_sky_create_shader(ebp, 0x844, record, 0x582088);
+
+    POP32(esp, edi);
+    POP32(esp, ebx);
+    record = fsw_sky_alloc_shader_record(0x57FF60, 0x2A, 0xFFFFFFFFu, 0x110);
+    esi = record;
+    MEM32(ebp + 0x828) = esi;
+    fsw_sky_create_shader(ebp, 0x82C, esi, 0x581AE8);
+    eax = ebp;
+    PUSH32(esp, 0); fn_001D62A0_CSkyDomeEnvironment_updateScatterConstants(); /* call 0x001D62A0 */
+    POP32(esp, esi);
+    POP32(esp, ebp);
+    esp += 8; return; /* ret 4 */
 }
 
 /**
@@ -1629,6 +1831,7 @@ void fn_001D6AB0_0CSkyDomeEnvironment_AAE_XZ(void)
     float xmm0, xmm1, xmm2, xmm3;
 
 loc_001D6AB0:
+    fsw_sky_progress("constructor start", esi);
     xmm0 = 0.0f; /* xorps self = zero */
     xmm1 = MEMF(0x5614A8); /* movss */
     MEMF(esi + 0x104) = xmm0; /* movss */
@@ -1737,6 +1940,7 @@ loc_001D6C8A:
     PUSH32(esp, 0); fn_001D6760_CSkyDomeEnvironment_init(); /* call 0x001D6760 */
 
 loc_001D6CF5:
+    fsw_sky_progress("constructor complete", esi);
     POP32(esp, edi);
     eax = esi;
     POP32(esp, ebx);
@@ -1996,6 +2200,7 @@ void fn_001D6EB0_CSkyDomeEnvironment_Get(void)
     int _flags = 0; /* fallback flag var */
 
 loc_001D6EB0:
+    fsw_sky_progress("get start", 0x62EE08);
     eax = MEM32(0);
     SET_LO8(ecx, MEM8(0x631208));
     PUSH32(esp, 0xFFFFFFFFu);
@@ -2021,6 +2226,7 @@ loc_001D6EF7:
     esp = esp + 4;
 
 loc_001D6EFA:
+    fsw_sky_progress("get return", 0x62EE08);
     ecx = MEM32(esp + 4);
     eax = 0x62EE08;
     MEM32(0) = ecx;
@@ -3291,6 +3497,8 @@ void fn_001D7980_SkyDome_Build(void)
     uint32_t ebp;
     int _flags = 0; /* fallback flag var */
     int _fpu_cmp = 0; /* FPU compare result: -1/0/1 */
+    uint32_t sky_env = 0;
+    uint32_t zero_object_fallback = 0;
     float xmm0, xmm1, xmm2, xmm3, xmm4, xmm5, xmm6, xmm7;
     double _fp_stack[8];
     int _fp_top = 0;
@@ -3301,6 +3509,8 @@ void fn_001D7980_SkyDome_Build(void)
     #define fp_st1() _fp_stack[(_fp_top + 1) & 7]
 
 loc_001D7980:
+    fprintf(stderr, "[FSW/Sky] SkyDome_Build begin esp=%08X video=%08X\n",
+            (unsigned)esp, (unsigned)MEM32(0x5FA8E8));
     PUSH32(esp, ebp);
     ebp = esp;
     esp = esp & 0xFFFFFFF0u;
@@ -3312,6 +3522,13 @@ loc_001D7980:
 
 loc_001D7994:
     ebx = eax;
+    sky_env = ebx;
+    fprintf(stderr, "[FSW/Sky] SkyDome_Build env=%08X tex=%08X mesh=%08X obj=%08X esp=%08X\n",
+            (unsigned)ebx,
+            (unsigned)(fsw_sky_va_is_valid(ebx + 0x82C) ? MEM32(ebx + 0x82C) : 0),
+            (unsigned)(fsw_sky_va_is_valid(ebx + 0x820) ? MEM32(ebx + 0x820) : 0),
+            (unsigned)(fsw_sky_va_is_valid(ebx + 0x81C) ? MEM32(ebx + 0x81C) : 0),
+            (unsigned)esp);
     ecx = MEM32(ebx + 0x81C);
     esi = 0; /* xor self */
     (void)0; /* cmp ecx, esi - flags set for next jcc */
@@ -3333,13 +3550,26 @@ loc_001D79B2:
     MEM32(ebx + 0x81C) = esi;
 
 loc_001D79B8:
-    edi = MEM32(0x5FA8E8);
+    edi = fsw_sky_restore_video("skydome-build");
+    if (!fsw_sky_video_is_valid(edi) || !fsw_sky_va_range_is_valid(edi, 0x6C3C)) {
+        fprintf(stderr,
+                "[FSW/Sky] SkyDome_Build abort invalid video video=%08X vtbl=%08X cached=%08X cached_vtbl=%08X\n",
+                (unsigned)edi,
+                (unsigned)(fsw_sky_va_range_is_valid(edi, 4) ? MEM32(edi) : 0),
+                (unsigned)g_fsw_xbvideo_global_video,
+                (unsigned)g_fsw_xbvideo_global_vtable);
+        goto loc_fsw_sky_build_fail;
+    }
     ecx = ebx + 4;
     (void)0; /* cmp ecx, esi - flags set for next jcc */
     MEM32(esp + 0xC8) = esi;
     if (CMP_EQ(ecx, esi)) goto loc_001D7A47; /* je: equal / zero */
 
 loc_001D79CC:
+    fprintf(stderr, "[FSW/Sky] SkyDome_Build before video surface lookup video=%08X vtbl=%08X esp=%08X\n",
+            (unsigned)edi,
+            (unsigned)(fsw_sky_va_is_valid(edi) ? MEM32(edi) : 0),
+            (unsigned)esp);
     edx = MEM32(edi + 0xF0);
     eax = esp + 0xD8;
     PUSH32(esp, eax);
@@ -3370,8 +3600,23 @@ loc_001D7A35:
 
 loc_001D7A40:
     MEM32(esp + 0xC8) = eax;
+    fprintf(stderr, "[FSW/Sky] SkyDome_Build surface lookup result=%08X esp=%08X\n",
+            (unsigned)eax, (unsigned)esp);
 
 loc_001D7A47:
+    ebx = sky_env;
+    edi = fsw_sky_restore_video("skydome-material");
+    if (!fsw_sky_video_is_valid(edi) || !fsw_sky_va_range_is_valid(edi, 0x6C3C)) {
+        fprintf(stderr,
+                "[FSW/Sky] SkyDome_Build abort invalid material-video video=%08X vtbl=%08X cached=%08X cached_vtbl=%08X\n",
+                (unsigned)edi,
+                (unsigned)(fsw_sky_va_range_is_valid(edi, 4) ? MEM32(edi) : 0),
+                (unsigned)g_fsw_xbvideo_global_video,
+                (unsigned)g_fsw_xbvideo_global_vtable);
+        goto loc_fsw_sky_build_fail;
+    }
+    fprintf(stderr, "[FSW/Sky] SkyDome_Build before material create video=%08X surface=%08X esp=%08X\n",
+            (unsigned)edi, (unsigned)MEM32(esp + 0xC8), (unsigned)esp);
     eax = MEM32(edi + 0x6C38);
     MEM32(esp + 0xCC) = eax;
     MEM32(esp + 0xD0) = eax;
@@ -3400,6 +3645,11 @@ loc_001D7A99:
     PUSH32(esp, 0); fn_000280C0_0ZeroMaterialDesc_QAE_VCRC_TAttribData_KQBQAVZeroSurface_H_Z(); /* call 0x000280C0 */
 
 loc_001D7AAE:
+    fprintf(stderr, "[FSW/Sky] SkyDome_Build before CreateMaterial video=%08X vtbl=%08X desc=%08X esp=%08X\n",
+            (unsigned)edi,
+            (unsigned)(fsw_sky_va_is_valid(edi) ? MEM32(edi) : 0),
+            (unsigned)(esp + 0x188),
+            (unsigned)esp);
     eax = MEM32(edi);
     ecx = esp + 0x188;
     { uint32_t _icall_esp = g_esp;
@@ -3409,7 +3659,29 @@ loc_001D7AAE:
     }
 
 loc_001D7ABD:
+    ebx = sky_env;
+    fprintf(stderr, "[FSW/Sky] SkyDome_Build material=%08X texture=%08X esp=%08X\n",
+            (unsigned)eax,
+            (unsigned)(fsw_sky_va_is_valid(ebx + 0x82C) ? MEM32(ebx + 0x82C) : 0),
+            (unsigned)esp);
+    if (!fsw_sky_va_range_is_valid(eax, 0x50) ||
+        !fsw_sky_va_range_is_valid(MEM32(eax), 0x44)) {
+        fprintf(stderr,
+                "[FSW/Sky] SkyDome_Build abort invalid material material=%08X vtbl=%08X video=%08X\n",
+                (unsigned)eax,
+                (unsigned)(fsw_sky_va_range_is_valid(eax, 4) ? MEM32(eax) : 0),
+                (unsigned)edi);
+        MEM32(ebx + 0x830) = 0;
+        goto loc_fsw_sky_build_fail;
+    }
     ecx = MEM32(ebx + 0x82C);
+    if (ecx == 0 || !fsw_sky_va_range_is_valid(ecx, 4)) {
+        fprintf(stderr,
+                "[FSW/Sky] SkyDome_Build skipping null/invalid texture bind material=%08X texture=%08X\n",
+                (unsigned)eax, (unsigned)ecx);
+        MEM32(ebx + 0x830) = eax;
+        goto loc_001D7AD2;
+    }
     { uint32_t _icall_esp = g_esp;
     PUSH32(esp, esi);
     MEM32(ebx + 0x830) = eax;
@@ -3420,8 +3692,15 @@ loc_001D7ABD:
     }
 
 loc_001D7AD2:
+    ebx = sky_env;
     SET_LO8(ecx, MEM8(esp + 0x18C));
     edi = MEM32(ebx + 0x830);
+    fprintf(stderr,
+            "[FSW/Sky] SkyDome_Build before state group material=%08X vtbl=%08X ecx=%08X esp=%08X\n",
+            (unsigned)edi,
+            (unsigned)(fsw_sky_va_range_is_valid(edi, 4) ? MEM32(edi) : 0),
+            (unsigned)ecx,
+            (unsigned)esp);
     PUSH32(esp, 0x5CF450);
     PUSH32(esp, 0x5CF450);
     PUSH32(esp, 0x5CF450);
@@ -3430,6 +3709,12 @@ loc_001D7AD2:
     PUSH32(esp, 0); fn_00125AD0_ZeroStateGroup_Create(); /* call 0x00125AD0 */
 
 loc_001D7AFD:
+    ebx = sky_env;
+    edi = MEM32(ebx + 0x830);
+    esi = 0;
+    fprintf(stderr,
+            "[FSW/Sky] SkyDome_Build after state group state=%08X material=%08X esp=%08X\n",
+            (unsigned)eax, (unsigned)MEM32(ebx + 0x830), (unsigned)esp);
     ecx = edi + 0x10;
     MEM32(ecx) = eax;
     MEM32(ecx + 4) = eax;
@@ -3442,15 +3727,26 @@ loc_001D7AFD:
     edx = esp + 0x24;
     MEM32(ecx + 0x1C) = eax;
     eax = MEM32(0x6135C8);
-    { uint32_t _icall_esp = g_esp;
-    PUSH32(esp, edx);
-    PUSH32(esp, 0x40);
-    ecx = 0x6135C8;
-    MEM32(esp + 0x2C) = esi;
-    PUSH32(esp, 0); RECOMP_ICALL_SAFE(MEM32(eax), _icall_esp); /* indirect call */
+    fprintf(stderr,
+            "[FSW/Sky] SkyDome_Build before mesh record alloc allocator=%08X material=%08X esp=%08X\n",
+            (unsigned)eax, (unsigned)edi, (unsigned)esp);
+    if (!fsw_sky_va_range_is_valid(eax, 4) ||
+        !fsw_sky_va_range_is_valid(MEM32(eax), 4)) {
+        MEM32(esp + 0x24) = 0;
+        eax = fsw_sky_alloc_object(0x40, "skydome-mesh-record");
+    } else {
+        { uint32_t _icall_esp = g_esp;
+        PUSH32(esp, edx);
+        PUSH32(esp, 0x40);
+        ecx = 0x6135C8;
+        MEM32(esp + 0x2C) = esi;
+        PUSH32(esp, 0); RECOMP_ICALL_SAFE(MEM32(eax), _icall_esp); /* indirect call */
+        }
     }
 
 loc_001D7B31:
+    ebx = sky_env;
+    esi = 0;
     ecx = MEM32(esp + 0x24);
     MEM32(eax + 4) = ecx;
     MEM32(eax + 0xC) = esi;
@@ -3464,26 +3760,50 @@ loc_001D7B31:
     MEM16(eax + 0x1C) = LO16(esi);
     MEM32(eax + 0x3C) = esi;
     edx = esp + 0x24;
-    { uint32_t _icall_esp = g_esp;
-    PUSH32(esp, edx);
     MEM32(ebx + 0x820) = eax;
     eax = MEM32(0x6135C8);
-    PUSH32(esp, 0xD0);
-    ecx = 0x6135C8;
-    MEM32(esp + 0x2C) = esi;
-    PUSH32(esp, 0); RECOMP_ICALL_SAFE(MEM32(eax), _icall_esp); /* indirect call */
+    if (!fsw_sky_va_range_is_valid(eax, 4) ||
+        !fsw_sky_va_range_is_valid(MEM32(eax), 4)) {
+        MEM32(esp + 0x24) = 0;
+        eax = fsw_sky_alloc_object(0xD0, "skydome-zero-object");
+        zero_object_fallback = eax;
+    } else {
+        { uint32_t _icall_esp = g_esp;
+        PUSH32(esp, edx);
+        PUSH32(esp, 0xD0);
+        ecx = 0x6135C8;
+        MEM32(esp + 0x2C) = esi;
+        PUSH32(esp, 0); RECOMP_ICALL_SAFE(MEM32(eax), _icall_esp); /* indirect call */
+        }
     }
 
 loc_001D7B81:
+    ebx = sky_env;
+    esi = 0;
     ecx = MEM32(esp + 0x24);
     PUSH32(esp, eax);
     MEM32(eax + 4) = ecx;
-    PUSH32(esp, 0); fn_00022A40_0ZeroObject_QAE_XZ(); /* call 0x00022A40 */
+    if (zero_object_fallback == eax) {
+        eax = fsw_sky_init_zero_object_fallback(eax);
+        esp = esp + 4;
+        fprintf(stderr, "[FSW/Sky] SkyDome_Build initialized fallback ZeroObject object=%08X\n",
+                (unsigned)eax);
+    } else {
+        PUSH32(esp, 0); fn_00022A40_0ZeroObject_QAE_XZ(); /* call 0x00022A40 */
+    }
 
 loc_001D7B8E:
+    ebx = sky_env;
+    esi = 0;
     edi = eax;
     eax = MEM32(ebx + 0x820);
     MEM32(ebx + 0x81C) = edi;
+    fprintf(stderr,
+            "[FSW/Sky] SkyDome_Build after ZeroObject object=%08X mesh_record=%08X obj_parent=%08X esp=%08X\n",
+            (unsigned)edi,
+            (unsigned)eax,
+            (unsigned)(fsw_sky_va_range_is_valid(edi + 0xC0, 4) ? MEM32(edi + 0xC0) : 0),
+            (unsigned)esp);
     ecx = MEM32(edi + 0xC0);
     (void)0; /* cmp ecx, esi - flags set for next jcc */
     MEM32(esp + 0x14) = eax;
@@ -3512,6 +3832,13 @@ loc_001D7BC4:
     MEM32(eax + 8) = MEM32(eax + 8) + 1;
 
 loc_001D7BC7:
+    ebx = sky_env;
+    esi = 0;
+    fprintf(stderr,
+            "[FSW/Sky] SkyDome_Build before mesh record release mesh_record=%08X ref=%u esp=%08X\n",
+            (unsigned)MEM32(ebx + 0x820),
+            (unsigned)(fsw_sky_va_range_is_valid(MEM32(ebx + 0x820) + 8, 4) ? MEM32(MEM32(ebx + 0x820) + 8) : 0),
+            (unsigned)esp);
     ecx = MEM32(ebx + 0x820);
     MEM32(ecx + 8) = MEM32(ecx + 8) - 1;
     if ((MEM32(ecx + 8) != 0)) goto loc_001D7BD9; /* jne: not equal / not zero */
@@ -3524,17 +3851,27 @@ loc_001D7BD2:
     }
 
 loc_001D7BD9:
+    ebx = sky_env;
+    esi = 0;
     edx = MEM32(0x6135C8);
     ecx = esp + 0x24;
-    { uint32_t _icall_esp = g_esp;
-    PUSH32(esp, ecx);
-    PUSH32(esp, 0x2C);
-    ecx = 0x6135C8;
-    MEM32(esp + 0x2C) = esi;
-    PUSH32(esp, 0); RECOMP_ICALL_SAFE(MEM32(edx), _icall_esp); /* indirect call */
+    if (!fsw_sky_va_range_is_valid(edx, 4) ||
+        !fsw_sky_va_range_is_valid(MEM32(edx), 4)) {
+        MEM32(esp + 0x24) = 0;
+        eax = fsw_sky_alloc_object(0x2C, "skydome-render-descriptor");
+    } else {
+        { uint32_t _icall_esp = g_esp;
+        PUSH32(esp, ecx);
+        PUSH32(esp, 0x2C);
+        ecx = 0x6135C8;
+        MEM32(esp + 0x2C) = esi;
+        PUSH32(esp, 0); RECOMP_ICALL_SAFE(MEM32(edx), _icall_esp); /* indirect call */
+        }
     }
 
 loc_001D7BF1:
+    ebx = sky_env;
+    esi = 0;
     ecx = MEM32(esp + 0x24);
     MEM32(eax + 4) = ecx;
     MEM32(eax + 0xC) = esi;
@@ -3548,6 +3885,12 @@ loc_001D7BF1:
     MEM32(eax + 0x28) = esi;
     MEM8(eax + 0x24) = 0;
     MEM32(ebx + 0x824) = eax;
+    fprintf(stderr,
+            "[FSW/Sky] SkyDome_Build render descriptor ready descriptor=%08X mesh=%08X object=%08X esp=%08X\n",
+            (unsigned)eax,
+            (unsigned)MEM32(ebx + 0x820),
+            (unsigned)MEM32(ebx + 0x81C),
+            (unsigned)esp);
     MEM32(eax + 0x14) = 4;
     eax = MEM32(ebx);
     ecx = MEM32(ebx + 0x824);
@@ -3576,31 +3919,69 @@ loc_001D7C7B:
     MEM32(eax + 0x10) = MEM32(eax + 0x10) | 0x1000100;
 
 loc_001D7C88:
+    ebx = sky_env;
+    esi = 0;
+    if ((int32_t)MEM32(ebx) <= 0 || MEM32(ebx) > 64u) {
+        fprintf(stderr,
+                "[FSW/Sky] SkyDome_Build clamping corrupt segment count env=%08X count=%u\n",
+                (unsigned)ebx, (unsigned)MEM32(ebx));
+        MEM32(ebx) = 16;
+    }
     eax = MEM32(ebx);
     xmm0 = MEMF(ebx + 0x108); /* movss */
     MEM32(esp + 0x2C) = eax;
     eax = esp + 0x1B8;
     MEMF(esp + 0x58) = xmm0; /* movss */
+    fprintf(stderr,
+            "[FSW/Sky] SkyDome_Build before vertex record vertex_record=%08X descriptor=%08X esp=%08X\n",
+            (unsigned)eax, (unsigned)MEM32(ebx + 0x824), (unsigned)esp);
     PUSH32(esp, 0); fn_00025E70_0ZeroVertexRecord_QAE_XZ(); /* call 0x00025E70 */
 
 loc_001D7CA8:
+    ebx = sky_env;
+    esi = 0;
+    fprintf(stderr,
+            "[FSW/Sky] SkyDome_Build after vertex record descriptor=%08X vb=%08X esp=%08X\n",
+            (unsigned)MEM32(ebx + 0x824),
+            (unsigned)(fsw_sky_va_range_is_valid(MEM32(ebx + 0x824) + 0x28, 4) ? MEM32(MEM32(ebx + 0x824) + 0x28) : 0),
+            (unsigned)esp);
     edi = MEM32(ebx + 0x824);
     if (CMP_NE(MEM32(edi + 0x28), esi)) goto loc_001D7CC1; /* jne: not equal / not zero */
 
 loc_001D7CB3:
-    ecx = MEM32(0x5FA8E8);
+    ecx = fsw_sky_restore_video("skydome-vertex-buffer");
+    fprintf(stderr,
+            "[FSW/Sky] SkyDome_Build before vertex buffer video=%08X vtbl=%08X descriptor=%08X esp=%08X\n",
+            (unsigned)ecx,
+            (unsigned)(fsw_sky_va_range_is_valid(ecx, 4) ? MEM32(ecx) : 0),
+            (unsigned)edi,
+            (unsigned)esp);
     edx = MEM32(ecx);
     { uint32_t _icall_esp = g_esp;
     PUSH32(esp, 0); RECOMP_ICALL_SAFE(MEM32(edx + 0x3C), _icall_esp); /* indirect call */
     }
 
 loc_001D7CBE:
+    ebx = sky_env;
+    esi = 0;
+    fprintf(stderr,
+            "[FSW/Sky] SkyDome_Build vertex buffer result vb=%08X descriptor=%08X esp=%08X\n",
+            (unsigned)eax, (unsigned)edi, (unsigned)esp);
     MEM32(edi + 0x28) = eax;
 
 loc_001D7CC1:
+    ebx = sky_env;
+    esi = 0;
     ecx = MEM32(edi + 0x28);
     eax = MEM32(ecx);
     edx = esp + 0x1B8;
+    fprintf(stderr,
+            "[FSW/Sky] SkyDome_Build before descriptor attach vb=%08X vtbl=%08X descriptor=%08X vertex_record=%08X esp=%08X\n",
+            (unsigned)ecx,
+            (unsigned)(fsw_sky_va_range_is_valid(ecx, 4) ? MEM32(ecx) : 0),
+            (unsigned)edi,
+            (unsigned)edx,
+            (unsigned)esp);
     { uint32_t _icall_esp = g_esp;
     PUSH32(esp, edx);
     PUSH32(esp, esi);
@@ -3609,6 +3990,13 @@ loc_001D7CC1:
     }
 
 loc_001D7CD3:
+    ebx = sky_env;
+    esi = 0;
+    fprintf(stderr,
+            "[FSW/Sky] SkyDome_Build after descriptor attach descriptor=%08X vb=%08X esp=%08X\n",
+            (unsigned)MEM32(ebx + 0x824),
+            (unsigned)(fsw_sky_va_range_is_valid(MEM32(ebx + 0x824) + 0x28, 4) ? MEM32(MEM32(ebx + 0x824) + 0x28) : 0),
+            (unsigned)esp);
     xmm0 = MEMF(ebx + 0x104); /* movss */
     xmm0 = xmm0 * MEMF(0x60E1F4); /* mulss */
     xmm1 = 0.0f; /* xorps self = zero */
@@ -3620,7 +4008,17 @@ loc_001D7CD3:
     PUSH32(esp, 0); fn_00017F30_YawMatrix(); /* call 0x00017F30 */
 
 loc_001D7D03:
+    ebx = sky_env;
+    fprintf(stderr,
+            "[FSW/Sky] SkyDome_Build after yaw matrix esp=%08X matrix=%08X segments=%d\n",
+            (unsigned)esp, (unsigned)(esp + 0x144), (int32_t)MEM32(esp + 0x2C));
     esp = esp + 4;
+    if ((int32_t)MEM32(esp + 0x2C) <= 0 || MEM32(esp + 0x2C) > 64u) {
+        fprintf(stderr,
+                "[FSW/Sky] SkyDome_Build clamping stack segment count count=%u esp=%08X\n",
+                (unsigned)MEM32(esp + 0x2C), (unsigned)esp);
+        MEM32(esp + 0x2C) = 16;
+    }
     eax = 0; /* xor self */
     MEM32(esp + 0x3C) = eax;
     MEM32(esp + 0x50) = 0x60E110;
@@ -4287,6 +4685,15 @@ loc_001D86D5:
     POP32(esp, edi);
     POP32(esp, esi);
     eax = 1;
+    POP32(esp, ebx);
+    esp = ebp;
+    POP32(esp, ebp);
+    esp += 4; return; /* ret */
+
+loc_fsw_sky_build_fail:
+    POP32(esp, edi);
+    POP32(esp, esi);
+    eax = 0;
     POP32(esp, ebx);
     esp = ebp;
     POP32(esp, ebp);

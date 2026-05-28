@@ -200,10 +200,12 @@ loc_003FF773:
  */
 void sub_003FF77C(void)
 {
+    uint32_t video_path_source;
     int _flags = 0; /* fallback flag var */
     float xmm0;
 
 loc_003FF77C:
+    video_path_source = esi;
     ebx = 0x60F060;
     PUSH32(esp, 0); fn_001BACC0_CVideoObject_Cleanup(); /* call 0x001BACC0 */
 
@@ -212,6 +214,7 @@ loc_003FF786:
     MEM8(0x60F0BC) = LO8(ebx);
     MEM32(0x60F0C0) = ebx;
     ecx = 0x10;
+    esi = video_path_source;
     edi = 0x60F060;
     memcpy((void*)XBOX_PTR(edi), (void*)XBOX_PTR(esi), ecx * 4);
     esi += ecx * 4; edi += ecx * 4; ecx = 0; /* rep movsd */

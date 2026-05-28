@@ -7,10 +7,25 @@
 #define RECOMP_GENERATED_CODE
 #include "recomp_funcs.h"
 #include <math.h>
+#include <stdio.h>
+#include <stdlib.h>
+
+#ifdef XBOXRECOMP_VULKAN_GRAPHICS
+extern int fsw_cuiimagecontrol_draw_texture_crc(uint32_t crc, float x, float y,
+                                                float w, float h, uint32_t color);
+extern uint32_t fsw_cuitexture_find_surface(uint32_t crc);
+static uint32_t g_fsw_bg_debug_log_count;
+static uint32_t g_fsw_bg_update_debug_log_count;
+#endif
 
 static int cbackgroundui_va_is_valid(uint32_t va)
 {
     return va >= 0x00010000u && va < 0x04000000u;
+}
+
+static int cbackgroundui_is_static_text(uint32_t va)
+{
+    return cbackgroundui_va_is_valid(va + 0x108) && MEM32(va) == 0x55B110u;
 }
 
 /**
@@ -1262,6 +1277,11 @@ void fn_00198E60_CBackGroundUI_Render(void)
     int _cf = 0; /* carry flag */
     int _fpu_cmp = 0; /* FPU compare result: -1/0/1 */
     float xmm0, xmm1, xmm2, xmm3;
+#ifdef XBOXRECOMP_VULKAN_GRAPHICS
+    uint32_t fsw_bg_crc = 0;
+    int fsw_bg_drawn = 0;
+    int fsw_bg_any_visible = 0;
+#endif
     double _fp_stack[8];
     int _fp_top = 0;
     #define fp_push(v) (_fp_stack[--_fp_top & 7] = (v))
@@ -1484,6 +1504,13 @@ loc_00199024:
     xmm0 = (float)(int32_t)ecx; /* cvtsi2ss */
     xmm0 = xmm0 * MEMF(0x561410); /* mulss */
     /* comiss xmm1, xmm0 - sets EFLAGS */
+#ifdef XBOXRECOMP_VULKAN_GRAPHICS
+    if (getenv("FSW_TH_BG_DEBUG") != NULL && g_fsw_bg_debug_log_count < 128 && xmm1 > xmm0) {
+        fprintf(stderr,
+                "[FSW/BG/RESET] t=%.3f limit=%.3f raw_len=%u len_scale=%.3f tick_scale=%.6f\n",
+                xmm1, xmm0, (unsigned)MEM32(MEM32(0x5F33E8)), MEMF(0x5D1D44), MEMF(0x561410));
+    }
+#endif
     if ((xmm1 <= xmm0)) goto loc_0019905D; /* jbe: below or equal (unsigned <=) */
 
 loc_00199052:
@@ -1492,7 +1519,9 @@ loc_00199052:
 
 loc_0019905D:
     edi = esp + 0x70;
+#ifndef XBOXRECOMP_VULKAN_GRAPHICS
     PUSH32(esp, 0); fn_0012BBD0_0CUIImageControl_QAE_XZ(); /* call 0x0012BBD0 */
+#endif
 
 loc_00199066:
     MEM32(esp + 0x1CC) = 0;
@@ -1517,6 +1546,11 @@ loc_00199066:
     MEMF(esp + 0x10C) = xmm1; /* movss */
     MEMF(esp + 0x110) = xmm0; /* movss */
     eax = MEM32(edx + 4);
+#ifdef XBOXRECOMP_VULKAN_GRAPHICS
+    if (eax > 16) {
+        eax = 16;
+    }
+#endif
     eax--;
     if (((int32_t)eax < 0)) goto loc_0019929B; /* js: sign (negative) */
 
@@ -1533,9 +1567,20 @@ loc_0019910D:
 loc_00199120:
     eax = MEM32(0x5F33EC);
     xmm1 = MEMF(0x5F33F8); /* movss */
+    esi = edi + eax;
+#ifdef XBOXRECOMP_VULKAN_GRAPHICS
+    if (!cbackgroundui_va_is_valid(esi + 0xC) ||
+        MEM32(esi + 8) > 256 ||
+        (MEM32(esi + 8) != 0 && !cbackgroundui_va_is_valid(MEM32(esi + 0xC)))) {
+        goto loc_00199285;
+    }
+    fsw_bg_crc = MEM32(esi);
+    if (!fsw_cuitexture_find_surface(fsw_bg_crc)) {
+        goto loc_00199285;
+    }
+#endif
     ecx = esp + 0x20;
     PUSH32(esp, ecx);
-    esi = edi + eax;
     edx = esp + 0x1C;
     PUSH32(esp, edx);
     eax = esp + 0x24;
@@ -1548,6 +1593,20 @@ loc_00199120:
     PUSH32(esp, 0); fn_0019AB40_CImageItem_GetData(); /* call 0x0019AB40 */
 
 loc_00199150:
+#ifdef XBOXRECOMP_VULKAN_GRAPHICS
+    if (getenv("FSW_TH_BG_DEBUG") != NULL && g_fsw_bg_debug_log_count < 128) {
+        uint32_t surface_dbg = fsw_cuitexture_find_surface(fsw_bg_crc);
+        fprintf(stderr,
+                "[FSW/BG] item crc=%08X surf=%08X dims=%ux%u flags=%u/%u t=%.3f out0=%.3f out1=%.3f out2=%.3f out3=%.3f out4=%.3f stack0C=%.3f stack1C=%.3f stack20=%.3f stack24=%.3f stack28=%.3f\n",
+                (unsigned)fsw_bg_crc, (unsigned)surface_dbg,
+                cbackgroundui_va_is_valid(surface_dbg + 0x1C) ? (unsigned)MEM32(surface_dbg + 0x18) : 0,
+                cbackgroundui_va_is_valid(surface_dbg + 0x1C) ? (unsigned)MEM32(surface_dbg + 0x1C) : 0,
+                (unsigned)MEM8(esi + 4), (unsigned)MEM8(esi + 5), MEMF(0x5F33F8),
+                MEMF(esp + 0x1C), MEMF(esp + 0xC), MEMF(esp + 0x20), MEMF(esp + 0x24), MEMF(esp + 0x28),
+                MEMF(esp + 0xC), MEMF(esp + 0x1C), MEMF(esp + 0x20), MEMF(esp + 0x24), MEMF(esp + 0x28));
+        g_fsw_bg_debug_log_count++;
+    }
+#endif
     xmm1 = MEMF(esp + 0x1C); /* movss */
     xmm3 = MEMF(esp + 0xC); /* movss */
     xmm0 = xmm1; /* movaps */
@@ -1586,6 +1645,32 @@ loc_001991B8:
     ebx = ebx & 2;
 
 loc_001991C2:
+#ifdef XBOXRECOMP_VULKAN_GRAPHICS
+    {
+        uint32_t surface = fsw_cuitexture_find_surface(fsw_bg_crc);
+        float band_top = MEMF(0x582D6C);
+        float band_bottom = MEMF(0x582D70);
+        float band_h = band_bottom - band_top;
+        float alpha = MEMF(esp + 0x20);
+        uint32_t color;
+        if (!isfinite(alpha) || alpha < 0.0f) alpha = 0.0f;
+        if (alpha > 1.0f) alpha = 1.0f;
+        if (cbackgroundui_va_is_valid(surface + 0x1C) &&
+            MEM32(surface + 0x18) >= 256 &&
+            MEM32(surface + 0x1C) >= 128 &&
+            (alpha > 0.01f || !fsw_bg_any_visible)) {
+            if (!isfinite(band_top) || band_top < 0.0f || band_top > 480.0f) band_top = 80.0f;
+            if (!isfinite(band_h) || band_h < 1.0f || band_h > 480.0f) band_h = 221.0f;
+            if (alpha <= 0.01f && !fsw_bg_any_visible) alpha = 1.0f;
+            color = ((uint32_t)(alpha * 255.0f) << 24) | 0x00FFFFFFu;
+            fsw_cuiimagecontrol_draw_texture_crc(
+                fsw_bg_crc, 0.0f, band_top, 640.0f, band_h, color);
+            fsw_bg_drawn = 1;
+            if (alpha > 0.01f) fsw_bg_any_visible = 1;
+        }
+    }
+    goto loc_0019927E;
+#endif
     PUSH32(esp, ecx);
     ecx = MEM32(esi);
     eax = esp;
@@ -1605,6 +1690,9 @@ loc_001991E8:
     if (TEST_Z(esi, esi)) goto loc_001991F8; /* je: equal / zero */
 
 loc_001991F3:
+#ifdef XBOXRECOMP_VULKAN_GRAPHICS
+    goto loc_001991F8;
+#endif
     PUSH32(esp, 0); fn_0012F560_CUITexture_SetTileType(); /* call 0x0012F560 */
 
 loc_001991F8:
@@ -1613,6 +1701,10 @@ loc_001991F8:
     PUSH32(esp, 0); fn_0009D720_ftol2(); /* call 0x0009D720 */
 
 loc_00199207:
+#ifdef XBOXRECOMP_VULKAN_GRAPHICS
+    MEM32(esp + 0x70) = 0x560A90;
+    MEM32(esp + 0x170) = 0x560AE8;
+#endif
     xmm0 = MEMF(esp + 0xC); /* movss */
     PUSH32(esp, 1);
     MEMF(esp + 0x188) = xmm0; /* movss */
@@ -1652,6 +1744,9 @@ loc_00199285:
     if ((eax != 0)) goto loc_00199120; /* jne: not equal / not zero */
 
 loc_0019929B:
+#ifdef XBOXRECOMP_VULKAN_GRAPHICS
+    goto loc_001992C2;
+#endif
     MEM32(esp + 0x1CC) = 0xFFFFFFFFu;
     ecx = esp + 0x70;
     MEM32(esp + 0x70) = 0x560A90;
@@ -3746,6 +3841,8 @@ loc_0019A3FF:
 void fn_0019A410_CBackGroundUI_Update(void)
 {
     uint32_t ebp;
+    uint32_t fsw_bg_update_dt;
+    static int logged_invalid_background_update = 0;
     int _flags = 0; /* fallback flag var */
     int _fpu_cmp = 0; /* FPU compare result: -1/0/1 */
     float xmm0, xmm1, xmm2;
@@ -3758,6 +3855,15 @@ void fn_0019A410_CBackGroundUI_Update(void)
     #define fp_st1() _fp_stack[(_fp_top + 1) & 7]
 
 loc_0019A410:
+    if (esp < 0x00010100u || esp >= 0x04000000u ||
+        !cbackgroundui_va_is_valid(MEM32(0x5FA8E8) + 0xDC)) {
+        if (!logged_invalid_background_update) {
+            fprintf(stderr, "[FSW/Menu] skipping background update invalid stack/app esp=%08X app=%08X dt=%08X\n",
+                    esp, MEM32(0x5FA8E8), eax);
+            logged_invalid_background_update = 1;
+        }
+        esp += 4; return; /* ret */
+    }
     PUSH32(esp, ebp);
     ebp = esp;
     esp = esp & 0xFFFFFFF0u;
@@ -3766,6 +3872,7 @@ loc_0019A410:
     PUSH32(esp, esi);
     PUSH32(esp, edi);
     ebx = eax;
+    fsw_bg_update_dt = ebx;
     PUSH32(esp, 0); fn_00019360_GetIdentityMatrix(); /* call 0x00019360 */
 
 loc_0019A423:
@@ -3843,6 +3950,24 @@ loc_0019A489:
     }
 
 loc_0019A4E6:
+#ifdef XBOXRECOMP_VULKAN_GRAPHICS
+    if (getenv("FSW_TH_BG_DEBUG") != NULL && g_fsw_bg_update_debug_log_count < 128) {
+        uint32_t frame_state = MEM32(0x5FA8E8);
+        uint32_t bg_anim = MEM32(0x5F33E8);
+        fprintf(stderr,
+                "[FSW/BG/UPDATE] dt=%d live_ebx=%d active=%u t=%.3f frame=%08X frame_d8=%d frame_dc=%d anim=%08X anim_len=%u items=%u data=%08X tick_scale=%.6f key_scale=%.3f primary=%08X secondary=%08X\n",
+                (int32_t)fsw_bg_update_dt, (int32_t)ebx, (unsigned)MEM8(0x5F33FC), MEMF(0x5F33F8),
+                (unsigned)frame_state,
+                cbackgroundui_va_is_valid(frame_state + 0xDC) ? (int32_t)MEM32(frame_state + 0xD8) : 0,
+                cbackgroundui_va_is_valid(frame_state + 0xDC) ? (int32_t)MEM32(frame_state + 0xDC) : 0,
+                (unsigned)bg_anim,
+                cbackgroundui_va_is_valid(bg_anim + 8) ? (unsigned)MEM32(bg_anim) : 0,
+                cbackgroundui_va_is_valid(bg_anim + 8) ? (unsigned)MEM32(bg_anim + 4) : 0,
+                (unsigned)MEM32(0x5F33EC), MEMF(0x561410), MEMF(0x561490),
+                (unsigned)MEM32(0x5F3414), (unsigned)MEM32(0x5F3410));
+        g_fsw_bg_update_debug_log_count++;
+    }
+#endif
     SET_LO8(eax, MEM8(0x5F33FC));
     if (TEST_Z(LO8(eax), LO8(eax))) goto loc_0019AA09; /* je: equal / zero */
 
@@ -3994,7 +4119,9 @@ loc_0019A62B:
 
 loc_0019A630:
     eax = MEM32(esi);
+    if (!cbackgroundui_is_static_text(eax)) goto loc_0019A6A7;
     eax = eax + 0x40;
+    if (!cbackgroundui_va_is_valid(eax + 8)) goto loc_0019A6A7;
     ecx = MEM32(eax);
     MEM32(esp + 0x28) = ecx;
     edx = MEM32(eax + 4);
@@ -4041,6 +4168,10 @@ loc_0019A691:
 
 loc_0019A697:
     ecx = MEM32(esi);
+    if (!cbackgroundui_is_static_text(ecx)) {
+        fp_popp();
+        goto loc_0019A6A7;
+    }
     MEMF(esp + 0x28) = (float)fp_top(); fp_popp(); /* fstp */
     edx = MEM32(ecx);
     eax = esp + 0x28;
@@ -4176,6 +4307,23 @@ loc_0019A79E:
     }
 
 loc_0019A7B3:
+#ifdef XBOXRECOMP_VULKAN_GRAPHICS
+    {
+        float dt_seconds;
+        float seconds_per_tick = MEMF(0x561410);
+        if (!isfinite(seconds_per_tick) || seconds_per_tick <= 0.0f || seconds_per_tick > 1.0f) {
+            seconds_per_tick = 0.001f;
+        }
+        dt_seconds = (float)(int32_t)fsw_bg_update_dt * seconds_per_tick;
+        if (!isfinite(dt_seconds) || dt_seconds < 0.0f || dt_seconds > 1.0f) {
+            dt_seconds = 0.0f;
+        }
+        MEMF(esp + 0x14) = dt_seconds;
+        MEMF(0x5F33F8) = MEMF(0x5F33F8) + dt_seconds;
+        ecx = MEM32(0x5FA338);
+        goto loc_0019A7E5;
+    }
+#endif
     (void)0; /* test ebx, ebx - flags set for next jcc */
     xmm0 = MEMF(0x5F33F8); /* movss */
     MEM32(esp + 0x20) = ebx;
@@ -4191,6 +4339,7 @@ loc_0019A7CD:
     MEMF(esp + 0x14) = (float)fp_top(); fp_pop(); /* fst */
     fp_st1() += fp_top(); fp_pop(); /* fadd */
     MEMF(0x5F33F8) = (float)fp_top(); fp_popp(); /* fstp */
+loc_0019A7E5:
     if (!cbackgroundui_va_is_valid(ecx)) goto loc_0019A98D;
     ebx = MEM32(ecx + 0x30C);
     (void)0; /* test ebx, ebx - flags set for next jcc */

@@ -17,10 +17,12 @@
  */
 void fn_000C6D10_hkAgentRegisterUtil_registerAllAgents(void)
 {
+    uint32_t dispatcher;
 
 loc_000C6D10:
     PUSH32(esp, esi);
     esi = MEM32(esp + 8);
+    dispatcher = esi;
     PUSH32(esp, esi);
     PUSH32(esp, 0); fn_000DD320_hkRegisterAlternateShapeTypes(); /* call 0x000DD320 */
 
@@ -117,46 +119,56 @@ loc_000C6DB5:
     PUSH32(esp, 0); fn_000D3FB0_hkHeightFieldAgent_registerAgent(); /* call 0x000D3FB0 */
 
 loc_000C6DBB:
+    esi = dispatcher;
     PUSH32(esp, esi);
     PUSH32(esp, 0); fn_000D2520_hkPredGskfAgent_registerAgent(); /* call 0x000D2520 */
 
 loc_000C6DC1:
+    esi = dispatcher;
     PUSH32(esp, 1);
     PUSH32(esp, 1);
     PUSH32(esp, esi);
     PUSH32(esp, 0); fn_000F4C80_hkPredGskAgent3_registerAgent3(); /* call 0x000F4C80 */
 
 loc_000C6DCB:
+    esi = dispatcher;
     PUSH32(esp, esi);
     PUSH32(esp, 0); fn_000F41E0_hkPredGskCylinderAgent3_registerAgent3(); /* call 0x000F41E0 */
 
 loc_000C6DD1:
+    esi = dispatcher;
     PUSH32(esp, esi);
     PUSH32(esp, 0); fn_000D2460_hkBoxBoxAgent_registerAgent(); /* call 0x000D2460 */
 
 loc_000C6DD7:
+    esi = dispatcher;
     PUSH32(esp, esi);
     PUSH32(esp, 0); fn_000F3470_hkBoxBoxAgent3_registerAgent3(); /* call 0x000F3470 */
 
 loc_000C6DDD:
+    esi = dispatcher;
     PUSH32(esp, esi);
     PUSH32(esp, 0); fn_000D1CB0_hkSphereSphereAgent_registerAgent(); /* call 0x000D1CB0 */
 
 loc_000C6DE3:
+    esi = dispatcher;
     PUSH32(esp, esi);
     PUSH32(esp, 0); fn_000D1570_hkSphereCapsuleAgent_registerAgent(); /* call 0x000D1570 */
 
 loc_000C6DE9:
+    esi = dispatcher;
     PUSH32(esp, esi);
     PUSH32(esp, 0); fn_000D0900_hkSphereTriangleAgent_registerAgent(); /* call 0x000D0900 */
 
 loc_000C6DEF:
+    esi = dispatcher;
     PUSH32(esp, 4);
     PUSH32(esp, 6);
     PUSH32(esp, esi);
     PUSH32(esp, 0); fn_000F4C80_hkPredGskAgent3_registerAgent3(); /* call 0x000F4C80 */
 
 loc_000C6DF9:
+    esi = dispatcher;
     esp = esp + 0x40;
     PUSH32(esp, 6);
     PUSH32(esp, 4);
@@ -164,30 +176,37 @@ loc_000C6DF9:
     PUSH32(esp, 0); fn_000F4C80_hkPredGskAgent3_registerAgent3(); /* call 0x000F4C80 */
 
 loc_000C6E06:
+    esi = dispatcher;
     PUSH32(esp, esi);
     PUSH32(esp, 0); fn_000CFF10_hkSphereBoxAgent_registerAgent(); /* call 0x000CFF10 */
 
 loc_000C6E0C:
+    esi = dispatcher;
     PUSH32(esp, esi);
     PUSH32(esp, 0); fn_000CF240_hkCapsuleCapsuleAgent_registerAgent(); /* call 0x000CF240 */
 
 loc_000C6E12:
+    esi = dispatcher;
     PUSH32(esp, esi);
     PUSH32(esp, 0); fn_000CEA20_hkCapsuleTriangleAgent_registerAgent(); /* call 0x000CEA20 */
 
 loc_000C6E18:
+    esi = dispatcher;
     PUSH32(esp, esi);
     PUSH32(esp, 0); fn_000F3140_hkCapsuleTriangleAgent3_registerAgent3(); /* call 0x000F3140 */
 
 loc_000C6E1E:
+    esi = dispatcher;
     PUSH32(esp, esi);
     PUSH32(esp, 0); fn_000CDE00_hkMultiSphereTriangleAgent_registerAgent(); /* call 0x000CDE00 */
 
 loc_000C6E24:
+    esi = dispatcher;
     PUSH32(esp, esi);
     PUSH32(esp, 0); fn_000CD190_hkMultiRayConvexAgent_registerAgent(); /* call 0x000CD190 */
 
 loc_000C6E2A:
+    esi = dispatcher;
     PUSH32(esp, esi);
     PUSH32(esp, 0); fn_000CC5D0_hkBvTreeStreamAgent_registerMultiRayAgent(); /* call 0x000CC5D0 */
 

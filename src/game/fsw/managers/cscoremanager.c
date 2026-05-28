@@ -7,6 +7,31 @@
 #define RECOMP_GENERATED_CODE
 #include "recomp_funcs.h"
 #include <math.h>
+#include <stdio.h>
+
+static int cscoremanager_va_range_is_valid(uint32_t va, uint32_t size)
+{
+    return va >= 0x00010000u && va < 0x04000000u && size <= 0x04000000u - va;
+}
+
+static uint32_t cscoremanager_get_or_init(void)
+{
+    uint32_t manager = MEM32(0x5D9A8C);
+
+    if (cscoremanager_va_range_is_valid(manager, 0x2000)) {
+        return manager;
+    }
+
+    manager = 0x6244D0;
+    fprintf(stderr, "[FSW/Score] repairing missing CScoreManager singleton object=%08X old=%08X\n",
+            (unsigned)manager, (unsigned)MEM32(0x5D9A8C));
+    PUSH32(esp, manager);
+    PUSH32(esp, 0); fn_0028DBC0_0CScoreManager_IAE_XZ(); /* call 0x0028DBC0 */
+    if (!cscoremanager_va_range_is_valid(MEM32(0x5D9A8C), 0x2000)) {
+        MEM32(0x5D9A8C) = manager;
+    }
+    return MEM32(0x5D9A8C);
+}
 
 /**
  * fn_0002F4E0_1CTankKilledFeat_UAE_XZ
@@ -2831,6 +2856,28 @@ void fn_0028B8B0_CScoreManager_ComputeTotals(void)
     ebp = g_seh_ebp; /* fpo_leaf: inherit caller's frame */
 
 loc_0028B8B0:
+    if (!cscoremanager_va_range_is_valid(esi, 0x1F00)) {
+        static uint32_t invalid_score_manager_logs = 0;
+        if (invalid_score_manager_logs < 8 || (invalid_score_manager_logs % 120) == 0) {
+            fprintf(stderr,
+                    "[FSW/Score] skipping ComputeTotals invalid manager=%08X count=%08X\n",
+                    (unsigned)esi,
+                    (unsigned)(cscoremanager_va_range_is_valid(esi, 0x1000) ? MEM32(esi + 0xFF4) : 0));
+        }
+        invalid_score_manager_logs++;
+        esp += 4; return; /* ret */
+    }
+    if (MEM32(esi + 0xFF4) > 64) {
+        static uint32_t clamped_score_count_logs = 0;
+        if (clamped_score_count_logs < 8 || (clamped_score_count_logs % 120) == 0) {
+            fprintf(stderr,
+                    "[FSW/Score] clamping corrupt score target count manager=%08X count=%u\n",
+                    (unsigned)esi,
+                    (unsigned)MEM32(esi + 0xFF4));
+        }
+        clamped_score_count_logs++;
+        MEM32(esi + 0xFF4) = 0;
+    }
     PUSH32(esp, ecx);
     PUSH32(esp, ebx);
     PUSH32(esp, ebp);
@@ -10950,26 +10997,40 @@ loc_0028FCD0:
  */
 void fn_0028FCE0_CScoreManager_AddFaction(void)
 {
+    uint32_t manager;
     int _flags = 0; /* fallback flag var */
 
 loc_0028FCE0:
-    ecx = MEM32(esi + 0x9F8);
+    manager = cscoremanager_get_or_init();
+    esi = manager;
+    if (!cscoremanager_va_range_is_valid(manager, 0x2000)) {
+        fprintf(stderr, "[FSW/Score] skipping AddFaction with invalid manager=%08X\n",
+                (unsigned)manager);
+        esp += 4; return; /* ret 4 */
+    }
+    ecx = MEM32(manager + 0x9F8);
+    if (CMP_GE(ecx, 8)) {
+        fprintf(stderr, "[FSW/Score] skipping AddFaction faction table full manager=%08X count=%u\n",
+                (unsigned)manager, (unsigned)ecx);
+        esp += 4; return; /* ret 4 */
+    }
     eax = MEM32(esp + 4);
     ecx = (uint32_t)((int32_t)ecx * (int32_t)0xF4);
-    MEM32(ecx + esi + 0x2C4) = eax;
-    edx = MEM32(esi + 0x9F8);
+    MEM32(ecx + manager + 0x2C4) = eax;
+    edx = MEM32(manager + 0x9F8);
     edx = (uint32_t)((int32_t)edx * (int32_t)0xF4);
     PUSH32(esp, edi);
     PUSH32(esp, ecx);
     ecx = esp;
-    MEM32(edx + esi + 0x258) = 0;
+    MEM32(edx + manager + 0x258) = 0;
     MEM32(ecx) = eax;
     PUSH32(esp, 0); fn_00192860_LocationGetString(); /* call 0x00192860 */
 
 loc_0028FD19:
-    ecx = MEM32(esi + 0x9F8);
+    esi = manager;
+    ecx = MEM32(manager + 0x9F8);
     ecx = (uint32_t)((int32_t)ecx * (int32_t)0xF4);
-    edi = ecx + esi + 0x2C8;
+    edi = ecx + manager + 0x2C8;
     ecx = edi + 2;
     esp = esp + 4;
     if (CMP_EQ(eax, ecx)) goto loc_0028FD56; /* je: equal / zero */
@@ -10992,11 +11053,12 @@ loc_0028FD4A:
     MEM16(edi + eax * 2) = 0;
 
 loc_0028FD56:
-    PUSH32(esp, esi);
+    esi = manager;
+    PUSH32(esp, manager);
     PUSH32(esp, 0); fn_0028F050_CScoreManager_LoadWeights(); /* call 0x0028F050 */
 
 loc_0028FD5C:
-    MEM32(esi + 0x9F8) = MEM32(esi + 0x9F8) + 1;
+    MEM32(manager + 0x9F8) = MEM32(manager + 0x9F8) + 1;
     POP32(esp, edi);
     esp += 8; return; /* ret 4 */
 

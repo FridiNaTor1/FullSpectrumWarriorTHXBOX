@@ -7,6 +7,12 @@
 #define RECOMP_GENERATED_CODE
 #include "recomp_funcs.h"
 #include <math.h>
+#include <stdio.h>
+
+static int heateffect_va_range_is_valid(uint32_t va, uint32_t size)
+{
+    return va >= 0x00010000u && va < 0x04000000u && size <= 0x04000000u - va;
+}
 
 /**
  * fn_001548B0_XBHeatEffect_CreateDisplacementMap
@@ -927,6 +933,8 @@ loc_0015516A:
 void fn_00155180_XBHeatEffect_Setup(void)
 {
     uint32_t ebp;
+    uint32_t heat_effect;
+    uint32_t video;
     int _flags = 0; /* fallback flag var */
     ebp = g_seh_ebp; /* fpo_leaf: inherit caller's frame */
 
@@ -940,8 +948,14 @@ loc_00155180:
     PUSH32(esp, ebx);
     PUSH32(esp, ebp);
     ebp = MEM32(0x5FA8E8);
+    video = ebp;
     PUSH32(esp, esi);
     PUSH32(esp, ecx);
+    heat_effect = heateffect_va_range_is_valid(ecx, 0x44) ? ecx : edi;
+    if (!heateffect_va_range_is_valid(heat_effect, 0x44)) {
+        heat_effect = 0x6276B8u;
+    }
+    edi = heat_effect;
     eax = 0; /* xor self */
     ecx = 0x55FEA8;
     MEM32(esp + 0x14) = esp;
@@ -957,6 +971,8 @@ loc_001551B7:
     }
 
 loc_001551C1:
+    edi = heat_effect;
+    ebp = video;
     ebx = 0; /* xor self */
     PUSH32(esp, ebx);
     MEM8(esp + 0x10) = 0xD0;
@@ -982,6 +998,9 @@ loc_001551F5:
     PUSH32(esp, 0); fn_000280C0_0ZeroMaterialDesc_QAE_VCRC_TAttribData_KQBQAVZeroSurface_H_Z(); /* call 0x000280C0 */
 
 loc_00155204:
+    edi = heat_effect;
+    ebp = video;
+    ebx = 0;
     eax = MEM32(ebp);
     ecx = esp + 0x54;
     { uint32_t _icall_esp = g_esp;
@@ -991,6 +1010,9 @@ loc_00155204:
     }
 
 loc_00155211:
+    edi = heat_effect;
+    ebp = video;
+    ebx = 0;
     MEM32(edi) = eax;
     edx = MEM32(ebp + 0x6C1C);
     eax = esp + 0xC;
@@ -1015,6 +1037,9 @@ loc_00155211:
     }
 
 loc_00155265:
+    edi = heat_effect;
+    ebp = video;
+    ebx = 0;
     esi = eax;
     eax = MEM32(esp + 0xC);
     MEM32(esi + 4) = eax;
@@ -1037,6 +1062,9 @@ loc_00155295:
     PUSH32(esp, 0); fn_00143770_0XBSurface_QAE_VCRC_HHPBUZeroTextureDesc_Z(); /* call 0x00143770 */
 
 loc_001552A3:
+    edi = heat_effect;
+    ebp = video;
+    ebx = 0;
     MEM32(esp + 0xBC) = 0xFFFFFFFFu;
     MEM32(edi + 8) = eax;
     ecx = MEM32(edi);
@@ -1049,6 +1077,9 @@ loc_001552A3:
     }
 
 loc_001552BD:
+    edi = heat_effect;
+    ebp = video;
+    ebx = 0;
     SET_LO8(ecx, MEM8(esp + 0x58));
     PUSH32(esp, ebx);
     PUSH32(esp, ebx);
@@ -1058,6 +1089,9 @@ loc_001552BD:
     PUSH32(esp, 0); fn_00125AD0_ZeroStateGroup_Create(); /* call 0x00125AD0 */
 
 loc_001552D7:
+    edi = heat_effect;
+    ebp = video;
+    ebx = 0;
     ecx = MEM32(edi);
     ecx = ecx + 0x10;
     MEM32(ecx) = eax;
@@ -1094,6 +1128,9 @@ loc_00155322:
     PUSH32(esp, 0); fn_0011CB80_ZeroTexGroup_Create(); /* call 0x0011CB80 */
 
 loc_0015532C:
+    edi = heat_effect;
+    ebp = video;
+    ebx = 0;
     ecx = MEM32(edi);
     ecx = ecx + 0x30;
     MEM32(ecx) = eax;
@@ -1128,6 +1165,9 @@ loc_00155379:
     PUSH32(esp, 0); fn_000280C0_0ZeroMaterialDesc_QAE_VCRC_TAttribData_KQBQAVZeroSurface_H_Z(); /* call 0x000280C0 */
 
 loc_0015538B:
+    edi = heat_effect;
+    ebp = video;
+    ebx = 0;
     edx = MEM32(ebp);
     eax = esp + 0x84;
     { uint32_t _icall_esp = g_esp;
@@ -1137,6 +1177,9 @@ loc_0015538B:
     }
 
 loc_0015539B:
+    edi = heat_effect;
+    ebp = video;
+    ebx = 0;
     ecx = MEM32(edi + 0x10);
     { uint32_t _icall_esp = g_esp;
     PUSH32(esp, ebx);
@@ -1149,6 +1192,9 @@ loc_0015539B:
     }
 
 loc_001553B0:
+    edi = heat_effect;
+    ebp = video;
+    ebx = 0;
     SET_LO8(ecx, MEM8(esp + 0x88));
     PUSH32(esp, ebx);
     PUSH32(esp, 0x5D10F0);
@@ -1158,6 +1204,9 @@ loc_001553B0:
     PUSH32(esp, 0); fn_00125AD0_ZeroStateGroup_Create(); /* call 0x00125AD0 */
 
 loc_001553CD:
+    edi = heat_effect;
+    ebp = video;
+    ebx = 0;
     ecx = MEM32(edi + 4);
     ecx = ecx + 0x10;
     MEM32(ecx) = eax;
@@ -1193,6 +1242,9 @@ loc_00155414:
     PUSH32(esp, 0); fn_0011CB80_ZeroTexGroup_Create(); /* call 0x0011CB80 */
 
 loc_0015541E:
+    edi = heat_effect;
+    ebp = video;
+    ebx = 0;
     ecx = MEM32(edi + 4);
     MEM32(ecx + 0x30) = eax;
     MEM32(ecx + 0x34) = eax;
@@ -1226,6 +1278,7 @@ loc_0015541E:
 void fn_00155460_XBHeatEffect_Render(void)
 {
     int _flags = 0; /* fallback flag var */
+    uint32_t heat_effect;
     float xmm0, xmm1, xmm2, xmm3, xmm4, xmm5, xmm6;
     double _fp_stack[8];
     int _fp_top = 0;
@@ -1250,6 +1303,11 @@ loc_00155460:
     (void)0; /* cmp LO8(eax), LO8(ebx) - flags set for next jcc */
     PUSH32(esp, edi);
     edi = ecx;
+    heat_effect = edi;
+    if (!heateffect_va_range_is_valid(edi, 0x44)) {
+        fprintf(stderr, "[FSW/Heat] skipping render invalid effect=%08X\n", (unsigned)edi);
+        goto loc_00155CF8;
+    }
     if (CMP_EQ(LO8(eax), LO8(ebx))) goto loc_00155CF8; /* je: equal / zero */
 
 loc_0015549A:
@@ -1257,15 +1315,32 @@ loc_0015549A:
 
 loc_0015549F:
     PUSH32(esp, 0); fn_00155180_XBHeatEffect_Setup(); /* call 0x00155180 */
+    edi = heat_effect;
+    ebx = 0;
 
 loc_001554A4:
     eax = MEM32(esp + 0x144);
+    {
+        uint32_t material = heateffect_va_range_is_valid(edi, 4) ? MEM32(edi) : 0;
+        uint32_t vertex_buffer = heateffect_va_range_is_valid(material, 0x34) ? MEM32(material + 0x30) : 0;
+        uint32_t vertex_vtbl = heateffect_va_range_is_valid(vertex_buffer, 4) ? MEM32(vertex_buffer) : 0;
+        if (!heateffect_va_range_is_valid(material, 0x34) ||
+            vertex_buffer < 0x00400000u ||
+            !heateffect_va_range_is_valid(vertex_buffer, 0x20) ||
+            !heateffect_va_range_is_valid(vertex_vtbl, 0x10)) {
+            fprintf(stderr, "[FSW/Heat] skipping prepare invalid material=%08X vertex_buffer=%08X vtbl=%08X effect=%08X\n",
+                    (unsigned)material, (unsigned)vertex_buffer, (unsigned)vertex_vtbl, (unsigned)edi);
+            goto loc_00155CF8;
+        }
+    }
     PUSH32(esp, esi);
     PUSH32(esp, eax);
     ecx = edi;
     PUSH32(esp, 0); fn_00154BB0_XBHeatEffect_Prepare(); /* call 0x00154BB0 */
 
 loc_001554B4:
+    edi = heat_effect;
+    ebx = 0;
     MEM32(esp + 0x114) = ebx;
     MEM32(esp + 0x110) = 1;
     MEM32(esp + 0x108) = 0x53C2FC;
@@ -1303,11 +1378,21 @@ loc_00155562:
 
 loc_00155568:
     eax = MEM32(edi + 4);
+    if (!heateffect_va_range_is_valid(eax, 0x34)) {
+        fprintf(stderr, "[FSW/Heat] skipping render invalid descriptor=%08X effect=%08X\n",
+                (unsigned)eax, (unsigned)edi);
+        goto loc_00155CF7;
+    }
     MEMF(esp + 0x104) = (float)fp_top(); fp_popp(); /* fstp */
     ecx = MEM32(eax + 0x30);
     if (CMP_EQ(ecx, ebx)) goto loc_0015557D; /* je: equal / zero */
 
 loc_00155579:
+    if (!heateffect_va_range_is_valid(ecx, 4)) {
+        fprintf(stderr, "[FSW/Heat] skipping render invalid tex entry=%08X descriptor=%08X\n",
+                (unsigned)ecx, (unsigned)eax);
+        goto loc_00155CF7;
+    }
     ecx = MEM32(ecx);
     goto loc_0015557F;
 
@@ -1315,6 +1400,11 @@ loc_0015557D:
     ecx = 0; /* xor self */
 
 loc_0015557F:
+    if (!heateffect_va_range_is_valid(ecx, 0x20)) {
+        fprintf(stderr, "[FSW/Heat] skipping render invalid texture=%08X descriptor=%08X\n",
+                (unsigned)ecx, (unsigned)eax);
+        goto loc_00155CF7;
+    }
     xmm0 = (float)(int32_t)MEM32(ecx + 0x18); /* cvtsi2ss */
     ecx = MEM32(eax + 0x30);
     (void)0; /* cmp ecx, ebx - flags set for next jcc */

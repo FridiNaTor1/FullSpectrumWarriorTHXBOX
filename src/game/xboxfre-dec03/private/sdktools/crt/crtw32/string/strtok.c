@@ -107,6 +107,7 @@ loc_0009BADE:
 
 loc_0009BAF5:
     edx++;
+    g_seh_ebp = ebp; sub_0009BAF6(); return; /* fallthrough 0x0009BAF6 */
 
 }
 
@@ -138,10 +139,13 @@ loc_0009BAFB:
  */
 void sub_0009BAFD(void)
 {
+    uint32_t ebp;
+    ebp = g_seh_ebp; /* fpo_leaf: inherit caller's frame */
 
 loc_0009BAFD:
     MEM8(edx) = 0;
     edx++;
+    g_seh_ebp = ebp; sub_0009BB01(); return; /* fallthrough 0x0009BB01 */
 
 }
 

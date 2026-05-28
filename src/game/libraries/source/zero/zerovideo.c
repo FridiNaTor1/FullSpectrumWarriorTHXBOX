@@ -10,6 +10,20 @@
 #include "d3d8_vulkan_host.h"
 #endif
 #include <math.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+static int fsw_zero_va_range_is_valid(uint32_t addr, uint32_t size)
+{
+    if (addr == 0 || addr >= 0x04000000u) {
+        return 0;
+    }
+    if (size > 0x04000000u || addr > 0x04000000u - size) {
+        return 0;
+    }
+    return 1;
+}
 
 /**
  * fn_000505E0_0_ZeroDynArray_PAVXBShader_0IA_QAE_XZ
@@ -719,50 +733,83 @@ loc_0005383D:
  */
 void fn_00053850_ZeroBucket_Add(void)
 {
-    uint32_t ebp;
-    int _flags = 0; /* fallback flag var */
-    ebp = g_seh_ebp; /* fpo_leaf: inherit caller's frame */
+    uint32_t bucket = eax;
+    uint32_t sort_key = MEM32(esp + 4);
+    uint32_t key_array;
+    uint32_t key_slot;
+    uint32_t item_array;
+    uint32_t item_index;
+    uint32_t item_ptr;
+    uint32_t free_count;
+    int32_t insert_index;
 
-loc_00053850:
-    PUSH32(esp, ebx);
-    PUSH32(esp, ebp);
-    ebx = eax;
-    eax = (uint32_t)(int32_t)SMEM16(ebx + 4);
-    PUSH32(esp, esi);
-    PUSH32(esp, edi);
+    if (!fsw_zero_va_range_is_valid(bucket, 8)) {
+        static uint32_t warned_bad_bucket;
+        if (warned_bad_bucket < 8) {
+            fprintf(stderr, "[FSW/ZeroBucket] Add skipped invalid bucket=%08X key=%08X\n",
+                    (unsigned)bucket, (unsigned)sort_key);
+            warned_bad_bucket++;
+        }
+        eax = 0;
+        esp += 8; return; /* ret 4 */
+    }
+
+    insert_index = (int16_t)MEM16(bucket + 4);
+    if (insert_index < 0 || insert_index > 0x4000) {
+        fprintf(stderr, "[FSW/ZeroBucket] Add repaired bucket count bucket=%08X count=%d\n",
+                (unsigned)bucket, insert_index);
+        insert_index = 0;
+        MEM16(bucket + 4) = 0;
+    }
+
+    ebx = bucket;
+    eax = (uint32_t)(insert_index + 1);
     PUSH32(esp, 1);
-    eax++;
     PUSH32(esp, 0); fn_00051220_ZeroBucket_UBucketKey_ZeroDynArrayBase_Grow(); /* call 0x00051220 */
 
-loc_00053862:
-    eax = (uint32_t)(int32_t)SMEM16(ebx + 4);
-    ecx = MEM32(ebx);
-    edx = ecx + eax * 8;
-    PUSH32(esp, edx);
-    PUSH32(esp, 8);
-    PUSH32(esp, 0); fn_000A4FC0_2_YAPAXIPAX_Z(); /* call 0x000A4FC0 */
+    key_array = MEM32(bucket);
+    key_slot = key_array + (uint32_t)insert_index * 8u;
+    if (!fsw_zero_va_range_is_valid(key_slot, 8)) {
+        static uint32_t warned_bad_keys;
+        if (warned_bad_keys < 8) {
+            fprintf(stderr, "[FSW/ZeroBucket] Add skipped invalid key slot bucket=%08X array=%08X index=%d\n",
+                    (unsigned)bucket, (unsigned)key_array, insert_index);
+            warned_bad_keys++;
+        }
+        eax = 0;
+        esp += 8; return; /* ret 4 */
+    }
+    memset((void *)XBOX_PTR(key_slot), 0, 8);
 
-loc_00053873:
-    ebp = 0; /* xor self */
-    SET_LO16(ebp, MEM16(ebx + 4));
-    esp = esp + 8;
-    eax = ebp + 1;
-    MEM16(ebx + 4) = LO16(eax);
-    eax = MEM32(0x613EAC);
-    if (TEST_Z(LO16(eax), LO16(eax))) { sub_000538A9(); return; } /* je: equal / zero */
+    free_count = MEM16(0x613EAC);
+    if (free_count != 0 && fsw_zero_va_range_is_valid(MEM32(0x613EA8) + (free_count - 1u) * 2u, 2)) {
+        item_index = MEM16(MEM32(0x613EA8) + (free_count - 1u) * 2u);
+        MEM16(0x613EAC) = LO16(free_count - 1u);
+    } else {
+        esi = 0x613EA0;
+        SET_LO8(eax, 1);
+        PUSH32(esp, 0); fn_000538F0_UZeroRenderItem_ZeroDynArrayBase_AddEmpty(); /* call 0x000538F0 */
+        item_index = LO16(eax);
+    }
 
-loc_0005388D:
-    ecx = MEM32(0x613EA8);
-    eax--;
-    esi = SX16(LO16(eax));
-    SET_LO16(edi, MEM16(ecx + esi * 2));
-    PUSH32(esp, 1);
-    eax = 0x613EA8;
-    PUSH32(esp, 0); fn_00051490_FF_0CAA_ZeroDynArrayBase_SetCount(); /* call 0x00051490 */
+    item_array = MEM32(0x613EA0);
+    item_ptr = item_array + item_index * 0x24u;
+    if (!fsw_zero_va_range_is_valid(item_ptr, 0x24)) {
+        static uint32_t warned_bad_item;
+        if (warned_bad_item < 8) {
+            fprintf(stderr, "[FSW/ZeroBucket] Add produced invalid item array=%08X index=%u ptr=%08X\n",
+                    (unsigned)item_array, (unsigned)item_index, (unsigned)item_ptr);
+            warned_bad_item++;
+        }
+        eax = 0;
+        esp += 8; return; /* ret 4 */
+    }
 
-loc_000538A7:
-    g_seh_ebp = ebp; sub_000538B7(); return; /* tail jmp 0x000538B7 */
-
+    MEM32(key_slot) = sort_key;
+    MEM16(key_slot + 4) = LO16(item_index);
+    MEM16(bucket + 4) = LO16((uint32_t)insert_index + 1u);
+    eax = item_ptr;
+    esp += 8; return; /* ret 4 */
 }
 
 /**
@@ -1179,6 +1226,7 @@ loc_00123F60:
     if (TEST_Z(LO8(eax), LO8(eax))) esi = MEM32(0x613A90); /* cmove */
     ecx = 0; /* xor self */
     if (CMP_LE(LO16(edi) & LO16(edi), 0)) goto loc_00123FC0; /* jle: less or equal (signed <=) */
+    if (!fsw_zero_va_range_is_valid(esi, (uint32_t)ZX16(LO16(edi)) * 4u)) goto loc_00123FC0;
 
 loc_00123F8D:
     /* nop */
@@ -1186,6 +1234,7 @@ loc_00123F8D:
 loc_00123F90:
     eax = SX16(LO16(ecx));
     eax = MEM32(esi + eax * 4);
+    if (!fsw_zero_va_range_is_valid(eax, 0x18)) goto loc_00123FBA;
     if (CMP_NE(MEM32(eax + 4), ebx)) goto loc_00123FBA; /* jne: not equal / not zero */
 
 loc_00123F9B:
@@ -3406,6 +3455,13 @@ void fn_00125320_ZeroStateGroup_AddTStates(void)
 loc_00125320:
     eax = MEM32(esp + 0xC);
     ecx = MEM32(esp + 8);
+    if (getenv("FSW_TH_FORCE_DIRECT") != NULL) {
+        if (eax != 0) {
+            MEM8(eax) = 1;
+        }
+        eax = MEM32(0x5CE214);
+        esp += 4; return; /* ret */
+    }
     if (MEM32(0x5FA8E8) == 0) {
         if (eax != 0) {
             MEM8(eax) = 1;
@@ -3462,6 +3518,10 @@ loc_00125362:
     eax = ebx + edx;
     ebp = eax + eax * 4;
     eax = MEM32(0x5FA8E8);
+    if (!fsw_zero_va_range_is_valid(eax + ebp * 4 + 0x4FC8, 4) ||
+        !fsw_zero_va_range_is_valid(esi + 4, 4)) {
+        goto loc_001253D4;
+    }
     eax = MEM32(eax + ebp * 4 + 0x4FC8);
     if (CMP_EQ(eax, MEM32(esi + 4))) goto loc_001253BA; /* je: equal / zero */
 
@@ -3884,6 +3944,7 @@ loc_001256AD:
 loc_001256B0:
     eax = SX16(LO16(edi));
     eax = MEM32(ebx + eax * 4);
+    if (!fsw_zero_va_range_is_valid(eax, 8)) goto loc_001256F5;
     edx = 0; /* xor self */
     if (CMP_LE(LO16(esi) & LO16(esi), 0)) goto loc_001256E3; /* jle: less or equal (signed <=) */
 
@@ -4172,6 +4233,7 @@ loc_001258CC:
 loc_001258D0:
     edx = SX16(LO16(esi));
     eax = MEM32(ebx + edx * 4);
+    if (!fsw_zero_va_range_is_valid(eax, 8)) goto loc_00125915;
     edx = 0; /* xor self */
     if (CMP_LE(LO16(edi) & LO16(edi), 0)) goto loc_00125903; /* jle: less or equal (signed <=) */
 
@@ -5037,6 +5099,33 @@ loc_00125F1B:
 
 loc_00125F31:
     edx = MEM32(esp + 0x64);
+    {
+        uint32_t vertex_base = edx;
+        uint32_t vertex_stride = MEM32(esp + 0x68);
+        uint32_t index_base = MEM32(esp + 0x94);
+        uint32_t index_stride = MEM32(esp + 0x98);
+        uint32_t color_ptr = ebp;
+        static int easy_screen_poly_skip_logs;
+        if (vertex_base <= 0x10000u ||
+            vertex_stride < 0x10u ||
+            vertex_stride > 0x1000u ||
+            !fsw_zero_va_range_is_valid(vertex_base, vertex_stride * 3u + 0x10u) ||
+            index_base <= 0x10000u ||
+            index_stride < 4u ||
+            index_stride > 0x1000u ||
+            !fsw_zero_va_range_is_valid(index_base, index_stride * 3u + 4u) ||
+            !fsw_zero_va_range_is_valid(color_ptr, 4)) {
+            if (easy_screen_poly_skip_logs < 32) {
+                fprintf(stderr,
+                        "[FSW/ZeroVideo] EasyScreenPoly skipped invalid buffers v=%08X vs=%u i=%08X is=%u color=%08X\n",
+                        (unsigned)vertex_base, (unsigned)vertex_stride,
+                        (unsigned)index_base, (unsigned)index_stride,
+                        (unsigned)color_ptr);
+                easy_screen_poly_skip_logs++;
+            }
+            goto loc_001260B9;
+        }
+    }
     xmm0 = MEMF(esp + 0x1B0); /* movss */
     MEMF(edx) = xmm0; /* movss */
     eax = MEM32(esp + 0x64);
@@ -5394,6 +5483,7 @@ loc_001262F6:
     MEMF(ebp + 0xE0) = xmm2; /* movss */
     xmm2 = MEMF(0x561420); /* movss */
     MEM32(0x5FA8E8) = ebp;
+    fprintf(stderr, "[FSW/ZeroVideo] global video=%08X vtable=%08X\n", ebp, MEM32(ebp));
 #ifdef XBOXRECOMP_VULKAN_GRAPHICS
     d3d8_vulkan_host_init(640, 480);
 #endif

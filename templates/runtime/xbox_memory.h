@@ -74,7 +74,7 @@ extern "C" {
 
 /** Stack size for the simulated Xbox stack.
  *  8 MB provides headroom for failed ICALL stdcall arg leaks. */
-#define XBOX_STACK_SIZE         (8 * 1024 * 1024)
+#define XBOX_STACK_SIZE         (2 * 1024 * 1024)
 
 /** Base VA of the stack area (above last XBE section).
  *  CUSTOMIZE: set this above your game's last section. */

@@ -86,6 +86,32 @@ void fn_00017F30_YawMatrix(void)
     #define fp_st1() _fp_stack[(_fp_top + 1) & 7]
 
 loc_00017F30:
+    {
+        float angle = MEMF(esp + 4);
+        float s = sinf(angle);
+        float c = cosf(angle);
+        uint32_t out = esi;
+        if (out >= 0x00010000u && out + 0x40u <= 0x04000000u) {
+            MEMF(out + 0x00) = c;
+            MEMF(out + 0x04) = 0.0f;
+            MEMF(out + 0x08) = -s;
+            MEMF(out + 0x0C) = 0.0f;
+            MEMF(out + 0x10) = 0.0f;
+            MEMF(out + 0x14) = 1.0f;
+            MEMF(out + 0x18) = 0.0f;
+            MEMF(out + 0x1C) = 0.0f;
+            MEMF(out + 0x20) = s;
+            MEMF(out + 0x24) = 0.0f;
+            MEMF(out + 0x28) = c;
+            MEMF(out + 0x2C) = 0.0f;
+            MEMF(out + 0x30) = 0.0f;
+            MEMF(out + 0x34) = 0.0f;
+            MEMF(out + 0x38) = 0.0f;
+            MEMF(out + 0x3C) = 1.0f;
+        }
+        eax = out;
+        esp += 4; return; /* ret */
+    }
     esp = esp - 0x44;
     fp_push(MEMF(esp + 0x48)); /* fld float */
     xmm0 = 0.0f; /* xorps self = zero */

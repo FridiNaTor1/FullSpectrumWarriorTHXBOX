@@ -1257,10 +1257,13 @@ loc_003AE010:
  */
 void sub_003AE01A(void)
 {
+    uint32_t ebp;
+    ebp = g_seh_ebp; /* fpo_leaf: inherit caller's frame */
 
 loc_003AE01A:
     ebx = MEM32(esp + 0x54);
     edi = edi;
+    g_seh_ebp = ebp; sub_003AE020(); return; /* fallthrough 0x003AE020 */
 
 }
 
@@ -1311,6 +1314,8 @@ loc_003AE034:
  */
 void sub_003AE03F(void)
 {
+    uint32_t ebp;
+    ebp = g_seh_ebp; /* fpo_leaf: inherit caller's frame */
 
 loc_003AE03F:
     edx = MEM32(esp + 0x34);
@@ -1319,6 +1324,7 @@ loc_003AE03F:
 
 loc_003AE049:
     esp = esp + 4;
+    g_seh_ebp = ebp; sub_003AE04C(); return; /* fallthrough 0x003AE04C */
 
 }
 
@@ -1349,10 +1355,250 @@ loc_003AE066:
 
 }
 
-/* Fallback for unresolved generated target 0x003AE070. */
 void sub_003AE070(void)
 {
-    recomp_missing_target(0x003AE070u);
+    uint32_t ebp;
+    int _flags = 0; /* fallback flag var */
+    ebp = g_seh_ebp; /* fpo_leaf: inherit caller's frame */
+
+loc_003AE070:
+    SET_LO8(ecx, MEM8(esp + eax + 0x60));
+    MEM8(esp + eax + 0x160) = LO8(ecx);
+    eax++;
+    if (TEST_NZ(LO8(ecx), LO8(ecx))) goto loc_003AE070; /* jne */
+
+loc_003AE080:
+    eax = esp + 0x160;
+    PUSH32(esp, 0x53E2A0);
+    PUSH32(esp, eax);
+    PUSH32(esp, 0); fn_0009BA79_strtok(); /* call 0x0009BA79 */
+
+loc_003AE092:
+    esi = eax;
+    esp = esp + 8;
+    if (TEST_Z(esi, esi)) { g_seh_ebp = ebp; sub_003AE01A(); return; } /* je */
+
+loc_003AE09F:
+    PUSH32(esp, 0x53F8FC);
+    PUSH32(esp, esi);
+    PUSH32(esp, 0); fn_0009D4A0_stricmp(); /* call 0x0009D4A0 */
+
+loc_003AE0AA:
+    esp = esp + 8;
+    if (TEST_NZ(eax, eax)) goto loc_003AE0C4; /* jne */
+
+loc_003AE0B1:
+    edi = 0x602E60;
+    PUSH32(esp, 0); fn_0002D200_UInputMapData_ZeroList_Append(); /* call 0x0002D200 */
+
+loc_003AE0BB:
+    MEM32(esp + 0x10) = eax;
+    g_seh_ebp = ebp; sub_003AE01A(); return; /* jmp 0x003AE01A */
+
+loc_003AE0C4:
+    PUSH32(esp, 0x53E28C);
+    PUSH32(esp, esi);
+    PUSH32(esp, 0); fn_0009D4A0_stricmp(); /* call 0x0009D4A0 */
+
+loc_003AE0CF:
+    esp = esp + 8;
+    if (TEST_NZ(eax, eax)) goto loc_003AE100; /* jne */
+
+loc_003AE0D6:
+    PUSH32(esp, 0x53E2A0);
+    PUSH32(esp, eax);
+    PUSH32(esp, 0); fn_0009BA79_strtok(); /* call 0x0009BA79 */
+
+loc_003AE0E1:
+    ecx = eax;
+    esp = esp + 8;
+    if (TEST_Z(ecx, ecx)) { g_seh_ebp = ebp; sub_003AE01A(); return; } /* je */
+
+loc_003AE0EE:
+    eax = 0; /* xor self */
+    PUSH32(esp, 0); fn_00128D90_CalcLowerCRC(); /* call 0x00128D90 */
+
+loc_003AE0F5:
+    ecx = MEM32(esp + 0x10);
+    MEM32(ecx) = eax;
+    g_seh_ebp = ebp; sub_003AE01A(); return; /* jmp 0x003AE01A */
+
+loc_003AE100:
+    PUSH32(esp, 0x53F8F4);
+    PUSH32(esp, esi);
+    PUSH32(esp, 0); fn_0009D4A0_stricmp(); /* call 0x0009D4A0 */
+
+loc_003AE10B:
+    esp = esp + 8;
+    if (TEST_NZ(eax, eax)) goto loc_003AE13D; /* jne */
+
+loc_003AE112:
+    PUSH32(esp, 0x53E2A0);
+    PUSH32(esp, eax);
+    PUSH32(esp, 0); fn_0009BA79_strtok(); /* call 0x0009BA79 */
+
+loc_003AE11D:
+    ecx = eax;
+    esp = esp + 8;
+    if (TEST_Z(ecx, ecx)) { g_seh_ebp = ebp; sub_003AE01A(); return; } /* je */
+
+loc_003AE12A:
+    eax = 0; /* xor self */
+    PUSH32(esp, 0); fn_00128D90_CalcLowerCRC(); /* call 0x00128D90 */
+
+loc_003AE131:
+    edx = MEM32(esp + 0x10);
+    MEM32(edx + 4) = eax;
+    g_seh_ebp = ebp; sub_003AE01A(); return; /* jmp 0x003AE01A */
+
+loc_003AE13D:
+    eax = 0; /* xor self */
+    ecx = esi;
+    PUSH32(esp, 0); fn_00128D90_CalcLowerCRC(); /* call 0x00128D90 */
+
+loc_003AE146:
+    MEM32(esp + 0x20) = eax;
+    ebx = ebx;
+
+loc_003AE150:
+    PUSH32(esp, 0x53E2A0);
+    PUSH32(esp, 0);
+    PUSH32(esp, 0); fn_0009BA79_strtok(); /* call 0x0009BA79 */
+
+loc_003AE15C:
+    esi = eax;
+    esp = esp + 8;
+    if (TEST_Z(esi, esi)) { g_seh_ebp = ebp; sub_003AE01A(); return; } /* je */
+
+loc_003AE169:
+    eax = 0; /* xor self */
+    ecx = 0x53ACDB;
+    PUSH32(esp, 0); fn_00128D90_CalcLowerCRC(); /* call 0x00128D90 */
+
+loc_003AE175:
+    ebx = eax;
+    eax = 0; /* xor self */
+    ecx = 0x53F8E8;
+    PUSH32(esp, 0); fn_00128D90_CalcLowerCRC(); /* call 0x00128D90 */
+
+loc_003AE183:
+    edi = eax;
+    eax = 0; /* xor self */
+    ecx = esi;
+    PUSH32(esp, 0); fn_00128D90_CalcLowerCRC(); /* call 0x00128D90 */
+
+loc_003AE18E:
+    if (CMP_NE(eax, edi)) goto loc_003AE1CD; /* jne */
+
+loc_003AE192:
+    PUSH32(esp, 0x53E2A0);
+    PUSH32(esp, 0);
+    PUSH32(esp, 0); fn_0009BA79_strtok(); /* call 0x0009BA79 */
+
+loc_003AE19E:
+    ecx = eax;
+    esp = esp + 8;
+    if (TEST_Z(ecx, ecx)) { g_seh_ebp = ebp; sub_003AE01A(); return; } /* je */
+
+loc_003AE1AB:
+    eax = 0; /* xor self */
+    PUSH32(esp, 0); fn_00128D90_CalcLowerCRC(); /* call 0x00128D90 */
+
+loc_003AE1B2:
+    PUSH32(esp, 0x53E2A0);
+    PUSH32(esp, 0);
+    ebx = eax;
+    PUSH32(esp, 0); fn_0009BA79_strtok(); /* call 0x0009BA79 */
+
+loc_003AE1C0:
+    esi = eax;
+    esp = esp + 8;
+    if (TEST_Z(esi, esi)) { g_seh_ebp = ebp; sub_003AE01A(); return; } /* je */
+
+loc_003AE1CD:
+    eax = 0; /* xor self */
+    ecx = esi;
+    PUSH32(esp, 0); fn_00128D90_CalcLowerCRC(); /* call 0x00128D90 */
+
+loc_003AE1D6:
+    PUSH32(esp, 0x53E2A0);
+    PUSH32(esp, 0);
+    MEM32(esp + 0x24) = eax;
+    PUSH32(esp, 0); fn_0009BA79_strtok(); /* call 0x0009BA79 */
+
+loc_003AE1E6:
+    ecx = eax;
+    esp = esp + 8;
+    if (TEST_Z(ecx, ecx)) { g_seh_ebp = ebp; sub_003AE01A(); return; } /* je */
+
+loc_003AE1F3:
+    eax = 0; /* xor self */
+    PUSH32(esp, 0); fn_00128D90_CalcLowerCRC(); /* call 0x00128D90 */
+
+loc_003AE1FA:
+    PUSH32(esp, 0x53E2A0);
+    PUSH32(esp, 0);
+    edi = eax;
+    PUSH32(esp, 0); fn_0009BA79_strtok(); /* call 0x0009BA79 */
+
+loc_003AE208:
+    ecx = eax;
+    esp = esp + 8;
+    if (TEST_Z(ecx, ecx)) { g_seh_ebp = ebp; sub_003AE01A(); return; } /* je */
+
+loc_003AE215:
+    eax = 0; /* xor self */
+    PUSH32(esp, 0); fn_00128D90_CalcLowerCRC(); /* call 0x00128D90 */
+
+loc_003AE21C:
+    PUSH32(esp, 0x53E2A0);
+    PUSH32(esp, 0);
+    esi = eax;
+    PUSH32(esp, 0); fn_0009BA79_strtok(); /* call 0x0009BA79 */
+
+loc_003AE22A:
+    ecx = eax;
+    esp = esp + 8;
+    if (TEST_Z(ecx, ecx)) { g_seh_ebp = ebp; sub_003AE01A(); return; } /* je */
+
+loc_003AE237:
+    eax = 0; /* xor self */
+    PUSH32(esp, 0); fn_00128D90_CalcLowerCRC(); /* call 0x00128D90 */
+
+loc_003AE23E:
+    edx = MEM32(esp + 0x20);
+    PUSH32(esp, ecx);
+    ecx = esp;
+    MEM32(esp + 0x18) = esp;
+    PUSH32(esp, ecx);
+    MEM32(ecx) = ebx;
+    ecx = esp;
+    MEM32(ecx) = eax;
+    MEM32(esp + 0x1C) = esp;
+    PUSH32(esp, ecx);
+    ecx = MEM32(esp + 0x28);
+    eax = esp;
+    MEM32(eax) = ecx;
+    MEM32(esp + 0x20) = esp;
+    PUSH32(esp, ecx);
+    eax = esp;
+    MEM32(esp + 0x24) = esp;
+    MEM32(eax) = edi;
+    PUSH32(esp, ecx);
+    eax = esp;
+    MEM32(esp + 0x28) = esp;
+    PUSH32(esp, ecx);
+    MEM32(eax) = esi;
+    eax = esp;
+    MEM32(eax) = edx;
+    eax = MEM32(esp + 0x28);
+    MEM32(esp + 0x2C) = esp;
+    PUSH32(esp, eax);
+    PUSH32(esp, 0); fn_003ADE20_AddInput(); /* call 0x003ADE20 */
+
+loc_003AE286:
+    esp = esp + 0x1C;
+    goto loc_003AE150;
 }
 
 /**

@@ -8,6 +8,17 @@
 #include "recomp_funcs.h"
 #include <math.h>
 
+static int cscriptmanager_va_range_is_valid(uint32_t va, uint32_t size)
+{
+    if (size == 0) {
+        return va >= 0x00010000u && va < 0x04000000u;
+    }
+    if (va < 0x00010000u || va >= 0x04000000u || va + size < va) {
+        return 0;
+    }
+    return va + size <= 0x04000000u;
+}
+
 /**
  * fn_000390A0_CExpression_Set
  * Symbol: ?Set@CExpression@@QAEX_N@Z
@@ -2378,75 +2389,43 @@ loc_0020232D:
  */
 void fn_00202340_CScriptManager_DetachExpression(void)
 {
-    uint32_t ebp;
-    int _flags = 0; /* fallback flag var */
-    ebp = g_seh_ebp; /* fpo_leaf: inherit caller's frame */
+    uint32_t manager = eax;
+    uint32_t expression = ebx;
+    uint32_t array;
+    int32_t count;
+    int32_t i;
 
-loc_00202340:
-    PUSH32(esp, ebp);
-    PUSH32(esp, esi);
-    PUSH32(esp, edi);
-    edi = eax;
-    SET_LO16(edx, MEM16(edi + 0x134));
-    eax = 0; /* xor self */
-    if (CMP_LE(LO16(edx) & LO16(edx), 0)) goto loc_0020236E; /* jle: less or equal (signed <=) */
+    if (!cscriptmanager_va_range_is_valid(manager, 0x140) ||
+        !cscriptmanager_va_range_is_valid(expression, 4)) {
+        esp += 4; return; /* ret */
+    }
 
-loc_00202353:
-    ecx = MEM32(edi + 0x130);
-    /* nop */
+    count = (int16_t)MEM16(manager + 0x134);
+    array = MEM32(manager + 0x130);
+    if (count > 0 && count <= 0x4000 &&
+        cscriptmanager_va_range_is_valid(array, (uint32_t)count * 4u)) {
+        for (i = 0; i < count; i++) {
+            if (MEM32(array + (uint32_t)i * 4u) == expression) {
+                MEM32(array + (uint32_t)i * 4u) = MEM32(array + (uint32_t)(count - 1) * 4u);
+                MEM32(array + (uint32_t)(count - 1) * 4u) = 0;
+                MEM16(manager + 0x134) = (uint16_t)(count - 1);
+                break;
+            }
+        }
+    }
 
-loc_00202360:
-    esi = SX16(LO16(eax));
-    if (CMP_EQ(MEM32(ecx + esi * 4), ebx)) goto loc_0020236E; /* je: equal / zero */
+    count = (int16_t)MEM16(manager + 0x13C);
+    array = MEM32(manager + 0x138);
+    if (count > 0 && count <= 0x4000 &&
+        cscriptmanager_va_range_is_valid(array, (uint32_t)count * 4u)) {
+        for (i = 0; i < count; i++) {
+            if (MEM32(array + (uint32_t)i * 4u) == expression) {
+                MEM32(array + (uint32_t)i * 4u) = 0;
+                break;
+            }
+        }
+    }
 
-loc_00202368:
-    eax++;
-    if (CMP_L(LO16(eax), LO16(edx))) goto loc_00202360; /* jl: less (signed <) */
-
-loc_0020236E:
-    esi = MEM32(edi + 0x130);
-    ecx = SX16(LO16(eax));
-    eax = edi + 0x130;
-    ecx = ecx << 2;
-    MEM32(ecx + esi) = 0;
-    esi = MEM32(eax);
-    edx = SX16(LO16(edx));
-    ebp = MEM32(esi + edx * 4 + -4);
-    MEM32(esi + ecx) = ebp;
-    PUSH32(esp, 0);
-    esi = edx + -1;
-    PUSH32(esp, 0); fn_00039A20_PAVCExpression_ZeroDynArrayBase_SetCount(); /* call 0x00039A20 */
-
-loc_0020239D:
-    SET_LO16(ecx, MEM16(edi + 0x13C));
-    eax = 0; /* xor self */
-    if (CMP_LE(LO16(ecx) & LO16(ecx), 0)) goto loc_002023CD; /* jle: less or equal (signed <=) */
-
-loc_002023AB:
-    edi = MEM32(edi + 0x138);
-
-loc_002023B1:
-    edx = SX16(LO16(eax));
-    if (CMP_EQ(MEM32(edi + edx * 4), ebx)) goto loc_002023C3; /* je: equal / zero */
-
-loc_002023B9:
-    eax++;
-    if (CMP_L(LO16(eax), LO16(ecx))) goto loc_002023B1; /* jl: less (signed <) */
-
-loc_002023BF:
-    POP32(esp, edi);
-    POP32(esp, esi);
-    POP32(esp, ebp);
-    esp += 4; return; /* ret */
-
-loc_002023C3:
-    eax = SX16(LO16(eax));
-    MEM32(edi + eax * 4) = 0;
-
-loc_002023CD:
-    POP32(esp, edi);
-    POP32(esp, esi);
-    POP32(esp, ebp);
     esp += 4; return; /* ret */
 
 }

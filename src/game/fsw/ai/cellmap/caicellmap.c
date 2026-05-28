@@ -7,6 +7,18 @@
 #define RECOMP_GENERATED_CODE
 #include "recomp_funcs.h"
 #include <math.h>
+#include <stdio.h>
+
+static int caicellmap_va_range_is_valid(uint32_t va, uint32_t size)
+{
+    if (size == 0) {
+        return va >= 0x00010000u && va < 0x04000000u;
+    }
+    if (va < 0x00010000u || va >= 0x04000000u || va + size < va) {
+        return 0;
+    }
+    return va + size <= 0x04000000u;
+}
 
 /**
  * sub_00012651
@@ -210,7 +222,8 @@ loc_000126F1:
 /* Fallback for unresolved generated target 0x000126F3. */
 void sub_000126F3(void)
 {
-    recomp_missing_target(0x000126F3u);
+    MEM32(edi + 4) = eax;
+    esp += 4; return; /* ret */
 }
 
 /**
@@ -1382,6 +1395,20 @@ void fn_00314D20_CAICellmap_GetBounds(void)
 loc_00314D20:
     esp = esp - 0x28;
     xmm0 = MEMF(0x56179C); /* movss */
+    if (!caicellmap_va_range_is_valid(ecx, 4)) {
+        if (caicellmap_va_range_is_valid(edi, 12)) {
+            MEM32(edi) = 0;
+            MEM32(edi + 4) = 0;
+            MEM32(edi + 8) = 0;
+        }
+        if (caicellmap_va_range_is_valid(ebx, 12)) {
+            MEM32(ebx) = 0;
+            MEM32(ebx + 4) = 0;
+            MEM32(ebx + 8) = 0;
+        }
+        esp = esp + 0x28;
+        esp += 4; return; /* ret */
+    }
     ecx = MEM32(ecx);
     MEMF(esp + 4) = xmm0; /* movss */
     MEMF(esp + 0xC) = xmm0; /* movss */
@@ -1400,7 +1427,10 @@ loc_00314D5F:
     /* nop */
 
 loc_00314D60:
+    if (!caicellmap_va_range_is_valid(esi, 8)) goto loc_00314DCC;
     ecx = MEM32(esi);
+    if (!caicellmap_va_range_is_valid(ecx, 4) ||
+        !caicellmap_va_range_is_valid(MEM32(ecx) + 0x34, 4)) goto loc_00314DC5;
     edx = MEM32(ecx);
     eax = esp + 0x20;
     { uint32_t _icall_esp = g_esp;
@@ -1445,6 +1475,7 @@ loc_00314DBF:
     MEMF(esp + 4) = xmm0; /* movss */
 
 loc_00314DC5:
+    if (!caicellmap_va_range_is_valid(esi + 4, 4)) goto loc_00314DCC;
     esi = MEM32(esi + 4);
     if (TEST_NZ(esi, esi)) goto loc_00314D60; /* jne: not equal / not zero */
 
@@ -3215,6 +3246,9 @@ loc_003160AB:
 void sub_003160B1(void)
 {
     uint32_t ebp;
+    uint32_t saved_ebx;
+    uint32_t saved_esi;
+    uint32_t saved_edi;
     int _flags = 0; /* fallback flag var */
     float xmm0, xmm1;
     ebp = g_seh_ebp; /* fpo_leaf: inherit caller's frame */
@@ -3227,11 +3261,17 @@ loc_003160B1:
     eax = esp;
     MEM32(eax) = ecx;
     edx = MEM32(edi);
-    ecx = edi;
-    MEM32(esp + 0x24) = edi;
-    MEM32(esp + 0x1C) = esp;
-    PUSH32(esp, 0); RECOMP_ICALL_SAFE(MEM32(edx + 0x74), _icall_esp); /* indirect call */
-    }
+	    ecx = edi;
+	    MEM32(esp + 0x24) = edi;
+	    MEM32(esp + 0x1C) = esp;
+	    saved_ebx = ebx;
+	    saved_esi = esi;
+	    saved_edi = edi;
+	    PUSH32(esp, 0); RECOMP_ICALL_SAFE(MEM32(edx + 0x74), _icall_esp); /* indirect call */
+	    ebx = saved_ebx;
+	    esi = saved_esi;
+	    edi = saved_edi;
+	    }
 
 loc_003160CD:
     ecx = MEM32(ebp + 4);
@@ -3425,11 +3465,17 @@ loc_0031629C:
 loc_003162A4:
     eax = MEM32(esi);
     edx = MEM32(edi);
-    { uint32_t _icall_esp = g_esp;
-    PUSH32(esp, eax);
-    ecx = edi;
-    PUSH32(esp, 0); RECOMP_ICALL_SAFE(MEM32(edx + 0xC), _icall_esp); /* indirect call */
-    }
+	    { uint32_t _icall_esp = g_esp;
+	    PUSH32(esp, eax);
+	    ecx = edi;
+	    saved_ebx = ebx;
+	    saved_esi = esi;
+	    saved_edi = edi;
+	    PUSH32(esp, 0); RECOMP_ICALL_SAFE(MEM32(edx + 0xC), _icall_esp); /* indirect call */
+	    ebx = saved_ebx;
+	    esi = saved_esi;
+	    edi = saved_edi;
+	    }
 
 loc_003162AE:
     esi = MEM32(esi + 4);
@@ -8032,6 +8078,7 @@ loc_00318CA0:
     PUSH32(esp, esi);
     esi = MEM32(esp + 0x5C);
     PUSH32(esp, edi);
+    if (!caicellmap_va_range_is_valid(esi, 0x3044)) goto loc_00318FB8;
     ebx = esp + 0x38;
     edi = esp + 0x2C;
     ecx = esi;
@@ -8056,6 +8103,7 @@ loc_00318CBA:
     PUSH32(esp, 0); fn_00024630_PAVCDeadGuy_ZeroList_GetHead(); /* call 0x00024630 */
 
 loc_00318D0E:
+    if (!caicellmap_va_range_is_valid(eax, 8)) goto loc_00318FB8;
     ecx = MEM32(eax);
     (void)0; /* cmp ecx, ebx - flags set for next jcc */
     eax = MEM32(eax + 4);
@@ -8071,7 +8119,10 @@ loc_00318D25:
     /* nop */
 
 loc_00318D30:
+    if (!caicellmap_va_range_is_valid(ecx, 8)) goto loc_00318FB8;
     ecx = MEM32(ecx);
+    if (!caicellmap_va_range_is_valid(ecx, 4) ||
+        !caicellmap_va_range_is_valid(MEM32(ecx) + 0x34, 4)) goto loc_00318E7F;
     edx = MEM32(ecx);
     eax = esp + 0x38;
     { uint32_t _icall_esp = g_esp;
@@ -9276,6 +9327,8 @@ loc_00319636:
 void fn_00319650_CAICellmap_Update(void)
 {
     uint32_t ebp;
+    uint32_t dynamic_cell_steps = 0;
+    uint32_t dead_guy_steps = 0;
     int _flags = 0; /* fallback flag var */
     float xmm0, xmm1;
     ebp = g_seh_ebp; /* fpo_leaf: inherit caller's frame */
@@ -9315,6 +9368,10 @@ loc_0031969E:
     if (TEST_Z(edi, edi)) goto loc_00319705; /* je: equal / zero */
 
 loc_003196A6:
+    if (!caicellmap_va_range_is_valid(edi, 8) || ++dynamic_cell_steps > 4096) {
+        fprintf(stderr, "[FSW/AI] stopping CAICellmap dynamic list node=%08X steps=%u\n", edi, dynamic_cell_steps);
+        goto loc_00319705;
+    }
     SET_LO8(eax, MEM8(0x5FA388));
     if (TEST_Z(LO8(eax), LO8(eax))) goto loc_003196D1; /* je: equal / zero */
 
@@ -9332,6 +9389,10 @@ loc_003196CD:
 
 loc_003196D1:
     esi = MEM32(edi);
+    if (!caicellmap_va_range_is_valid(esi, 4) || !caicellmap_va_range_is_valid(MEM32(esi), 0x40)) {
+        fprintf(stderr, "[FSW/AI] skipping CAICellmap dynamic cell=%08X node=%08X\n", esi, edi);
+        goto loc_003196F6;
+    }
     eax = MEM32(esi);
     ecx = esi;
     { uint32_t _icall_esp = g_esp;
@@ -9348,6 +9409,10 @@ loc_003196DE:
 
 loc_003196E6:
     edx = MEM32(esi);
+    if (!caicellmap_va_range_is_valid(edx, 0x40)) {
+        fprintf(stderr, "[FSW/AI] skipping CAICellmap post-footprint cell=%08X vtbl=%08X\n", esi, edx);
+        goto loc_003196F6;
+    }
     ecx = esi;
     { uint32_t _icall_esp = g_esp;
     PUSH32(esp, 0); RECOMP_ICALL_SAFE(MEM32(edx + 0x3C), _icall_esp); /* indirect call */
@@ -9381,7 +9446,15 @@ loc_0031971C:
     /* nop */
 
 loc_00319720:
+    if (!caicellmap_va_range_is_valid(esi, 8) || ++dead_guy_steps > 4096) {
+        fprintf(stderr, "[FSW/AI] stopping CAICellmap dead-guy list node=%08X steps=%u\n", esi, dead_guy_steps);
+        goto loc_00319746;
+    }
     ecx = MEM32(esi);
+    if (!caicellmap_va_range_is_valid(ecx, 4) || !caicellmap_va_range_is_valid(MEM32(ecx), 0x40)) {
+        fprintf(stderr, "[FSW/AI] skipping CAICellmap dead-guy object=%08X node=%08X\n", ecx, esi);
+        goto loc_0031972B;
+    }
     edx = MEM32(ecx);
     { uint32_t _icall_esp = g_esp;
     PUSH32(esp, 0); RECOMP_ICALL_SAFE(MEM32(edx + 0x3C), _icall_esp); /* indirect call */

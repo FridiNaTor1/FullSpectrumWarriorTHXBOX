@@ -7,6 +7,18 @@
 #define RECOMP_GENERATED_CODE
 #include "recomp_funcs.h"
 #include <math.h>
+#include <stdio.h>
+
+static int cfaction_va_range_is_valid(uint32_t va, uint32_t size)
+{
+    if (size == 0) {
+        return va >= 0x00010000u && va < 0x04000000u;
+    }
+    if (va < 0x00010000u || va >= 0x04000000u || va + size < va) {
+        return 0;
+    }
+    return va + size <= 0x04000000u;
+}
 
 /**
  * fn_000245E0_1CFactionManager_QAE_XZ
@@ -463,17 +475,32 @@ loc_0029F140:
 loc_0029F157:
     eax = MEM32(esp + 8);
     if (TEST_Z(eax, eax)) goto loc_0029F17D; /* je: equal / zero */
+    if (!cfaction_va_range_is_valid(eax, 8)) {
+        fprintf(stderr, "[FSW/Faction] stopping GetSlot invalid node=%08X\n",
+                (unsigned)eax);
+        goto loc_0029F17D;
+    }
 
 loc_0029F15F:
     edi = MEM32(ebp + 8);
 
 loc_0029F162:
+    if (!cfaction_va_range_is_valid(eax, 8)) {
+        fprintf(stderr, "[FSW/Faction] stopping GetSlot invalid loop node=%08X\n",
+                (unsigned)eax);
+        goto loc_0029F17D;
+    }
     esi = MEM32(eax);
     eax = esp + 0x10;
     ecx = esp + 8;
     PUSH32(esp, 0); fn_0004E360_EIterator_ZeroList_K_QAE_AV01_H_Z(); /* call 0x0004E360 */
 
 loc_0029F171:
+    if (!cfaction_va_range_is_valid(esi, 4)) {
+        fprintf(stderr, "[FSW/Faction] skipping GetSlot invalid slot=%08X\n",
+                (unsigned)esi);
+        goto loc_0029F17D;
+    }
     if (CMP_EQ(MEM32(esi), edi)) { sub_0029F187(); return; } /* je: equal / zero */
 
 loc_0029F175:
@@ -540,14 +567,29 @@ loc_0029F1AE:
 loc_0029F1BA:
     eax = MEM32(esp + 8);
     if (TEST_Z(eax, eax)) goto loc_0029F1F3; /* je: equal / zero */
+    if (!cfaction_va_range_is_valid(eax, 8)) {
+        fprintf(stderr, "[FSW/Faction] stopping GetFaction(slot) invalid node=%08X\n",
+                (unsigned)eax);
+        goto loc_0029F1F3;
+    }
 
 loc_0029F1C2:
+    if (!cfaction_va_range_is_valid(eax, 8)) {
+        fprintf(stderr, "[FSW/Faction] stopping GetFaction(slot) invalid loop node=%08X\n",
+                (unsigned)eax);
+        goto loc_0029F1F3;
+    }
     esi = MEM32(eax);
     eax = esp + 0x10;
     ecx = esp + 8;
     PUSH32(esp, 0); fn_0004E360_EIterator_ZeroList_K_QAE_AV01_H_Z(); /* call 0x0004E360 */
 
 loc_0029F1D1:
+    if (!cfaction_va_range_is_valid(esi, 0x14)) {
+        fprintf(stderr, "[FSW/Faction] skipping GetFaction(slot) invalid faction=%08X\n",
+                (unsigned)esi);
+        goto loc_0029F1F3;
+    }
     eax = MEM32(esi + 0x10);
     if (TEST_Z(eax, eax)) goto loc_0029F1EB; /* je: equal / zero */
 
@@ -556,6 +598,12 @@ loc_0029F1D8:
     /* nop */
 
 loc_0029F1E0:
+    if (!cfaction_va_range_is_valid(eax, 8)) {
+        fprintf(stderr, "[FSW/Faction] stopping GetFaction(slot) invalid slot node=%08X faction=%08X\n",
+                (unsigned)eax,
+                (unsigned)esi);
+        goto loc_0029F1EB;
+    }
     if (CMP_EQ(ecx, MEM32(eax))) { sub_0029F1FA(); return; } /* je: equal / zero */
 
 loc_0029F1E4:
@@ -621,17 +669,32 @@ loc_0029F210:
 loc_0029F227:
     eax = MEM32(esp + 8);
     if (TEST_Z(eax, eax)) goto loc_0029F24E; /* je: equal / zero */
+    if (!cfaction_va_range_is_valid(eax, 8)) {
+        fprintf(stderr, "[FSW/Faction] stopping GetFaction(crc) invalid node=%08X\n",
+                (unsigned)eax);
+        goto loc_0029F24E;
+    }
 
 loc_0029F22F:
     edi = MEM32(ebp + 8);
 
 loc_0029F232:
+    if (!cfaction_va_range_is_valid(eax, 8)) {
+        fprintf(stderr, "[FSW/Faction] stopping GetFaction(crc) invalid loop node=%08X\n",
+                (unsigned)eax);
+        goto loc_0029F24E;
+    }
     esi = MEM32(eax);
     eax = esp + 0x10;
     ecx = esp + 8;
     PUSH32(esp, 0); fn_0004E360_EIterator_ZeroList_K_QAE_AV01_H_Z(); /* call 0x0004E360 */
 
 loc_0029F241:
+    if (!cfaction_va_range_is_valid(esi, 8)) {
+        fprintf(stderr, "[FSW/Faction] skipping GetFaction(crc) invalid faction=%08X\n",
+                (unsigned)esi);
+        goto loc_0029F24E;
+    }
     if (CMP_EQ(MEM32(esi + 4), edi)) { sub_0029F258(); return; } /* je: equal / zero */
 
 loc_0029F246:
@@ -1585,11 +1648,21 @@ loc_0029F8AC:
     /* nop */
 
 loc_0029F8B0:
+    if (!cfaction_va_range_is_valid(eax, 8)) {
+        fprintf(stderr, "[FSW/Faction] stopping ConvertSlots invalid faction node=%08X\n",
+                (unsigned)eax);
+        goto loc_0029FA19;
+    }
     eax = MEM32(eax);
     MEM32(esp + 0x3C) = ebx;
     MEM32(esp + 0x40) = ebx;
     MEM32(esp + 0x44) = ebx;
     MEM32(esp + 0x54) = ebx;
+    if (!cfaction_va_range_is_valid(eax, 0x1C)) {
+        fprintf(stderr, "[FSW/Faction] skipping ConvertSlots invalid faction=%08X\n",
+                (unsigned)eax);
+        goto loc_0029FA00;
+    }
     if (CMP_EQ(MEM8(eax + 0x19), LO8(ebx))) goto loc_0029F9EF; /* je: equal / zero */
 
 loc_0029F8CB:
@@ -1608,7 +1681,18 @@ loc_0029F8E7:
     /* nop */
 
 loc_0029F8F0:
+    if (!cfaction_va_range_is_valid(eax, 8)) {
+        fprintf(stderr, "[FSW/Faction] stopping ConvertSlots invalid source slot node=%08X faction=%08X\n",
+                (unsigned)eax,
+                (unsigned)(edi - 4));
+        goto loc_0029F982;
+    }
     esi = MEM32(eax);
+    if (!cfaction_va_range_is_valid(esi, 4)) {
+        fprintf(stderr, "[FSW/Faction] skipping ConvertSlots invalid source slot=%08X\n",
+                (unsigned)esi);
+        goto loc_0029F969;
+    }
     if (TEST_NZ(MEM8(0x62793C), 1)) goto loc_0029F922; /* jne: not equal / not zero */
 
 loc_0029F8FB:
@@ -1635,7 +1719,19 @@ loc_0029F930:
     if (CMP_EQ(eax, ebx)) goto loc_0029F969; /* je: equal / zero */
 
 loc_0029F938:
+    if (!cfaction_va_range_is_valid(eax, 8)) {
+        fprintf(stderr, "[FSW/Faction] stopping ConvertSlots invalid spawn slot node=%08X source=%08X\n",
+                (unsigned)eax,
+                (unsigned)esi);
+        goto loc_0029F946;
+    }
     ecx = MEM32(eax);
+    if (!cfaction_va_range_is_valid(ecx, 0x4C)) {
+        fprintf(stderr, "[FSW/Faction] skipping ConvertSlots invalid spawn slot=%08X source=%08X\n",
+                (unsigned)ecx,
+                (unsigned)esi);
+        goto loc_0029F93F;
+    }
     if (CMP_EQ(MEM32(ecx + 0x44), esi)) goto loc_0029F94C; /* je: equal / zero */
 
 loc_0029F93F:
@@ -1702,6 +1798,11 @@ loc_0029F9CE:
     edi = edi;
 
 loc_0029F9D0:
+    if (!cfaction_va_range_is_valid(edi, 8)) {
+        fprintf(stderr, "[FSW/Faction] stopping ConvertSlots invalid converted slot node=%08X\n",
+                (unsigned)edi);
+        goto loc_0029F9EB;
+    }
     edx = MEM32(edi);
     esi = MEM32(esp + 0x14);
     eax = esp + 0xC;
@@ -2201,6 +2302,11 @@ loc_0029FD80:
     PUSH32(esp, 0); fn_0029F870_CFactionManager_ConvertSlots(); /* call 0x0029F870 */
 
 loc_0029FD90:
+    if (!cfaction_va_range_is_valid(edi, 0x1C)) {
+        fprintf(stderr, "[FSW/Faction] skipping PutSoldiersInFactions invalid manager=%08X\n",
+                (unsigned)edi);
+        goto loc_0029FE80;
+    }
     eax = edi + 0x10;
     MEM32(esp + 0x2C) = eax;
     eax = MEM32(eax + 8);
@@ -2209,7 +2315,17 @@ loc_0029FD90:
     if (TEST_Z(eax, eax)) goto loc_0029FE80; /* je: equal / zero */
 
 loc_0029FDA6:
+    if (!cfaction_va_range_is_valid(eax, 8)) {
+        fprintf(stderr, "[FSW/Faction] stopping PutSoldiersInFactions invalid faction node=%08X\n",
+                (unsigned)eax);
+        goto loc_0029FE80;
+    }
     esi = MEM32(eax);
+    if (!cfaction_va_range_is_valid(esi, 0x10)) {
+        fprintf(stderr, "[FSW/Faction] skipping PutSoldiersInFactions invalid faction=%08X\n",
+                (unsigned)esi);
+        goto loc_0029FE67;
+    }
     eax = esi + 8;
     MEM32(esp + 0x24) = eax;
     eax = MEM32(eax + 8);
@@ -2221,7 +2337,19 @@ loc_0029FDBE:
     edi = edi;
 
 loc_0029FDC0:
+    if (!cfaction_va_range_is_valid(eax, 8)) {
+        fprintf(stderr, "[FSW/Faction] stopping PutSoldiersInFactions invalid source slot node=%08X faction=%08X\n",
+                (unsigned)eax,
+                (unsigned)esi);
+        goto loc_0029FE67;
+    }
     eax = MEM32(eax);
+    if (!cfaction_va_range_is_valid(eax, 4)) {
+        fprintf(stderr, "[FSW/Faction] skipping PutSoldiersInFactions invalid source slot=%08X faction=%08X\n",
+                (unsigned)eax,
+                (unsigned)esi);
+        goto loc_0029FE4E;
+    }
     PUSH32(esp, ecx);
     ecx = esp;
     MEM32(ecx) = eax;
@@ -2233,6 +2361,11 @@ loc_0029FDD2:
     if (TEST_Z(eax, eax)) goto loc_0029FE4E; /* je: equal / zero */
 
 loc_0029FDD6:
+    if (!cfaction_va_range_is_valid(eax, 0xC)) {
+        fprintf(stderr, "[FSW/Faction] skipping PutSoldiersInFactions invalid resolved slot=%08X\n",
+                (unsigned)eax);
+        goto loc_0029FE4E;
+    }
     eax = eax + 4;
     MEM32(esp + 0x1C) = eax;
     eax = MEM32(eax + 8);
@@ -2241,7 +2374,17 @@ loc_0029FDD6:
     if (TEST_Z(eax, eax)) goto loc_0029FE4E; /* je: equal / zero */
 
 loc_0029FDE8:
+    if (!cfaction_va_range_is_valid(eax, 8)) {
+        fprintf(stderr, "[FSW/Faction] stopping PutSoldiersInFactions invalid group node=%08X\n",
+                (unsigned)eax);
+        goto loc_0029FE4E;
+    }
     edx = MEM32(eax);
+    if (!cfaction_va_range_is_valid(edx, 4)) {
+        fprintf(stderr, "[FSW/Faction] skipping PutSoldiersInFactions invalid group crc slot=%08X\n",
+                (unsigned)edx);
+        goto loc_0029FE39;
+    }
     PUSH32(esp, ecx);
     ecx = esp;
     MEM32(esp + 0xC) = esp;
@@ -2264,8 +2407,19 @@ loc_0029FE03:
     if (TEST_Z(eax, eax)) goto loc_0029FE39; /* je: equal / zero */
 
 loc_0029FE15:
+    if (!cfaction_va_range_is_valid(eax, 8)) {
+        fprintf(stderr, "[FSW/Faction] stopping PutSoldiersInFactions invalid actor node=%08X\n",
+                (unsigned)eax);
+        goto loc_0029FE39;
+    }
     eax = MEM32(eax);
     if (TEST_Z(eax, eax)) goto loc_0029FE24; /* je: equal / zero */
+    if (!cfaction_va_range_is_valid(eax, 0x168) || !cfaction_va_range_is_valid(esi, 8)) {
+        fprintf(stderr, "[FSW/Faction] skipping PutSoldiersInFactions invalid actor=%08X faction=%08X\n",
+                (unsigned)eax,
+                (unsigned)esi);
+        goto loc_0029FE24;
+    }
 
 loc_0029FE1B:
     ecx = MEM32(esi + 4);
@@ -2431,6 +2585,10 @@ loc_0029FF04:
 void fn_0029FF10_CFactionManager_Update(void)
 {
     uint32_t ebp;
+    uint32_t faction_update_steps;
+    uint32_t spawn_update_steps;
+    uint32_t source_update_steps;
+    uint32_t next_node;
     int _flags = 0; /* fallback flag var */
     float xmm0, xmm1, xmm2;
     ebp = g_seh_ebp; /* fpo_leaf: inherit caller's frame */
@@ -2467,9 +2625,28 @@ loc_0029FF4C:
 
 loc_0029FF6F:
     /* nop */
+    faction_update_steps = 0;
 
 loc_0029FF70:
+    if (!cfaction_va_range_is_valid(edi, 8) || ++faction_update_steps > 4096) {
+        fprintf(stderr, "[FSW/Faction] stopping Update faction trigger loop invalid node=%08X steps=%u\n",
+                (unsigned)edi, (unsigned)faction_update_steps);
+        goto loc_0029FFD1;
+    }
     esi = MEM32(edi);
+    if (!cfaction_va_range_is_valid(esi, 0x20)) {
+        fprintf(stderr, "[FSW/Faction] skipping Update invalid faction node=%08X faction=%08X\n",
+                (unsigned)edi, (unsigned)esi);
+        next_node = MEM32(edi + 4);
+        if (next_node != 0 && !cfaction_va_range_is_valid(next_node, 8)) {
+            fprintf(stderr, "[FSW/Faction] dropping Update invalid next faction node=%08X next=%08X\n",
+                    (unsigned)edi, (unsigned)next_node);
+            next_node = 0;
+        }
+        edi = next_node;
+        if (CMP_NE(edi, ebx)) goto loc_0029FF70; /* jne: not equal / not zero */
+        goto loc_0029FFD1;
+    }
     eax = MEM32(esi + 0x20);
     PUSH32(esp, ecx);
     (void)0; /* cmp eax, ebx - flags set for next jcc */
@@ -2514,7 +2691,13 @@ loc_0029FFA0:
 loc_0029FFBF:
     MEM8(esi + 0x1B) = 1;
     MEM8(esi + 0x1C) = 1;
-    edi = MEM32(edi + 4);
+    next_node = MEM32(edi + 4);
+    if (next_node != 0 && !cfaction_va_range_is_valid(next_node, 8)) {
+        fprintf(stderr, "[FSW/Faction] dropping Update invalid next faction node=%08X next=%08X\n",
+                (unsigned)edi, (unsigned)next_node);
+        next_node = 0;
+    }
+    edi = next_node;
     esp = esp + 0xC;
     if (CMP_NE(edi, ebx)) goto loc_0029FF70; /* jne: not equal / not zero */
 
@@ -2527,9 +2710,20 @@ loc_0029FFD6:
 
 loc_0029FFE1:
     ebp = ebp | 0xFFFFFFFFu;
+    spawn_update_steps = 0;
 
 loc_0029FFE4:
+    if (!cfaction_va_range_is_valid(edi, 8) || ++spawn_update_steps > 4096) {
+        fprintf(stderr, "[FSW/Faction] stopping Update spawn loop invalid node=%08X steps=%u\n",
+                (unsigned)edi, (unsigned)spawn_update_steps);
+        goto loc_002A005D;
+    }
     esi = MEM32(edi);
+    if (!cfaction_va_range_is_valid(esi, 0x58)) {
+        fprintf(stderr, "[FSW/Faction] skipping Update invalid spawn encounter node=%08X encounter=%08X\n",
+                (unsigned)edi, (unsigned)esi);
+        goto loc_002A0054;
+    }
     MEM32(esp + 0x38) = ebx;
     MEM32(esp + 0x3C) = ebx;
     MEM32(esp + 0x40) = ebx;
@@ -2578,7 +2772,13 @@ loc_002A0047:
     PUSH32(esp, 0); fn_0004FF90_PAVCUIMenu_ZeroList_RemoveAll(); /* call 0x0004FF90 */
 
 loc_002A0054:
-    edi = MEM32(edi + 4);
+    next_node = MEM32(edi + 4);
+    if (next_node != 0 && !cfaction_va_range_is_valid(next_node, 8)) {
+        fprintf(stderr, "[FSW/Faction] dropping Update invalid next spawn node=%08X next=%08X\n",
+                (unsigned)edi, (unsigned)next_node);
+        next_node = 0;
+    }
+    edi = next_node;
     ebx = 0; /* xor self */
     if (TEST_NZ(edi, edi)) goto loc_0029FFE4; /* jne: not equal / not zero */
 
@@ -2610,14 +2810,31 @@ loc_002A009C:
     if (CMP_EQ(eax, ebx)) goto loc_002A0121; /* je: equal / zero */
 
 loc_002A00AB:
+    spawn_update_steps = 0;
     goto loc_002A00B0;
 
     /* nop */
 
 loc_002A00B0:
+    if (!cfaction_va_range_is_valid(edi, 8) || ++spawn_update_steps > 4096) {
+        fprintf(stderr, "[FSW/Faction] stopping Update active core loop invalid node=%08X steps=%u\n",
+                (unsigned)edi, (unsigned)spawn_update_steps);
+        goto loc_002A0121;
+    }
     esi = MEM32(edi);
+    if (!cfaction_va_range_is_valid(esi, 0x10C)) {
+        fprintf(stderr, "[FSW/Faction] skipping Update invalid active core node=%08X core=%08X\n",
+                (unsigned)edi, (unsigned)esi);
+        goto loc_002A011A;
+    }
     ecx = MEM32(esi + 0xF0);
     if (CMP_EQ(ecx, ebx)) goto loc_002A011A; /* je: equal / zero */
+    if (!cfaction_va_range_is_valid(ecx, 4) || !cfaction_va_range_is_valid(MEM32(ecx), 0xC8)) {
+        fprintf(stderr, "[FSW/Faction] skipping Update invalid active owner core=%08X owner=%08X vtbl=%08X\n",
+                (unsigned)esi, (unsigned)ecx,
+                (unsigned)(cfaction_va_range_is_valid(ecx, 4) ? MEM32(ecx) : 0));
+        goto loc_002A011A;
+    }
 
 loc_002A00BC:
     edx = MEM32(ecx);
@@ -2645,7 +2862,17 @@ loc_002A00DC:
     eax = 0; /* xor self */
 
 loc_002A00DE:
+    if (!cfaction_va_range_is_valid(eax, 0x2FC)) {
+        fprintf(stderr, "[FSW/Faction] skipping Update invalid active actor=%08X core=%08X\n",
+                (unsigned)eax, (unsigned)esi);
+        goto loc_002A011A;
+    }
     ecx = MEM32(eax + 0x2F8);
+    if (!cfaction_va_range_is_valid(ecx, 0x324)) {
+        fprintf(stderr, "[FSW/Faction] skipping Update invalid active actor data actor=%08X data=%08X\n",
+                (unsigned)eax, (unsigned)ecx);
+        goto loc_002A011A;
+    }
     if (CMP_EQ(MEM32(ecx + 0x320), 2)) goto loc_002A011A; /* je: equal / zero */
 
 loc_002A00ED:
@@ -2653,6 +2880,12 @@ loc_002A00ED:
 
 loc_002A00F6:
     ecx = MEM32(esi + 0xF0);
+    if (!cfaction_va_range_is_valid(ecx, 4) || !cfaction_va_range_is_valid(MEM32(ecx), 0xC8)) {
+        fprintf(stderr, "[FSW/Faction] skipping Update invalid active owner c4 core=%08X owner=%08X vtbl=%08X\n",
+                (unsigned)esi, (unsigned)ecx,
+                (unsigned)(cfaction_va_range_is_valid(ecx, 4) ? MEM32(ecx) : 0));
+        goto loc_002A011A;
+    }
     edx = MEM32(ecx);
     { uint32_t _icall_esp = g_esp;
     PUSH32(esp, 0); RECOMP_ICALL_SAFE(MEM32(edx + 0xC4), _icall_esp); /* indirect call */
@@ -2674,19 +2907,46 @@ loc_002A0117:
     MEM8(eax + 0x1C) = LO8(ebx);
 
 loc_002A011A:
-    edi = MEM32(edi + 4);
+    next_node = MEM32(edi + 4);
+    if (next_node != 0 && !cfaction_va_range_is_valid(next_node, 8)) {
+        fprintf(stderr, "[FSW/Faction] dropping Update invalid next active core node=%08X next=%08X\n",
+                (unsigned)edi, (unsigned)next_node);
+        next_node = 0;
+    }
+    edi = next_node;
     if (CMP_NE(edi, ebx)) goto loc_002A00B0; /* jne: not equal / not zero */
 
 loc_002A0121:
+    if (!cfaction_va_range_is_valid(ebp, 0x1C)) {
+        fprintf(stderr, "[FSW/Faction] skipping Update source loop invalid manager=%08X\n",
+                (unsigned)ebp);
+        goto loc_002A0504;
+    }
     eax = MEM32(ebp + 0x18);
     (void)0; /* cmp eax, ebx - flags set for next jcc */
     MEM32(esp + 0x38) = eax;
     if (CMP_EQ(eax, ebx)) goto loc_002A0504; /* je: equal / zero */
+    if (!cfaction_va_range_is_valid(eax, 8)) {
+        fprintf(stderr, "[FSW/Faction] skipping Update invalid source head manager=%08X head=%08X\n",
+                (unsigned)ebp, (unsigned)eax);
+        goto loc_002A0504;
+    }
+    source_update_steps = 0;
 
 loc_002A0130:
     eax = MEM32(esp + 0x38);
+    if (!cfaction_va_range_is_valid(eax, 8) || ++source_update_steps > 4096) {
+        fprintf(stderr, "[FSW/Faction] stopping Update source loop invalid node=%08X steps=%u\n",
+                (unsigned)eax, (unsigned)source_update_steps);
+        goto loc_002A0504;
+    }
     ebp = MEM32(eax);
     if (CMP_EQ(ebp, ebx)) goto loc_002A04F1; /* je: equal / zero */
+    if (!cfaction_va_range_is_valid(ebp, 0x50)) {
+        fprintf(stderr, "[FSW/Faction] skipping Update invalid source node=%08X source=%08X\n",
+                (unsigned)eax, (unsigned)ebp);
+        goto loc_002A04F1;
+    }
 
 loc_002A013E:
     xmm0 = MEMF(ebp + 0x48); /* movss */
@@ -3182,7 +3442,17 @@ loc_002A04EE:
 
 loc_002A04F1:
     eax = MEM32(esp + 0x38);
+    if (!cfaction_va_range_is_valid(eax, 8)) {
+        fprintf(stderr, "[FSW/Faction] stopping Update source loop invalid current node=%08X\n",
+                (unsigned)eax);
+        goto loc_002A0504;
+    }
     eax = MEM32(eax + 4);
+    if (eax != 0 && !cfaction_va_range_is_valid(eax, 8)) {
+        fprintf(stderr, "[FSW/Faction] dropping Update invalid next source node=%08X\n",
+                (unsigned)eax);
+        eax = 0;
+    }
     (void)0; /* cmp eax, ebx - flags set for next jcc */
     MEM32(esp + 0x38) = eax;
     if (CMP_NE(eax, ebx)) goto loc_002A0130; /* jne: not equal / not zero */

@@ -8,6 +8,8 @@
 #include "recomp_funcs.h"
 #include <math.h>
 
+extern uint32_t xbox_HeapAlloc(uint32_t size, uint32_t alignment);
+
 /**
  * fn_0004C3C0_GCDecoder_UAEPAXI_Z
  * Symbol: ??_GCDecoder@@UAEPAXI@Z
@@ -279,6 +281,10 @@ loc_001BB510:
     PUSH32(esp, eax);
     MEM32(0) = esp;
     PUSH32(esp, ecx);
+#ifdef XBOXRECOMP_VULKAN_GRAPHICS
+    eax = xbox_HeapAlloc(0x1B4, 16);
+    g_seh_ebp = ebp; sub_001BB589(); return; /* tail jmp 0x001BB589 */
+#endif
     eax = MEM32(0x5F9E40);
     if (TEST_NZ(eax, eax)) { sub_001BB53E(); return; } /* jne: not equal / not zero */
 

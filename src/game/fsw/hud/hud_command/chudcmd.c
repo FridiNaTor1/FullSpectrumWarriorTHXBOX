@@ -3723,6 +3723,7 @@ loc_002E0550:
  */
 void fn_002E0570_CHUDCmd_InitHandlerSetup(void)
 {
+    uint32_t chudcmd_this;
     int _flags = 0; /* fallback flag var */
     float xmm0;
 
@@ -3737,6 +3738,7 @@ loc_002E0570:
     PUSH32(esp, esi);
     PUSH32(esp, edi);
     edi = ecx;
+    chudcmd_this = edi;
     PUSH32(esp, 0); fn_002CFC40_CCASEVACManager_Get(); /* call 0x002CFC40 */
 
 loc_002E0590:
@@ -3773,9 +3775,11 @@ loc_002E05DC:
     esp = esp + 4;
 
 loc_002E05DF:
+    edi = chudcmd_this;
     PUSH32(esp, 0); fn_002DE070_CHUDObjectiveIndicator_Setup(); /* call 0x002DE070 */
 
 loc_002E05E4:
+    edi = chudcmd_this;
     PUSH32(esp, ebx);
     PUSH32(esp, ecx);
     ecx = MEM32(edi + 0xD0);
@@ -3795,6 +3799,7 @@ loc_002E05FD:
     }
 
 loc_002E060E:
+    edi = chudcmd_this;
     PUSH32(esp, ebx);
     PUSH32(esp, ecx);
     ecx = MEM32(edi + 0xD0);
@@ -3813,6 +3818,7 @@ loc_002E062B:
     }
 
 loc_002E0636:
+    edi = chudcmd_this;
     edi = edi + 0x6C;
     PUSH32(esp, 0); fn_002DF410_CHUDBusyIndicator_Init(); /* call 0x002DF410 */
 

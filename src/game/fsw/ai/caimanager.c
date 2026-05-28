@@ -7,6 +7,44 @@
 #define RECOMP_GENERATED_CODE
 #include "recomp_funcs.h"
 #include <math.h>
+#include <stdio.h>
+
+static int caimanager_va_range_is_valid(uint32_t va, uint32_t size)
+{
+    return va >= 0x00010000u && va < 0x04000000u && size <= 0x04000000u - va;
+}
+
+static int caimanager_guard_list_node(const char *name, uint32_t node,
+                                      uint32_t *last_node, uint32_t *repeat_count,
+                                      uint32_t *step_count)
+{
+    if (!caimanager_va_range_is_valid(node, 8)) {
+        fprintf(stderr, "[FSW/AI] stopping %s invalid node=%08X steps=%u\n",
+                name, (unsigned)node, (unsigned)*step_count);
+        return 0;
+    }
+
+    (*step_count)++;
+    if (node == *last_node) {
+        (*repeat_count)++;
+    } else {
+        *last_node = node;
+        *repeat_count = 0;
+    }
+
+    if (*repeat_count >= 2 || *step_count > 4096) {
+        fprintf(stderr, "[FSW/AI] stopping %s cyclic list node=%08X data=%08X next=%08X steps=%u repeat=%u\n",
+                name,
+                (unsigned)node,
+                (unsigned)MEM32(node),
+                (unsigned)MEM32(node + 4),
+                (unsigned)*step_count,
+                (unsigned)*repeat_count);
+        return 0;
+    }
+
+    return 1;
+}
 
 /**
  * fn_000115C0_VZeroVector3_ZeroList_Append
@@ -12120,6 +12158,8 @@ loc_003546DC:
 void fn_003546E0_CAIManager_Render(void)
 {
     int _flags = 0; /* fallback flag var */
+    uint32_t primary_steps = 0;
+    uint32_t secondary_steps = 0;
 
 loc_003546E0:
     eax = MEM32(0x5FA8E8);
@@ -12129,6 +12169,10 @@ loc_003546E0:
     esi = MEM32(ebx + 0xD30);
     (void)0; /* test esi, esi - flags set for next jcc */
     PUSH32(esp, edi);
+    if (!caimanager_va_range_is_valid(ebx, 0xD40)) {
+        fprintf(stderr, "[FSW/AI] skipping render invalid manager=%08X\n", (unsigned)ebx);
+        goto loc_00354732;
+    }
     edi = MEM32(eax + 0xD0);
     if (TEST_Z(esi, esi)) goto loc_00354719; /* je: equal / zero */
 
@@ -12136,11 +12180,28 @@ loc_003546FC:
     /* nop */
 
 loc_00354700:
+    if (!caimanager_va_range_is_valid(esi, 8) || ++primary_steps > 4096) {
+        fprintf(stderr, "[FSW/AI] stopping render primary invalid node=%08X steps=%u\n",
+                (unsigned)esi, (unsigned)primary_steps);
+        goto loc_00354719;
+    }
     ecx = MEM32(esi);
+    if (!caimanager_va_range_is_valid(ecx, 0xF4)) {
+        fprintf(stderr, "[FSW/AI] skipping render primary invalid actor=%08X node=%08X\n",
+                (unsigned)ecx, (unsigned)esi);
+        goto loc_00354712;
+    }
     ecx = MEM32(ecx + 0xF0);
     if (TEST_Z(ecx, ecx)) goto loc_00354712; /* je: equal / zero */
 
 loc_0035470C:
+    if (!caimanager_va_range_is_valid(ecx, 4) ||
+        !caimanager_va_range_is_valid(MEM32(ecx), 0x5C)) {
+        fprintf(stderr, "[FSW/AI] skipping render primary invalid renderer=%08X vtbl=%08X\n",
+                (unsigned)ecx,
+                (unsigned)(caimanager_va_range_is_valid(ecx, 4) ? MEM32(ecx) : 0));
+        goto loc_00354712;
+    }
     edx = MEM32(ecx);
     { uint32_t _icall_esp = g_esp;
     PUSH32(esp, edi);
@@ -12156,7 +12217,20 @@ loc_00354719:
     if (TEST_Z(esi, esi)) goto loc_00354732; /* je: equal / zero */
 
 loc_00354723:
+    if (!caimanager_va_range_is_valid(esi, 8) || ++secondary_steps > 4096) {
+        fprintf(stderr, "[FSW/AI] stopping render secondary invalid node=%08X steps=%u\n",
+                (unsigned)esi, (unsigned)secondary_steps);
+        goto loc_00354732;
+    }
     ecx = MEM32(esi);
+    if (!caimanager_va_range_is_valid(ecx, 4) ||
+        !caimanager_va_range_is_valid(MEM32(ecx), 0x5C)) {
+        fprintf(stderr, "[FSW/AI] skipping render secondary invalid object=%08X vtbl=%08X node=%08X\n",
+                (unsigned)ecx,
+                (unsigned)(caimanager_va_range_is_valid(ecx, 4) ? MEM32(ecx) : 0),
+                (unsigned)esi);
+        goto loc_0035472B;
+    }
     eax = MEM32(ecx);
     { uint32_t _icall_esp = g_esp;
     PUSH32(esp, edi);
@@ -12210,24 +12284,60 @@ loc_00354749:
 void sub_0035474F(void)
 {
     uint32_t ebp;
+    uint32_t manager;
+    uint32_t node_object;
+    uint32_t actor_owner;
+    uint32_t steps;
+    uint32_t next;
     int _flags = 0; /* fallback flag var */
     ebp = g_seh_ebp; /* fpo_leaf: inherit caller's frame */
 
 loc_0035474F:
     eax = MEM32(esp + 8);
+    manager = eax;
     PUSH32(esp, esi);
-    esi = MEM32(eax + 0xD30);
+    if (!caimanager_va_range_is_valid(manager, 0xD34)) {
+        fprintf(stderr, "[FSW/AI] GetVehicleTargetList invalid manager=%08X\n", (unsigned)manager);
+        esi = 0;
+    } else {
+        esi = MEM32(manager + 0xD30);
+    }
     PUSH32(esp, edi);
     edi = 0; /* xor self */
     if (CMP_LE(ebx & ebx, 0)) goto loc_0035478B; /* jle: less or equal (signed <=) */
+    if (!caimanager_va_range_is_valid(ebp, (uint32_t)ebx * 4u)) {
+        fprintf(stderr, "[FSW/AI] GetVehicleTargetList invalid output=%08X count=%u\n",
+                (unsigned)ebp, (unsigned)ebx);
+        goto loc_0035478B;
+    }
+    steps = 0;
 
 loc_00354761:
     if (TEST_Z(esi, esi)) goto loc_0035478B; /* je: equal / zero */
+    if (!caimanager_va_range_is_valid(esi, 8) || ++steps > 4096) {
+        fprintf(stderr, "[FSW/AI] stopping vehicle target list invalid node=%08X steps=%u\n",
+                (unsigned)esi, (unsigned)steps);
+        goto loc_0035478B;
+    }
 
 loc_00354765:
     eax = MEM32(esi);
+    node_object = eax;
+    if (!caimanager_va_range_is_valid(node_object, 0xF4)) {
+        fprintf(stderr, "[FSW/AI] skipping vehicle target invalid object node=%08X object=%08X\n",
+                (unsigned)esi, (unsigned)node_object);
+        goto loc_00354784;
+    }
     ecx = MEM32(eax + 0xF0);
+    actor_owner = ecx;
     if (TEST_Z(ecx, ecx)) goto loc_00354784; /* je: equal / zero */
+    if (!caimanager_va_range_is_valid(actor_owner, 4) ||
+        !caimanager_va_range_is_valid(MEM32(actor_owner), 0x8C)) {
+        fprintf(stderr, "[FSW/AI] skipping vehicle target invalid owner object=%08X owner=%08X vtbl=%08X\n",
+                (unsigned)node_object, (unsigned)actor_owner,
+                (unsigned)(caimanager_va_range_is_valid(actor_owner, 4) ? MEM32(actor_owner) : 0));
+        goto loc_00354784;
+    }
 
 loc_00354771:
     edx = MEM32(ecx);
@@ -12245,7 +12355,13 @@ loc_0035477D:
 
 loc_00354784:
     (void)0; /* cmp edi, ebx - flags set for next jcc */
-    esi = MEM32(esi + 4);
+    next = MEM32(esi + 4);
+    if (next != 0 && !caimanager_va_range_is_valid(next, 8)) {
+        fprintf(stderr, "[FSW/AI] dropping vehicle target invalid next node=%08X next=%08X\n",
+                (unsigned)esi, (unsigned)next);
+        next = 0;
+    }
+    esi = next;
     if (CMP_L(edi, ebx)) goto loc_00354761; /* jl: less (signed <) */
 
 loc_0035478B:
@@ -12493,6 +12609,8 @@ loc_003548C9:
 void fn_003548E0_CAIManager_UpdateMovingDynamicCellStatus(void)
 {
     uint32_t ebp;
+    uint32_t moving_steps;
+    uint32_t cell_vtbl;
     int _flags = 0; /* fallback flag var */
 
 loc_003548E0:
@@ -12513,13 +12631,37 @@ loc_003548FF:
     eax = MEM32(esp + 0x10);
     ebx = 0; /* xor self */
     if (CMP_EQ(eax, ebx)) goto loc_003549B8; /* je: equal / zero */
+    if (!caimanager_va_range_is_valid(eax, 8)) {
+        fprintf(stderr, "[FSW/AI] moving dynamic cell invalid head=%08X manager=%08X\n",
+                (unsigned)eax, (unsigned)(edi - 0x8EC));
+        MEM32(esp + 0x10) = 0;
+        goto loc_003549B8;
+    }
 
 loc_0035490D:
     /* nop */
+    moving_steps = 0;
 
 loc_00354910:
+    if (!caimanager_va_range_is_valid(eax, 8) || ++moving_steps > 4096) {
+        fprintf(stderr, "[FSW/AI] moving dynamic cell stopping invalid node=%08X steps=%u\n",
+                (unsigned)eax, (unsigned)moving_steps);
+        MEM32(esp + 0x10) = 0;
+        goto loc_003549B8;
+    }
     esi = MEM32(eax);
+    if (!caimanager_va_range_is_valid(esi, 0x60)) {
+        fprintf(stderr, "[FSW/AI] moving dynamic cell skipping invalid cell node=%08X cell=%08X\n",
+                (unsigned)eax, (unsigned)esi);
+        goto loc_0035499F;
+    }
     eax = MEM32(esi);
+    cell_vtbl = eax;
+    if (!caimanager_va_range_is_valid(cell_vtbl, 0x50)) {
+        fprintf(stderr, "[FSW/AI] moving dynamic cell skipping invalid vtbl cell=%08X vtbl=%08X\n",
+                (unsigned)esi, (unsigned)cell_vtbl);
+        goto loc_0035499F;
+    }
     ecx = esi;
     { uint32_t _icall_esp = g_esp;
     PUSH32(esp, 0); RECOMP_ICALL_SAFE(MEM32(eax + 0x4C), _icall_esp); /* indirect call */
@@ -12537,8 +12679,18 @@ loc_0035492A:
     ecx = MEM32(edi + 8);
     eax = ecx;
     if (CMP_EQ(eax, ebx)) goto loc_003549AC; /* je: equal / zero */
+    if (!caimanager_va_range_is_valid(eax, 8)) {
+        fprintf(stderr, "[FSW/AI] moving dynamic cell invalid removal head=%08X list=%08X\n",
+                (unsigned)eax, (unsigned)edi);
+        goto loc_003549AC;
+    }
 
 loc_00354933:
+    if (!caimanager_va_range_is_valid(eax, 8)) {
+        fprintf(stderr, "[FSW/AI] moving dynamic cell stopping invalid removal node=%08X list=%08X\n",
+                (unsigned)eax, (unsigned)edi);
+        goto loc_003549AC;
+    }
     if (CMP_EQ(esi, MEM32(eax))) goto loc_00354940; /* je: equal / zero */
 
 loc_00354937:
@@ -12633,6 +12785,9 @@ loc_003549B8:
  */
 void fn_003549C0_CAIManager_UpdateActors(void)
 {
+    uint32_t actor_list_steps = 0;
+    uint32_t actor_list_last = 0;
+    uint32_t actor_list_repeat = 0;
     int _flags = 0; /* fallback flag var */
 
 loc_003549C0:
@@ -12646,6 +12801,10 @@ loc_003549CB:
     /* nop */
 
 loc_003549D0:
+    if (!caimanager_guard_list_node("AI actors primary pre-update", esi,
+                                    &actor_list_last, &actor_list_repeat, &actor_list_steps)) {
+        goto loc_003549DE;
+    }
     ecx = MEM32(esi);
     eax = MEM32(ecx);
     { uint32_t _icall_esp = g_esp;
@@ -12657,6 +12816,9 @@ loc_003549D7:
     if (TEST_NZ(esi, esi)) goto loc_003549D0; /* jne: not equal / not zero */
 
 loc_003549DE:
+    actor_list_steps = 0;
+    actor_list_last = 0;
+    actor_list_repeat = 0;
     esi = MEM32(ebx + 0xD30);
     if (TEST_Z(esi, esi)) goto loc_00354A08; /* je: equal / zero */
 
@@ -12666,6 +12828,10 @@ loc_003549E8:
     /* nop */
 
 loc_003549F0:
+    if (!caimanager_guard_list_node("AI actors secondary pre-update", esi,
+                                    &actor_list_last, &actor_list_repeat, &actor_list_steps)) {
+        goto loc_00354A08;
+    }
     ecx = MEM32(esi);
     ecx = MEM32(ecx + 0xF0);
     if (TEST_Z(ecx, ecx)) goto loc_00354A01; /* je: equal / zero */
@@ -12681,6 +12847,9 @@ loc_00354A01:
     if (TEST_NZ(esi, esi)) goto loc_003549F0; /* jne: not equal / not zero */
 
 loc_00354A08:
+    actor_list_steps = 0;
+    actor_list_last = 0;
+    actor_list_repeat = 0;
     esi = MEM32(ebx + 0xD3C);
     (void)0; /* test esi, esi - flags set for next jcc */
     PUSH32(esp, edi);
@@ -12688,6 +12857,10 @@ loc_00354A08:
     if (TEST_Z(esi, esi)) goto loc_00354A26; /* je: equal / zero */
 
 loc_00354A17:
+    if (!caimanager_guard_list_node("AI actors primary update", esi,
+                                    &actor_list_last, &actor_list_repeat, &actor_list_steps)) {
+        goto loc_00354A26;
+    }
     ecx = MEM32(esi);
     eax = MEM32(ecx);
     { uint32_t _icall_esp = g_esp;
@@ -12700,10 +12873,17 @@ loc_00354A1F:
     if (TEST_NZ(esi, esi)) goto loc_00354A17; /* jne: not equal / not zero */
 
 loc_00354A26:
+    actor_list_steps = 0;
+    actor_list_last = 0;
+    actor_list_repeat = 0;
     esi = MEM32(ebx + 0xD30);
     if (TEST_Z(esi, esi)) goto loc_00354A49; /* je: equal / zero */
 
 loc_00354A30:
+    if (!caimanager_guard_list_node("AI actors secondary update", esi,
+                                    &actor_list_last, &actor_list_repeat, &actor_list_steps)) {
+        goto loc_00354A49;
+    }
     ecx = MEM32(esi);
     ecx = MEM32(ecx + 0xF0);
     if (TEST_Z(ecx, ecx)) goto loc_00354A42; /* je: equal / zero */
@@ -12720,12 +12900,19 @@ loc_00354A42:
     if (TEST_NZ(esi, esi)) goto loc_00354A30; /* jne: not equal / not zero */
 
 loc_00354A49:
+    actor_list_steps = 0;
+    actor_list_last = 0;
+    actor_list_repeat = 0;
     esi = MEM32(ebx + 0xD3C);
     (void)0; /* test esi, esi - flags set for next jcc */
     POP32(esp, edi);
     if (TEST_Z(esi, esi)) goto loc_00354A62; /* je: equal / zero */
 
 loc_00354A54:
+    if (!caimanager_guard_list_node("AI actors primary post-update", esi,
+                                    &actor_list_last, &actor_list_repeat, &actor_list_steps)) {
+        goto loc_00354A62;
+    }
     ecx = MEM32(esi);
     eax = MEM32(ecx);
     { uint32_t _icall_esp = g_esp;
@@ -12737,6 +12924,9 @@ loc_00354A5B:
     if (TEST_NZ(esi, esi)) goto loc_00354A54; /* jne: not equal / not zero */
 
 loc_00354A62:
+    actor_list_steps = 0;
+    actor_list_last = 0;
+    actor_list_repeat = 0;
     esi = MEM32(ebx + 0xD30);
     if (TEST_Z(esi, esi)) goto loc_00354A88; /* je: equal / zero */
 
@@ -12744,6 +12934,10 @@ loc_00354A6C:
     /* nop */
 
 loc_00354A70:
+    if (!caimanager_guard_list_node("AI actors secondary post-update", esi,
+                                    &actor_list_last, &actor_list_repeat, &actor_list_steps)) {
+        goto loc_00354A88;
+    }
     ecx = MEM32(esi);
     ecx = MEM32(ecx + 0xF0);
     if (TEST_Z(ecx, ecx)) goto loc_00354A81; /* je: equal / zero */
@@ -14216,7 +14410,7 @@ loc_00355490:
     ebp = MEM32(esp + 0x28);
     (void)0; /* test ebp, ebp - flags set for next jcc */
     ebx = eax;
-    if (CMP_G(ebp & ebp, 0)) { sub_003554A9(); return; } /* jg: greater (signed >) */
+    if (CMP_G(ebp & ebp, 0)) { g_seh_ebp = ebp; sub_003554A9(); return; } /* jg: greater (signed >) */
 
 loc_0035549F:
     POP32(esp, ebp);
@@ -14236,6 +14430,9 @@ loc_0035549F:
 void sub_003554A9(void)
 {
     uint32_t ebp;
+    uint32_t human_list_steps = 0;
+    uint32_t human_list_last = 0;
+    uint32_t human_list_repeat = 0;
     int _flags = 0; /* fallback flag var */
     ebp = g_seh_ebp; /* fpo_leaf: inherit caller's frame */
 
@@ -14250,6 +14447,10 @@ loc_003554B7:
     if (TEST_Z(esi, esi)) goto loc_003554E4; /* je: equal / zero */
 
 loc_003554BB:
+    if (!caimanager_guard_list_node("AI human target secondary actors", esi,
+                                    &human_list_last, &human_list_repeat, &human_list_steps)) {
+        goto loc_003554E4;
+    }
     eax = MEM32(esi);
     ecx = MEM32(eax + 0xF0);
     if (TEST_Z(ecx, ecx)) goto loc_003554DD; /* je: equal / zero */
@@ -14275,6 +14476,9 @@ loc_003554DD:
     if (CMP_L(edi, ebp)) goto loc_003554B7; /* jl: less (signed <) */
 
 loc_003554E4:
+    human_list_steps = 0;
+    human_list_last = 0;
+    human_list_repeat = 0;
     ebx = MEM32(ebx + 0xD3C);
     (void)0; /* test ebx, ebx - flags set for next jcc */
     MEM32(esp + 0x20) = ebx;
@@ -14288,6 +14492,10 @@ loc_003554F6:
 
 loc_00355500:
     edx = MEM32(esp + 0x20);
+    if (!caimanager_guard_list_node("AI human target primary actors", edx,
+                                    &human_list_last, &human_list_repeat, &human_list_steps)) {
+        goto loc_003555AF;
+    }
     ecx = MEM32(edx);
     ecx = ecx + 0x210;
     eax = esp + 0x18;
@@ -14303,6 +14511,10 @@ loc_00355521:
     if (TEST_Z(ebx, ebx)) goto loc_00355598; /* je: equal / zero */
 
 loc_00355525:
+    if (!caimanager_guard_list_node("AI human target actor dead-guys", ebx,
+                                    &human_list_last, &human_list_repeat, &human_list_steps)) {
+        goto loc_00355598;
+    }
     esi = MEM32(ebx);
     PUSH32(esp, 0); fn_00355430_CAIManager_Get(); /* call 0x00355430 */
 
@@ -14332,6 +14544,10 @@ loc_00355560:
     if (TEST_Z(esi, esi)) goto loc_0035558D; /* je: equal / zero */
 
 loc_00355564:
+    if (!caimanager_guard_list_node("AI human target cell dead-guys", esi,
+                                    &human_list_last, &human_list_repeat, &human_list_steps)) {
+        goto loc_0035558D;
+    }
     eax = MEM32(esi);
     ecx = MEM32(eax + 0xF0);
     if (TEST_Z(ecx, ecx)) goto loc_00355586; /* je: equal / zero */
@@ -17342,6 +17558,9 @@ loc_00356DF0:
     PUSH32(esp, ebp);
     PUSH32(esp, esi);
     PUSH32(esp, edi);
+    if (!caimanager_va_range_is_valid(MEM32(esp + 0x2C), 0xD40)) {
+        MEM32(esp + 0x2C) = 0x647098;
+    }
     PUSH32(esp, 0); fn_00316890_CAICellmap_Get(); /* call 0x00316890 */
 
 loc_00356E11:
@@ -17372,13 +17591,29 @@ loc_00356E45:
     PUSH32(esp, 0); fn_0029F2C0_CFactionManager_Get(); /* call 0x0029F2C0 */
 
 loc_00356E4C:
+    if (!caimanager_va_range_is_valid(eax, 0x1C)) {
+        fprintf(stderr, "[FSW/AI] skipping CAIManager setup invalid faction manager=%08X\n",
+                (unsigned)eax);
+        goto loc_00356F18;
+    }
     edi = MEM32(eax + 0x18);
     if (TEST_Z(edi, edi)) goto loc_00356F18; /* je: equal / zero */
 
 loc_00356E57:
+    if (!caimanager_va_range_is_valid(edi, 8)) {
+        fprintf(stderr, "[FSW/AI] stopping CAIManager setup invalid faction node=%08X\n",
+                (unsigned)edi);
+        goto loc_00356F18;
+    }
     eax = MEM32(0x5F9E40);
     (void)0; /* test eax, eax - flags set for next jcc */
     esi = MEM32(edi);
+    if (!caimanager_va_range_is_valid(esi, 8)) {
+        fprintf(stderr, "[FSW/AI] skipping CAIManager setup invalid faction=%08X node=%08X\n",
+                (unsigned)esi,
+                (unsigned)edi);
+        goto loc_00356F0C;
+    }
     if (TEST_NZ(eax, eax)) goto loc_00356E71; /* jne: not equal / not zero */
 
 loc_00356E62:
@@ -17441,6 +17676,13 @@ loc_00356EE3:
 
 loc_00356EE5:
     MEM32(esp + 0x24) = 0xFFFFFFFFu;
+    if (!caimanager_va_range_is_valid(eax, 4) ||
+        !caimanager_va_range_is_valid(MEM32(eax), 0x18)) {
+        fprintf(stderr, "[FSW/AI] skipping CAIManager setup invalid squad=%08X vtbl=%08X\n",
+                (unsigned)eax,
+                (unsigned)(caimanager_va_range_is_valid(eax, 4) ? MEM32(eax) : 0));
+        goto loc_00356F0C;
+    }
     edx = MEM32(eax);
     { uint32_t _icall_esp = g_esp;
     PUSH32(esp, ebp);
@@ -17456,6 +17698,11 @@ loc_00356EF9:
     PUSH32(esp, 0); fn_0002F9A0_PAVCParticleEmitter_ZeroList_Prepend(); /* call 0x0002F9A0 */
 
 loc_00356F0C:
+    if (!caimanager_va_range_is_valid(edi, 8)) {
+        fprintf(stderr, "[FSW/AI] stopping CAIManager setup next invalid faction node=%08X\n",
+                (unsigned)edi);
+        goto loc_00356F18;
+    }
     edi = MEM32(edi + 4);
     ebp++;
     if (TEST_NZ(edi, edi)) goto loc_00356E57; /* jne: not equal / not zero */

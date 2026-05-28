@@ -9,6 +9,63 @@
 #include <math.h>
 #include <stdio.h>
 
+static int fsw_app_va_is_valid(uint32_t va)
+{
+    return va >= 0x00010000u && va < 0x04000000u;
+}
+
+static int fsw_app_va_range_is_valid(uint32_t va, uint32_t size)
+{
+    if (size == 0) {
+        return fsw_app_va_is_valid(va);
+    }
+    if (!fsw_app_va_is_valid(va) || va + size < va) {
+        return 0;
+    }
+    return va + size <= 0x04000000u;
+}
+
+static void fsw_app_repair_known_context(uint32_t context, const char *reason)
+{
+    uint32_t expected_vtbl = 0;
+    const char *name = NULL;
+
+    if (context == 0x0060EF20u) {
+        expected_vtbl = 0x0055A448u;
+        name = "CShellHandler";
+    } else if (context == 0x006244BCu) {
+        expected_vtbl = 0x005406C0u;
+        name = "MissionHandler";
+    }
+
+    if (expected_vtbl != 0 && MEM32(context) != expected_vtbl) {
+        static uint32_t repair_logs = 0;
+        if (repair_logs < 16 || (repair_logs % 120) == 0) {
+            fprintf(stderr, "[FSW/App] restoring %s vtable during %s old=%08X expected=%08X\n",
+                    name, reason, (unsigned)MEM32(context), (unsigned)expected_vtbl);
+        }
+        repair_logs++;
+        MEM32(context) = expected_vtbl;
+    }
+}
+
+static int fsw_app_context_is_valid(uint32_t context, const char *reason)
+{
+    uint32_t vtbl;
+
+    if (!fsw_app_va_range_is_valid(context, 4)) {
+        return 0;
+    }
+
+    fsw_app_repair_known_context(context, reason);
+    vtbl = MEM32(context);
+    return fsw_app_va_range_is_valid(vtbl, 0x14) &&
+           fsw_app_va_is_valid(MEM32(vtbl + 4)) &&
+           fsw_app_va_is_valid(MEM32(vtbl + 8)) &&
+           fsw_app_va_is_valid(MEM32(vtbl + 0x0C)) &&
+           fsw_app_va_is_valid(MEM32(vtbl + 0x10));
+}
+
 /**
  * fn_002B0BE0_CApplicationManager_RegisterContext
  * Symbol: ?RegisterContext@CApplicationManager@@QAEXPAVCApplicationContext@@@Z
@@ -826,6 +883,9 @@ loc_002B112A:
 void sub_002B113A(void)
 {
     uint32_t app = esi;
+    uint32_t app_cleanup_esp = esp;
+    uint32_t app_enter_esp = esp;
+    uint32_t app_update_esp = esp;
     int _flags = 0; /* fallback flag var */
 
 loc_002B113A:
@@ -841,11 +901,21 @@ loc_002B1140:
 
 loc_002B1146:
     edx = MEM32(ecx);
+    app_cleanup_esp = esp;
     { uint32_t _icall_esp = g_esp;
     PUSH32(esp, 0); RECOMP_ICALL_SAFE(MEM32(edx + 8), _icall_esp); /* indirect call */
     }
 
 loc_002B114B:
+    if (esp != app_cleanup_esp) {
+        static uint32_t app_cleanup_stack_repairs = 0;
+        if (app_cleanup_stack_repairs < 8) {
+            fprintf(stderr, "[FSW] CApplicationManager_Run: repaired cleanup callback stack before=%08X after=%08X count=%u\n",
+                    app_cleanup_esp, esp, app_cleanup_stack_repairs + 1);
+        }
+        app_cleanup_stack_repairs++;
+        esp = app_cleanup_esp;
+    }
     esi = app;
     if (MEM32(esi) == 0) goto loc_002B1150;
     PUSH32(esp, 0); fn_002B0CE0_CApplicationManager_Cleanup(); /* call 0x002B0CE0 */
@@ -857,12 +927,33 @@ loc_002B1150:
     ecx = eax;
     MEM32(esi) = eax;
     MEM32(esi + 4) = ebx;
+    if (!fsw_app_context_is_valid(ecx, "enter")) {
+        static uint32_t invalid_enter_logs = 0;
+        if (invalid_enter_logs < 16 || (invalid_enter_logs % 120) == 0) {
+            fprintf(stderr, "[FSW/App] skipping invalid enter context=%08X vtbl=%08X count=%u\n",
+                    (unsigned)ecx,
+                    (unsigned)(fsw_app_va_range_is_valid(ecx, 4) ? MEM32(ecx) : 0),
+                    (unsigned)(invalid_enter_logs + 1));
+        }
+        invalid_enter_logs++;
+        goto loc_002B115F;
+    }
     edx = MEM32(ecx);
+    app_enter_esp = esp;
     { uint32_t _icall_esp = g_esp;
     PUSH32(esp, 0); RECOMP_ICALL_SAFE(MEM32(edx + 4), _icall_esp); /* indirect call */
     }
 
 loc_002B115F:
+    if (esp != app_enter_esp) {
+        static uint32_t app_enter_stack_repairs = 0;
+        if (app_enter_stack_repairs < 8) {
+            fprintf(stderr, "[FSW] CApplicationManager_Run: repaired enter callback stack before=%08X after=%08X count=%u\n",
+                    app_enter_esp, esp, app_enter_stack_repairs + 1);
+        }
+        app_enter_stack_repairs++;
+        esp = app_enter_esp;
+    }
     esi = app;
     ebx = 0;
     if (CMP_NE(MEM32(esi + 4), ebx)) goto loc_002B1140; /* jne: not equal / not zero */
@@ -890,12 +981,49 @@ loc_002B1174:
 loc_002B1177:
     esi = app;
     ecx = MEM32(esi);
+    if (!fsw_app_context_is_valid(ecx, "update")) {
+        static uint32_t invalid_update_logs = 0;
+        app_update_esp = esp;
+        if (invalid_update_logs < 16 || (invalid_update_logs % 120) == 0) {
+            fprintf(stderr, "[FSW/App] skipping invalid update context=%08X vtbl=%08X count=%u\n",
+                    (unsigned)ecx,
+                    (unsigned)(fsw_app_va_range_is_valid(ecx, 4) ? MEM32(ecx) : 0),
+                    (unsigned)(invalid_update_logs + 1));
+        }
+        invalid_update_logs++;
+        goto loc_002B117E;
+    }
     edx = MEM32(ecx);
+    app_update_esp = esp;
+    {
+        static uint32_t app_update_dispatch_logs = 0;
+        app_update_dispatch_logs++;
+        if (app_update_dispatch_logs <= 8 || (app_update_dispatch_logs % 120) == 0) {
+            fprintf(stderr,
+                    "[FSW/App] update dispatch #%u ctx=%08X vtbl=%08X setup=%08X shutdown=%08X restart=%08X update=%08X\n",
+                    (unsigned)app_update_dispatch_logs,
+                    (unsigned)ecx,
+                    (unsigned)edx,
+                    (unsigned)(edx ? MEM32(edx + 4) : 0),
+                    (unsigned)(edx ? MEM32(edx + 8) : 0),
+                    (unsigned)(edx ? MEM32(edx + 0x0C) : 0),
+                    (unsigned)(edx ? MEM32(edx + 0x10) : 0));
+        }
+    }
     { uint32_t _icall_esp = g_esp;
     PUSH32(esp, 0); RECOMP_ICALL_SAFE(MEM32(edx + 0x10), _icall_esp); /* indirect call */
     }
 
 loc_002B117E:
+    if (esp != app_update_esp) {
+        static uint32_t app_update_stack_repairs = 0;
+        if (app_update_stack_repairs < 8 || (app_update_stack_repairs % 120) == 0) {
+            fprintf(stderr, "[FSW] CApplicationManager_Run: repaired update callback stack before=%08X after=%08X count=%u\n",
+                    app_update_esp, esp, app_update_stack_repairs + 1);
+        }
+        app_update_stack_repairs++;
+        esp = app_update_esp;
+    }
     esi = app;
     ebx = 0;
     ecx = MEM32(esi);

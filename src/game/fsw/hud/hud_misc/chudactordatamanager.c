@@ -7,6 +7,43 @@
 #define RECOMP_GENERATED_CODE
 #include "recomp_funcs.h"
 #include <math.h>
+#include <stdio.h>
+
+static int chudactordata_va_range_is_valid(uint32_t va, uint32_t size)
+{
+    return va >= 0x00010000u && va < 0x04000000u && size <= 0x04000000u - va;
+}
+
+static int chudactordata_vtable_is_valid(uint32_t object, uint32_t min_size)
+{
+    uint32_t vtbl;
+    if (!chudactordata_va_range_is_valid(object, 4)) {
+        return 0;
+    }
+    vtbl = MEM32(object);
+    return vtbl < 0x00800000u && chudactordata_va_range_is_valid(vtbl, min_size);
+}
+
+static int chudactordata_manager_is_valid(uint32_t manager)
+{
+    return chudactordata_va_range_is_valid(manager, 0x10F10);
+}
+
+static int chudactordata_manager_entry_is_valid(uint32_t manager, uint32_t entry)
+{
+    uint32_t first;
+    uint32_t offset;
+    if (!chudactordata_manager_is_valid(manager) ||
+        !chudactordata_va_range_is_valid(entry, 0x42C)) {
+        return 0;
+    }
+    first = manager + 8;
+    if (entry < first || entry >= first + 0x42C * 0x40) {
+        return 0;
+    }
+    offset = entry - first;
+    return (offset % 0x42C) == 0;
+}
 
 /**
  * fn_0002BA50_1HUDSoldierIcons_QAE_XZ
@@ -181,6 +218,10 @@ void fn_0002BBD0_CHUDActorData_Clear(void)
     float xmm0;
 
 loc_0002BBD0:
+    if (!chudactordata_va_range_is_valid(esi, 0x42C)) {
+        fprintf(stderr, "[FSW/HUD] skipping CHUDActorData_Clear invalid actor=%08X\n", esi);
+        esp += 4; return; /* ret */
+    }
     xmm0 = 0.0f; /* xorps self = zero */
     PUSH32(esp, edi);
     edi = esi + 0x164;
@@ -1035,29 +1076,45 @@ loc_002D0799:
  */
 void fn_002D07A0_CHUDActorDataManager_ClearAllVisible(void)
 {
-    int _flags = 0; /* fallback flag var */
+    uint32_t manager = eax;
+    uint32_t node;
+    uint32_t steps = 0;
 
 loc_002D07A0:
-    edx = MEM32(eax + 4);
-    if (TEST_Z(edx, edx)) goto loc_002D07C9; /* je: equal / zero */
+    if (!chudactordata_manager_is_valid(manager)) {
+        fprintf(stderr, "[FSW/HUD] skipping ClearAllVisible invalid manager=%08X\n", manager);
+        goto loc_002D07C9;
+    }
 
-loc_002D07A7:
-    SET_LO8(eax, MEM8(edx + 4));
-    if (TEST_NZ(LO8(eax), LO8(eax))) goto loc_002D07BF; /* jne: not equal / not zero */
+    node = MEM32(manager + 4);
+    while (node != 0 && steps++ < 0x40) {
+        uint32_t next;
+        uint32_t slot;
 
-loc_002D07AE:
-    eax = edx + 0x30;
-    ecx = 0xD;
+        if (!chudactordata_manager_entry_is_valid(manager, node)) {
+            fprintf(stderr, "[FSW/HUD] stopping ClearAllVisible invalid node manager=%08X node=%08X count=%u\n",
+                    manager, node, steps);
+            if (steps == 1) {
+                MEM32(manager + 4) = 0;
+            }
+            break;
+        }
 
-loc_002D07B6:
-    MEM8(eax) = 0;
-    eax = eax + 0x18;
-    ecx--;
-    if ((ecx != 0)) goto loc_002D07B6; /* jne: not equal / not zero */
+        if (MEM8(node + 4) == 0) {
+            for (slot = 0; slot < 0xD; slot++) {
+                MEM8(node + 0x30 + slot * 0x18) = 0;
+            }
+        }
 
-loc_002D07BF:
-    edx = MEM32(edx + 0x424);
-    if (TEST_NZ(edx, edx)) goto loc_002D07A7; /* jne: not equal / not zero */
+        next = MEM32(node + 0x424);
+        if (next != 0 && !chudactordata_manager_entry_is_valid(manager, next)) {
+            fprintf(stderr, "[FSW/HUD] dropping ClearAllVisible invalid next manager=%08X node=%08X next=%08X\n",
+                    manager, node, next);
+            MEM32(node + 0x424) = 0;
+            break;
+        }
+        node = next;
+    }
 
 loc_002D07C9:
     esp += 4; return; /* ret */
@@ -1938,25 +1995,62 @@ loc_002D0D95:
  */
 void fn_002D0DA0_CHUDActorDataManager_Cleanup(void)
 {
+    uint32_t guard;
+    uint32_t next;
     int _flags = 0; /* fallback flag var */
 
 loc_002D0DA0:
+    if (!chudactordata_manager_is_valid(edi)) {
+        fprintf(stderr, "[FSW/HUD] skipping CHUDActorDataManager_Cleanup invalid manager=%08X\n", edi);
+        esp += 4; return; /* ret */
+    }
     eax = MEM32(edi + 4);
     (void)0; /* test eax, eax - flags set for next jcc */
     MEM32(edi + 0x10F0C) = 0;
     if (TEST_Z(eax, eax)) goto loc_002D0DD1; /* je: equal / zero */
 
 loc_002D0DB1:
+    if (!chudactordata_manager_entry_is_valid(edi, eax)) {
+        fprintf(stderr, "[FSW/HUD] clearing invalid actor data head manager=%08X head=%08X count=%08X\n",
+                edi, eax, MEM32(edi + 0x10B08));
+        MEM32(edi + 4) = 0;
+        MEM32(edi + 0x10B08) = 0;
+        goto loc_002D0DD1;
+    }
     PUSH32(esp, esi);
+    guard = 0;
 
 loc_002D0DB2:
     esi = MEM32(edi + 4);
-    eax = MEM32(esi + 0x424);
+    if (!chudactordata_manager_entry_is_valid(edi, esi)) {
+        fprintf(stderr, "[FSW/HUD] stopping invalid actor data cleanup node manager=%08X node=%08X count=%08X\n",
+                edi, esi, MEM32(edi + 0x10B08));
+        MEM32(edi + 4) = 0;
+        MEM32(edi + 0x10B08) = 0;
+        goto loc_002D0DD0;
+    }
+    next = MEM32(esi + 0x424);
+    if (next != 0 && !chudactordata_manager_entry_is_valid(edi, next)) {
+        fprintf(stderr, "[FSW/HUD] dropping invalid actor data next manager=%08X node=%08X next=%08X\n",
+                edi, esi, next);
+        next = 0;
+    }
+    eax = next;
     MEM32(edi + 4) = eax;
     PUSH32(esp, 0); fn_0002BBD0_CHUDActorData_Clear(); /* call 0x0002BBD0 */
 
 loc_002D0DC3:
-    MEM32(edi + 0x10B08) = MEM32(edi + 0x10B08) - 1;
+    if (MEM32(edi + 0x10B08) != 0) {
+        MEM32(edi + 0x10B08) = MEM32(edi + 0x10B08) - 1;
+    }
+    guard++;
+    if (guard >= 0x40) {
+        fprintf(stderr, "[FSW/HUD] stopping actor data cleanup after bounded pool manager=%08X head=%08X\n",
+                edi, MEM32(edi + 4));
+        MEM32(edi + 4) = 0;
+        MEM32(edi + 0x10B08) = 0;
+        goto loc_002D0DD0;
+    }
     eax = MEM32(edi + 4);
     if (TEST_NZ(eax, eax)) goto loc_002D0DB2; /* jne: not equal / not zero */
 
@@ -2886,6 +2980,7 @@ loc_002D13BD:
 void fn_002D13D0_CHUDActorDataManager_UpdateFromThreatLists(void)
 {
     uint32_t ebp;
+    static int logged_invalid_threat_local_player = 0;
     int _flags = 0; /* fallback flag var */
     float xmm0;
 
@@ -2914,6 +3009,13 @@ loc_002D140B:
     PUSH32(esp, 0); fn_001BF1B0_CPlayerManager_GetLocalPlayer(); /* call 0x001BF1B0 */
 
 loc_002D1412:
+    if (!chudactordata_va_range_is_valid(eax, 0x2C)) {
+        if (!logged_invalid_threat_local_player) {
+            fprintf(stderr, "[FSW/HUD] skipping threat-list actor data invalid local player=%08X\n", eax);
+            logged_invalid_threat_local_player = 1;
+        }
+        goto loc_002D15D5;
+    }
     eax = MEM32(eax + 0x28);
     (void)0; /* cmp eax, ebx - flags set for next jcc */
     MEM32(esp + 0x14) = eax;
@@ -2921,9 +3023,20 @@ loc_002D1412:
 
 loc_002D1421:
     eax = MEM32(esp + 0x14);
+    if (!chudactordata_va_range_is_valid(eax, 8) ||
+        !chudactordata_va_range_is_valid(MEM32(eax), 0x10C)) {
+        fprintf(stderr, "[FSW/HUD] stopping threat-list actor data invalid node=%08X actor=%08X\n",
+                eax, chudactordata_va_range_is_valid(eax, 4) ? MEM32(eax) : 0);
+        goto loc_002D15D5;
+    }
     eax = MEM32(eax);
     esi = MEM32(eax + 0xF0);
     if (CMP_EQ(esi, ebx)) goto loc_002D15C0; /* je: equal / zero */
+    if (!chudactordata_vtable_is_valid(esi, 0xD0)) {
+        fprintf(stderr, "[FSW/HUD] skipping threat-list invalid actor object=%08X vtbl=%08X actor=%08X\n",
+                esi, chudactordata_va_range_is_valid(esi, 4) ? MEM32(esi) : 0, eax);
+        goto loc_002D15C0;
+    }
 
 loc_002D1435:
     (void)0; /* cmp MEM32(eax + 0x108), 3 - flags set for next jcc */
@@ -2991,9 +3104,20 @@ loc_002D14A7:
 
 loc_002D14B0:
     edi = MEM32(esp + 0x20);
+    if (!chudactordata_va_range_is_valid(edi, 0x6C) ||
+        !chudactordata_va_range_is_valid(MEM32(edi + 0x50), 0xF4)) {
+        fprintf(stderr, "[FSW/HUD] stopping threat-list invalid threat node=%08X actor=%08X\n",
+                edi, chudactordata_va_range_is_valid(edi + 0x50, 4) ? MEM32(edi + 0x50) : 0);
+        goto loc_002D15C0;
+    }
     eax = MEM32(edi + 0x50);
     esi = MEM32(eax + 0xF0);
     if (TEST_Z(esi, esi)) goto loc_002D15AD; /* je: equal / zero */
+    if (!chudactordata_vtable_is_valid(esi, 0xC8)) {
+        fprintf(stderr, "[FSW/HUD] skipping threat-list invalid target object=%08X vtbl=%08X actor=%08X\n",
+                esi, chudactordata_va_range_is_valid(esi, 4) ? MEM32(esi) : 0, eax);
+        goto loc_002D15AD;
+    }
 
 loc_002D14C5:
     edx = MEM32(esi);
@@ -3096,6 +3220,10 @@ loc_002D15A7:
 
 loc_002D15AD:
     eax = MEM32(esp + 0x20);
+    if (!chudactordata_va_range_is_valid(eax, 0x6C)) {
+        fprintf(stderr, "[FSW/HUD] stopping threat-list invalid next node base=%08X\n", eax);
+        goto loc_002D15C0;
+    }
     eax = MEM32(eax + 0x68);
     (void)0; /* test eax, eax - flags set for next jcc */
     MEM32(esp + 0x20) = eax;
@@ -3103,6 +3231,10 @@ loc_002D15AD:
 
 loc_002D15C0:
     ecx = MEM32(esp + 0x14);
+    if (!chudactordata_va_range_is_valid(ecx, 8)) {
+        fprintf(stderr, "[FSW/HUD] stopping threat-list invalid player node=%08X\n", ecx);
+        goto loc_002D15D5;
+    }
     eax = MEM32(ecx + 4);
     ebx = 0; /* xor self */
     (void)0; /* cmp eax, ebx - flags set for next jcc */
@@ -3269,6 +3401,7 @@ loc_002D16BA:
 void fn_002D16D0_CHUDActorDataManager_UpdatePlayerSoldiers(void)
 {
     uint32_t ebp;
+    static int logged_invalid_actor_local_player = 0;
     int _flags = 0; /* fallback flag var */
     ebp = g_seh_ebp; /* fpo_leaf: inherit caller's frame */
 
@@ -3284,6 +3417,13 @@ loc_002D16D9:
     PUSH32(esp, 0); fn_001BF1B0_CPlayerManager_GetLocalPlayer(); /* call 0x001BF1B0 */
 
 loc_002D16E0:
+    if (!chudactordata_va_range_is_valid(eax, 0x2C)) {
+        if (!logged_invalid_actor_local_player) {
+            fprintf(stderr, "[FSW/HUD] skipping actor data soldiers invalid local player=%08X\n", eax);
+            logged_invalid_actor_local_player = 1;
+        }
+        goto loc_002D1764;
+    }
     ebp = MEM32(eax + 0x28);
     eax = eax + 0x20;
     if (TEST_Z(ebp, ebp)) goto loc_002D1764; /* je: equal / zero */
@@ -3292,9 +3432,17 @@ loc_002D16EA:
     /* nop */
 
 loc_002D16F0:
+    if (!chudactordata_va_range_is_valid(ebp, 8)) {
+        fprintf(stderr, "[FSW/HUD] stopping actor data soldier list invalid node=%08X\n", ebp);
+        goto loc_002D1764;
+    }
     eax = MEM32(ebx + 4);
     (void)0; /* test eax, eax - flags set for next jcc */
     ecx = MEM32(ebp);
+    if (!chudactordata_va_range_is_valid(ecx, 0xF4)) {
+        fprintf(stderr, "[FSW/HUD] skipping actor data invalid soldier=%08X node=%08X\n", ecx, ebp);
+        goto loc_002D175D;
+    }
     if (TEST_Z(eax, eax)) goto loc_002D1712; /* je: equal / zero */
 
 loc_002D16FA:
@@ -3313,6 +3461,11 @@ loc_002D1712:
 loc_002D1714:
     esi = MEM32(ecx + 0xF0);
     if (TEST_Z(esi, esi)) goto loc_002D1750; /* je: equal / zero */
+    if (!chudactordata_vtable_is_valid(esi, 0xC8)) {
+        fprintf(stderr, "[FSW/HUD] skipping actor data invalid actor object=%08X vtbl=%08X soldier=%08X\n",
+                esi, chudactordata_va_range_is_valid(esi, 4) ? MEM32(esi) : 0, ecx);
+        goto loc_002D1750;
+    }
 
 loc_002D171E:
     eax = MEM32(esi);

@@ -7,10 +7,30 @@
 #define RECOMP_GENERATED_CODE
 #include "recomp_funcs.h"
 #include <math.h>
+#include <stdio.h>
 
 static int xbsurface_va_is_valid(uint32_t va)
 {
     return va >= 0x00010000u && va < 0x04000000u;
+}
+
+static int xbsurface_va_range_is_valid(uint32_t va, uint32_t size)
+{
+    if (!xbsurface_va_is_valid(va) || size == 0 || size > 0x04000000u) {
+        return 0;
+    }
+    return va <= 0x04000000u - size;
+}
+
+static void xbsurface_warn_bad_ptr(uint32_t surface, uint32_t src, uint32_t a, uint32_t b, uint32_t c)
+{
+    static uint32_t warn_count;
+    if (warn_count < 16) {
+        fprintf(stderr,
+                "[FSW/XBSurface] skip SurfacePtrUpdated surface=%08X src=%08X dst=%08X/%08X/%08X\n",
+                (unsigned)surface, (unsigned)src, (unsigned)a, (unsigned)b, (unsigned)c);
+    }
+    warn_count++;
 }
 
 /**
@@ -183,6 +203,28 @@ void fn_00142290_XBSurface_SurfacePtrUpdated(void)
 {
 
 loc_00142290:
+    {
+        uint32_t surface = eax;
+        uint32_t dst_a;
+        uint32_t dst_b;
+        uint32_t src;
+        uint32_t dst_c;
+        if (!xbsurface_va_range_is_valid(surface, 0x6Cu)) {
+            xbsurface_warn_bad_ptr(surface, 0, 0, 0, 0);
+            esp += 4; return; /* ret */
+        }
+        dst_a = MEM32(surface + 0x5C);
+        dst_b = MEM32(surface + 0x60);
+        src = MEM32(surface + 0x64);
+        dst_c = MEM32(surface + 0x68);
+        if (!xbsurface_va_range_is_valid(src, 0x14u) ||
+            !xbsurface_va_range_is_valid(dst_a, 0x14u) ||
+            !xbsurface_va_range_is_valid(dst_b, 0x14u) ||
+            !xbsurface_va_range_is_valid(dst_c, 0x14u)) {
+            xbsurface_warn_bad_ptr(surface, src, dst_a, dst_b, dst_c);
+            esp += 4; return; /* ret */
+        }
+    }
     ecx = MEM32(eax + 0x64);
     ecx = MEM32(ecx + 4);
     edx = MEM32(eax + 0x5C);

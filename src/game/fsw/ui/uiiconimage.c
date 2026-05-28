@@ -8,6 +8,11 @@
 #include "recomp_funcs.h"
 #include <math.h>
 
+static int fsw_uiiconimage_va_is_valid(uint32_t va)
+{
+    return va >= 0x00010000u && va < 0x04000000u;
+}
+
 /**
  * fn_0004C0E0_GCUIIconImage_EAEPAXI_Z
  * Symbol: ??_GCUIIconImage@@EAEPAXI@Z
@@ -514,10 +519,22 @@ loc_003C49CF:
 
 }
 
-/* Fallback for unresolved generated target 0x003C49C6. */
 void sub_003C49C6(void)
 {
-    recomp_missing_target(0x003C49C6u);
+loc_003C49C6:
+    if (!fsw_uiiconimage_va_is_valid(eax + 0x18)) {
+        eax = 0;
+        sub_003C49D6(); return;
+    }
+    ecx = MEM32(eax + 0x14);
+    if (CMP_A(ecx, esi)) { sub_003C4A36(); return; } /* ja: above (unsigned >) */
+
+loc_003C49CD:
+    if (CMP_AE(ecx, esi)) { sub_003C4A3B(); return; } /* jae: above or equal (unsigned >=) */
+
+loc_003C49CF:
+    eax = MEM32(eax + 0xC);
+    sub_003C49D2(); return;
 }
 
 /**

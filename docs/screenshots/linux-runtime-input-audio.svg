@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720" viewBox="0 0 1280 720">
+  <rect width="1280" height="720" fill="#14191b"/>
+  <rect x="72" y="72" width="1136" height="576" rx="8" fill="#20282b" stroke="#4c6570" stroke-width="2"/>
+  <text x="104" y="136" fill="#f0f8fb" font-family="DejaVu Sans Mono, monospace" font-size="34">Linux Runtime Progress</text>
+  <text x="104" y="196" fill="#a9d6e5" font-family="DejaVu Sans Mono, monospace" font-size="24">Host-side systems are far enough along for real game bring-up</text>
+  <text x="104" y="284" fill="#dbe8ec" font-family="DejaVu Sans Mono, monospace" font-size="24">Recent runtime work</text>
+  <text x="128" y="334" fill="#9ce6ff" font-family="DejaVu Sans Mono, monospace" font-size="22">SDL maps DualSense-compatible input to Xbox port 0</text>
+  <text x="128" y="374" fill="#9ce6ff" font-family="DejaVu Sans Mono, monospace" font-size="22">Keyboard fallback allows Start/A/B/dpad bring-up without a pad</text>
+  <text x="128" y="414" fill="#9ce6ff" font-family="DejaVu Sans Mono, monospace" font-size="22">CRT _sopen now attaches native handles to the guest fd table</text>
+  <text x="128" y="454" fill="#9ce6ff" font-family="DejaVu Sans Mono, monospace" font-size="22">Temporary XACT wave/sound-bank bypass avoids huge shell OOMs</text>
+  <text x="128" y="494" fill="#9ce6ff" font-family="DejaVu Sans Mono, monospace" font-size="22">Heap OOM diagnostics include guest ESP/return context</text>
+  <text x="104" y="586" fill="#ffd18a" font-family="DejaVu Sans Mono, monospace" font-size="22">Next: replace bypasses with real audio and reduce bring-up diagnostics.</text>
+</svg>
