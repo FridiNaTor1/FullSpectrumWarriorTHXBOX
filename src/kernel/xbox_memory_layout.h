@@ -127,7 +127,7 @@ ptrdiff_t xbox_GetMemoryOffset(void);
 /** Size of the simulated Xbox stack.
  *  Keep this modest so large level PAKs still have enough contiguous
  *  heap inside the Xbox's 64 MB unified RAM window. */
-#define XBOX_STACK_SIZE     (2 * 1024 * 1024)
+#define XBOX_STACK_SIZE     (512 * 1024)
 
 /** Base VA of the stack area (above last XBE section). */
 #define XBOX_STACK_BASE     0x00780000
@@ -140,7 +140,7 @@ ptrdiff_t xbox_GetMemoryOffset(void);
  * ================================================================ */
 
 /** Base VA of the dynamic heap area (above stack). */
-#define XBOX_HEAP_BASE      (XBOX_STACK_BASE + XBOX_STACK_SIZE)  /* 0x00880000 */
+#define XBOX_HEAP_BASE      (XBOX_STACK_BASE + XBOX_STACK_SIZE)  /* 0x00800000 */
 
 /** Size of the dynamic heap.
  *  Xbox has 64 MB total RAM. The total mapped region (data + stack + heap)
@@ -165,7 +165,7 @@ ptrdiff_t xbox_GetMemoryOffset(void);
 uint32_t xbox_HeapAlloc(uint32_t size, uint32_t alignment);
 
 /**
- * Free a block from the Xbox heap. Currently a no-op (bump allocator).
+ * Free a block from the Xbox heap for reuse by later host-backed allocations.
  */
 void xbox_HeapFree(uint32_t xbox_va);
 

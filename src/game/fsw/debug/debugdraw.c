@@ -9,6 +9,12 @@
 #include <math.h>
 #include <stdio.h>
 
+static int fsw_debugdraw_va_is_rdata(uint32_t va)
+{
+    return va >= 0x0050B060u && va < 0x005728E0u;
+}
+#include <stdio.h>
+
 /**
  * fn_00027170_Debug_Line2DSet_Draw
  * Symbol: ?Draw@Line2DSet@Debug@@QAEXPAVZeroCamera@@PAVZeroMaterial@@@Z
@@ -1489,6 +1495,17 @@ void fn_000280C0_0ZeroMaterialDesc_QAE_VCRC_TAttribData_KQBQAVZeroSurface_H_Z(vo
     int _flags = 0; /* fallback flag var */
 
 loc_000280C0:
+    if (((edx & 0x03FFFFFFu) >= 0x0050B060u) && ((edx & 0x03FFFFFFu) < 0x005728E0u)) {
+        static uint32_t bad_desc_ctor_count;
+        if (bad_desc_ctor_count < 8) {
+            fprintf(stderr,
+                    "[FSW/DebugDraw] blocked ZeroMaterialDesc ctor into rdata dst=%08X esp=%08X\n",
+                    (unsigned)edx, (unsigned)esp);
+            bad_desc_ctor_count++;
+        }
+        eax = edx;
+        esp += 20; return; /* ret 16 */
+    }
     eax = MEM32(esp + 4);
     MEM32(edx) = eax;
     eax = MEM32(esp + 8);
@@ -1499,6 +1516,9 @@ loc_000280C0:
     (void)0; /* test ecx, ecx - flags set for next jcc */
     PUSH32(esp, edi);
     edi = MEM32(esp + 0x14);
+    if (ecx > 8u && ecx < 0x80000000u) {
+        ecx = 8u;
+    }
     MEM32(edx + 0xC) = ecx;
     if (CMP_LE(ecx & ecx, 0)) goto loc_000280FB; /* jle: less or equal (signed <=) */
 

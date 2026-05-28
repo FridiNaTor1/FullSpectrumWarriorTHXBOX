@@ -7,6 +7,8 @@
 #define RECOMP_GENERATED_CODE
 #include "recomp_funcs.h"
 #include <math.h>
+#include <stdio.h>
+#include <stdlib.h>
 
 /**
  * fn_0004C780_1CUIStaticTextControl_UAE_XZ
@@ -21020,14 +21022,33 @@ loc_001A8468:
  */
 void fn_001A8480_LevelLoadingUpdate(void)
 {
+    uint32_t level_tick_arg;
     int _flags = 0; /* fallback flag var */
 
 loc_001A8480:
     eax = MEM32(esp + 0x10);
+    level_tick_arg = eax;
     (void)0; /* test eax, eax - flags set for next jcc */
     PUSH32(esp, ebx);
     PUSH32(esp, esi);
     PUSH32(esp, edi);
+    if (getenv("FSW_TH_LEVEL_LOADING_DEBUG") != NULL) {
+        static uint32_t level_loading_update_log_count = 0;
+        if (level_loading_update_log_count < 160) {
+            uint32_t settings = MEM32(0x5FA38C);
+            fprintf(stderr,
+                    "[FSW/Menu] LevelLoadingUpdate control tick=%u ready=%u continue=%u settings=%08X camp=%08X level=%08X shell=%u bonus=%u\n",
+                    (unsigned)level_tick_arg,
+                    (unsigned)MEM8(0x60F111),
+                    (unsigned)MEM8(0x60F112),
+                    (unsigned)settings,
+                    (settings >= 0x00010000u && settings < 0x04000000u) ? (unsigned)MEM32(settings + 0xD4) : 0,
+                    (settings >= 0x00010000u && settings < 0x04000000u) ? (unsigned)MEM32(settings + 0xD8) : 0,
+                    (settings >= 0x00010000u && settings < 0x04000000u) ? (unsigned)MEM8(settings + 0xD1) : 0,
+                    (settings >= 0x00010000u && settings < 0x04000000u) ? (unsigned)MEM8(settings + 0x44) : 0);
+            level_loading_update_log_count++;
+        }
+    }
     if (TEST_NZ(eax, eax)) goto loc_001A85B0; /* jne: not equal / not zero */
 
 loc_001A848F:
@@ -21176,6 +21197,20 @@ loc_001A85A5:
     esp += 4; return; /* ret */
 
 loc_001A85B0:
+    if (getenv("FSW_TH_LEVEL_LOADING_DEBUG") != NULL) {
+        static uint32_t level_loading_switch_log_count = 0;
+        if (level_loading_switch_log_count < 64) {
+            uint32_t settings = MEM32(0x5FA38C);
+            fprintf(stderr,
+                    "[FSW/Menu] LevelLoadingUpdate switch tick=%u settings=%08X camp=%08X level=%08X shell=%u\n",
+                    (unsigned)level_tick_arg,
+                    (unsigned)settings,
+                    (settings >= 0x00010000u && settings < 0x04000000u) ? (unsigned)MEM32(settings + 0xD4) : 0,
+                    (settings >= 0x00010000u && settings < 0x04000000u) ? (unsigned)MEM32(settings + 0xD8) : 0,
+                    (settings >= 0x00010000u && settings < 0x04000000u) ? (unsigned)MEM8(settings + 0xD1) : 0);
+            level_loading_switch_log_count++;
+        }
+    }
     if (CMP_BE(eax, 3)) goto loc_001A85F4; /* jbe: below or equal (unsigned <=) */
 
 loc_001A85B5:
@@ -21203,6 +21238,17 @@ loc_001A85DD:
     PUSH32(esp, 0); fn_00128D90_CalcLowerCRC(); /* call 0x00128D90 */
 
 loc_001A85E6:
+    if (getenv("FSW_TH_LEVEL_LOADING_DEBUG") != NULL) {
+        static uint32_t level_loading_context_log_count = 0;
+        if (level_loading_context_log_count < 16) {
+            fprintf(stderr,
+                    "[FSW/Menu] LevelLoadingUpdate ContextSwitch crc=%08X ready=%u continue=%u\n",
+                    (unsigned)eax,
+                    (unsigned)MEM8(0x60F111),
+                    (unsigned)MEM8(0x60F112));
+            level_loading_context_log_count++;
+        }
+    }
     MEM32(esi) = eax;
     PUSH32(esp, 0); fn_002B0C40_CApplicationManager_Get(); /* call 0x002B0C40 */
 

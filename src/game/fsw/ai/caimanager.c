@@ -12290,7 +12290,7 @@ void sub_0035474F(void)
     uint32_t steps;
     uint32_t next;
     int _flags = 0; /* fallback flag var */
-    ebp = g_seh_ebp; /* fpo_leaf: inherit caller's frame */
+    ebp = MEM32(esp + 0xC);
 
 loc_0035474F:
     eax = MEM32(esp + 8);

@@ -2827,10 +2827,19 @@ loc_003786FF:
     ebp = eax;
 
 loc_00378710:
-    edx = MEM32(esi + -4);
-    (void)0; /* test edx, edx - flags set for next jcc */
     edi = esi + -164;
     MEM32(esp + 0x14) = edi;
+    if (!fsw_particle_desc_table_valid(edi, 1)) {
+        static uint32_t early_item_log_count;
+        if (early_item_log_count < 16) {
+            fprintf(stderr, "[FSW/Particle] skipping invalid descriptor item=%08X remaining=%u\n",
+                    edi, ebp);
+            early_item_log_count++;
+        }
+        goto loc_00378789;
+    }
+    edx = MEM32(esi + -4);
+    (void)0; /* test edx, edx - flags set for next jcc */
     if (TEST_Z(edx, edx)) goto loc_0037876F; /* je: equal / zero */
 
 loc_00378721:
@@ -2878,15 +2887,6 @@ loc_0037876A:
     MEM32(esi) = eax;
 
 loc_0037876F:
-    if (!fsw_particle_desc_table_valid(edi, 1)) {
-        static uint32_t item_log_count;
-        if (item_log_count < 16) {
-            fprintf(stderr, "[FSW/Particle] skipping invalid descriptor item=%08X remaining=%u\n",
-                    edi, ebp);
-            item_log_count++;
-        }
-        goto loc_00378789;
-    }
     edx = MEM32(edi);
     eax = esp + 0x10;
     PUSH32(esp, eax);

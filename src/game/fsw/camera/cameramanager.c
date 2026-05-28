@@ -41,6 +41,61 @@ static int cameramanager_camera_object_is_valid(uint32_t camera)
     return vtable >= 0x00530000u && vtable < 0x00550000u;
 }
 
+static uint32_t cameramanager_find_vtable(uint32_t setup_fn, uint32_t update_fn, uint32_t clear_fn)
+{
+    for (uint32_t vtable = 0x0053A000u; vtable < 0x0053E000u; vtable += 4) {
+        if (!cameramanager_va_range_is_valid(vtable, 0x1C)) {
+            continue;
+        }
+        if (MEM32(vtable + 4) == setup_fn &&
+            MEM32(vtable + 0xC) == update_fn &&
+            MEM32(vtable + 0x18) == clear_fn) {
+            return vtable;
+        }
+    }
+    return 0;
+}
+
+static void cameramanager_repair_flyby_vtable(uint32_t camera, const char *reason)
+{
+    static uint32_t flyby_vtable = 0;
+    static uint32_t repair_logs = 0;
+    uint32_t old_vtable;
+
+    if (!cameramanager_va_range_is_valid(camera, 0x80)) {
+        return;
+    }
+
+    old_vtable = MEM32(camera);
+    if (cameramanager_va_range_is_valid(old_vtable, 0x1C) &&
+        MEM32(old_vtable + 4) == 0x000265A0u &&
+        MEM32(old_vtable + 0xC) == 0x003D80D0u &&
+        MEM32(old_vtable + 0x18) == 0x003D6FC0u) {
+        return;
+    }
+
+    if (flyby_vtable == 0) {
+        flyby_vtable = cameramanager_find_vtable(0x000265A0u, 0x003D80D0u, 0x003D6FC0u);
+    }
+    if (flyby_vtable == 0 || flyby_vtable == old_vtable) {
+        return;
+    }
+
+    MEM32(camera) = flyby_vtable;
+    repair_logs++;
+    if (repair_logs <= 8 || (repair_logs % 120) == 0) {
+        fprintf(stderr,
+                "[FSW/Camera] repaired flyby vtable reason=%s camera=%08X old=%08X new=%08X setup=%08X update=%08X clear=%08X\n",
+                reason,
+                (unsigned)camera,
+                (unsigned)old_vtable,
+                (unsigned)flyby_vtable,
+                (unsigned)MEM32(flyby_vtable + 4),
+                (unsigned)MEM32(flyby_vtable + 0xC),
+                (unsigned)MEM32(flyby_vtable + 0x18));
+    }
+}
+
 static void cameramanager_repair_slots(uint32_t manager, const char *reason)
 {
     static uint32_t repair_logs = 0;
@@ -61,6 +116,7 @@ static void cameramanager_repair_slots(uint32_t manager, const char *reason)
             break;
         }
     }
+    cameramanager_repair_flyby_vtable(manager + 0x3D0, reason);
     if (!needs_repair) {
         return;
     }
@@ -68,6 +124,7 @@ static void cameramanager_repair_slots(uint32_t manager, const char *reason)
     for (uint32_t i = 0; i < 13; i++) {
         MEM32(manager + 0x98C + i * 4) = manager + offsets[i];
     }
+    cameramanager_repair_flyby_vtable(manager + 0x3D0, reason);
     if (MEM32(manager + 0x9DC) > 6) {
         MEM32(manager + 0x9DC) = 0;
     }
@@ -2090,6 +2147,18 @@ loc_002FFA70:
 
 loc_002FFA87:
     ecx = MEM32(edi);
+    {
+        uint32_t slot_index = 0xDu - ebp;
+        uint32_t slot_vtable = cameramanager_va_range_is_valid(ecx, 4) ? MEM32(ecx) : 0;
+        uint32_t slot_setup = cameramanager_va_range_is_valid(slot_vtable, 8) ? MEM32(slot_vtable + 4) : 0;
+        fprintf(stderr,
+                "[FSW/Camera] setup slot begin slot=%u camera=%08X vtbl=%08X setup=%08X esp=%08X\n",
+                (unsigned)slot_index,
+                (unsigned)ecx,
+                (unsigned)slot_vtable,
+                (unsigned)slot_setup,
+                (unsigned)esp);
+    }
     if (!cameramanager_va_range_is_valid(ecx, 4) ||
         !cameramanager_va_range_is_valid(MEM32(ecx), 8)) {
         fprintf(stderr,
@@ -2104,6 +2173,11 @@ loc_002FFA87:
     { uint32_t _icall_esp = g_esp;
     PUSH32(esp, 0); RECOMP_ICALL_SAFE(MEM32(eax + 4), _icall_esp); /* indirect call */
     }
+    fprintf(stderr,
+            "[FSW/Camera] setup slot end slot=%u eax=%08X esp=%08X\n",
+            (unsigned)(0xDu - ebp),
+            (unsigned)eax,
+            (unsigned)esp);
 
 loc_002FFA8E:
     if (TEST_NZ(LO8(eax), LO8(eax))) goto loc_002FFA94; /* jne: not equal / not zero */
@@ -2160,13 +2234,42 @@ loc_002FFA9A:
     eax = (int32_t)xmm0; /* cvttss2si */
     PUSH32(esp, eax);
     MEMF(ecx + 0xF0) = xmm1; /* movss */
+    fprintf(stderr,
+            "[FSW/Camera] setup viewport call surface=%08X vtbl=%08X fn=%08X esp=%08X args=%d,%d,%d,%d\n",
+            (unsigned)ecx,
+            (unsigned)edx,
+            (unsigned)MEM32(edx + 0x44),
+            (unsigned)esp,
+            (int)MEM32(esp),
+            (int)MEM32(esp + 4),
+            (int)MEM32(esp + 8),
+            (int)MEM32(esp + 0xC));
     PUSH32(esp, 0); RECOMP_ICALL_SAFE(MEM32(edx + 0x44), _icall_esp); /* indirect call */
     }
+    fprintf(stderr,
+            "[FSW/Camera] setup viewport end eax=%08X esp=%08X\n",
+            (unsigned)eax,
+            (unsigned)esp);
 
 loc_002FFB57:
     eax = esi;
     MEM32(esi + 0x9C0) = 1;
+    fprintf(stderr,
+            "[FSW/Camera] setup before DetermineStackIndex manager=%08X stack=%u,%u,%u,%u,%u,%u,%u esp=%08X\n",
+            (unsigned)eax,
+            (unsigned)MEM32(esi + 0x9C0),
+            (unsigned)MEM32(esi + 0x9C4),
+            (unsigned)MEM32(esi + 0x9C8),
+            (unsigned)MEM32(esi + 0x9CC),
+            (unsigned)MEM32(esi + 0x9D0),
+            (unsigned)MEM32(esi + 0x9D4),
+            (unsigned)MEM32(esi + 0x9D8),
+            (unsigned)esp);
     PUSH32(esp, 0); fn_002FF6D0_CameraManager_DetermineStackIndex(); /* call 0x002FF6D0 */
+    fprintf(stderr,
+            "[FSW/Camera] setup after DetermineStackIndex active=%u esp=%08X\n",
+            (unsigned)MEM32(esi + 0x9DC),
+            (unsigned)esp);
 
 loc_002FFB68:
     xmm0 = 0.0f; /* xorps self = zero */
@@ -4150,6 +4253,8 @@ void fn_00300C20_CameraManager_Update(void)
 {
     int _flags = 0; /* fallback flag var */
     uint32_t manager = 0;
+    static uint32_t camera_update_logs = 0;
+    uint32_t log_this_update = 0;
     float xmm0, xmm1, xmm2, xmm3;
 
 loc_00300C20:
@@ -4162,6 +4267,19 @@ loc_00300C20:
     if (!cameramanager_va_range_is_valid(esi, 0xA7C)) {
         fprintf(stderr, "[FSW/Camera] skipping update invalid manager=%08X\n", (unsigned)esi);
         goto loc_00300D99;
+    }
+    camera_update_logs++;
+    log_this_update = (camera_update_logs <= 8 || (camera_update_logs % 120) == 0);
+    if (log_this_update) {
+        fprintf(stderr,
+                "[FSW/Camera] Update begin #%u manager=%08X dt=%08X flags=%02X active=%u view0=%u esp=%08X\n",
+                (unsigned)camera_update_logs,
+                (unsigned)esi,
+                (unsigned)MEM32(esp + 0x10),
+                (unsigned)ZX8(MEM8(esi + 0xA78)),
+                (unsigned)MEM32(esi + 0x9DC),
+                (unsigned)MEM32(esi + 0x9C0),
+                (unsigned)esp);
     }
     cameramanager_repair_slots(esi, "update");
     if (TEST_Z(MEM8(esi + 0xA78), 0x10)) goto loc_00300C84; /* je: equal / zero */
@@ -4201,14 +4319,26 @@ loc_00300C5C:
     MEM8(esi + 0x1C8) = LO8(eax);
 
 loc_00300C84:
+    if (log_this_update) {
+        fprintf(stderr, "[FSW/Camera] before CHUDCmd_Get #%u esp=%08X\n",
+                (unsigned)camera_update_logs, (unsigned)esp);
+    }
     PUSH32(esp, 0); fn_002E0910_CHUDCmd_Get(); /* call 0x002E0910 */
 
 loc_00300C89:
     esi = manager;
     edi = MEM32(eax + 0xD8);
+    if (log_this_update) {
+        fprintf(stderr, "[FSW/Camera] before DetermineViewType #%u hud=%08X cmd=%08X esp=%08X\n",
+                (unsigned)camera_update_logs, (unsigned)eax, (unsigned)edi, (unsigned)esp);
+    }
     PUSH32(esp, 0); fn_00300400_CameraManager_DetermineViewType(); /* call 0x00300400 */
 
 loc_00300C94:
+    if (log_this_update) {
+        fprintf(stderr, "[FSW/Camera] after DetermineViewType #%u view=%u esp=%08X\n",
+                (unsigned)camera_update_logs, (unsigned)eax, (unsigned)esp);
+    }
     esi = manager;
     xmm0 = MEMF(0x5FC404); /* movss */
     xmm1 = 0.0f; /* xorps self = zero */
@@ -4238,6 +4368,10 @@ loc_00300CCD:
     edi = esi;
     MEMF(0x5FBB0C) = xmm0; /* movss */
     MEMF(0x5FBB20) = xmm1; /* movss */
+    if (log_this_update) {
+        fprintf(stderr, "[FSW/Camera] before SetAtWindow #%u at_window=%u esp=%08X\n",
+                (unsigned)camera_update_logs, (unsigned)LO8(eax), (unsigned)esp);
+    }
     PUSH32(esp, 0); fn_00300270_CameraManager_SetAtWindow(); /* call 0x00300270 */
 
 loc_00300CEA:
@@ -4249,10 +4383,22 @@ loc_00300CEA:
     PUSH32(esp, ecx);
     PUSH32(esp, edx);
     eax = esi;
+    if (log_this_update) {
+        fprintf(stderr, "[FSW/Camera] before HandleAxes #%u axes=%08X/%08X dt=%08X esp=%08X\n",
+                (unsigned)camera_update_logs,
+                (unsigned)edx,
+                (unsigned)ecx,
+                (unsigned)edi,
+                (unsigned)esp);
+    }
     PUSH32(esp, 0); fn_00300BB0_CameraManager_HandleAxes(); /* call 0x00300BB0 */
 
 loc_00300D04:
     esi = manager;
+    if (log_this_update) {
+        fprintf(stderr, "[FSW/Camera] after HandleAxes #%u esp=%08X\n",
+                (unsigned)camera_update_logs, (unsigned)esp);
+    }
     xmm0 = 0.0f; /* xorps self = zero */
     MEMF(esi + 0x984) = xmm0; /* movss */
     MEMF(esi + 0x988) = xmm0; /* movss */
@@ -4262,6 +4408,13 @@ loc_00300D04:
 
 loc_00300D22:
     ecx = MEM32(esi);
+    if (log_this_update) {
+        fprintf(stderr, "[FSW/Camera] before slot update #%u slot=%u camera=%08X esp=%08X\n",
+                (unsigned)camera_update_logs,
+                (unsigned)(0xDu - ebx),
+                (unsigned)ecx,
+                (unsigned)esp);
+    }
     if (!cameramanager_va_range_is_valid(ecx, 4) ||
         !cameramanager_va_range_is_valid(MEM32(ecx), 0x10)) {
         fprintf(stderr, "[FSW/Camera] skipping update slot=%u camera=%08X vtbl=%08X\n",
@@ -4312,6 +4465,10 @@ loc_00300D86:
 loc_00300D8E:
     PUSH32(esp, edi);
     edi = 0x5FB71C;
+    if (log_this_update) {
+        fprintf(stderr, "[FSW/Camera] before SteadyCam #%u esp=%08X\n",
+                (unsigned)camera_update_logs, (unsigned)esp);
+    }
     PUSH32(esp, 0); fn_00307FF0_CameraAfterEffects_UpdateSteadyCam(); /* call 0x00307FF0 */
 
 loc_00300D99:

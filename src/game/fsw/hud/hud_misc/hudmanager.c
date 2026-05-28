@@ -14,6 +14,36 @@ static float hudmanager_update_xmm2;
 static float hudmanager_update_xmm3;
 static float hudmanager_update_xmm4;
 static float hudmanager_update_xmm5;
+static uint32_t hudmanager_update_logs;
+
+static int hudmanager_va_range_is_valid(uint32_t va, uint32_t size)
+{
+    if (va < 0x00010000u || va >= 0x04000000u || va + size < va) {
+        return 0;
+    }
+    return va + size <= 0x04000000u;
+}
+
+static void hudmanager_scene_state(const char *stage)
+{
+    const uint32_t scene = 0x643B60u;
+    uint32_t entries = hudmanager_va_range_is_valid(scene + 0xDC, 0x24) ? MEM32(scene + 0xDC) : 0;
+    uint32_t count = hudmanager_va_range_is_valid(scene + 0xE0, 4) ? MEM32(scene + 0xE0) : 0xFFFFFFFFu;
+    uint32_t submit = hudmanager_va_range_is_valid(scene + 0xF0, 8) ? MEM32(scene + 0xF0) : 0;
+    uint32_t submit_count = hudmanager_va_range_is_valid(scene + 0xF4, 4) ? MEM32(scene + 0xF4) : 0xFFFFFFFFu;
+    uint32_t first = hudmanager_va_range_is_valid(entries, 4) ? MEM32(entries) : 0;
+
+    fprintf(stderr,
+            "[FSW/Scene] HUD %s entries=%08X count=%u submit=%08X submit_count=%u first=%08X guard=%08X esp=%08X\n",
+            stage,
+            (unsigned)entries,
+            (unsigned)count,
+            (unsigned)submit,
+            (unsigned)submit_count,
+            (unsigned)first,
+            (unsigned)MEM32(0x643E20),
+            (unsigned)esp);
+}
 
 /**
  * fn_003D3A30_HUDManager_InputAnalogEventCallback
@@ -1684,6 +1714,11 @@ void fn_003D46C0_HUDManager_Update(void)
     ebp = g_seh_ebp; /* fpo_leaf: inherit caller's frame */
 
 loc_003D46C0:
+    hudmanager_update_logs++;
+    if (hudmanager_update_logs <= 4) {
+        fprintf(stderr, "[FSW/HUD] HUDManager_Update begin #%u esp=%08X dt=%08X\n",
+                (unsigned)hudmanager_update_logs, (unsigned)esp, (unsigned)MEM32(esp + 4));
+    }
     PUSH32(esp, ecx);
     PUSH32(esp, ebx);
     ebx = MEM32(esp + 0xC);
@@ -1694,19 +1729,35 @@ loc_003D46C0:
 
 loc_003D46CE:
     edi = eax;
+    if (hudmanager_update_logs <= 4) {
+        fprintf(stderr, "[FSW/HUD] before CHUDCmd_Update #%u cmd=%08X esp=%08X\n",
+                (unsigned)hudmanager_update_logs, (unsigned)edi, (unsigned)esp);
+    }
     PUSH32(esp, 0); fn_002DF980_CHUDCmd_Update(); /* call 0x002DF980 */
 
 loc_003D46D5:
+    if (hudmanager_update_logs <= 4) {
+        fprintf(stderr, "[FSW/HUD] after CHUDCmd_Update #%u esp=%08X\n",
+                (unsigned)hudmanager_update_logs, (unsigned)esp);
+    }
     PUSH32(esp, ebx);
     PUSH32(esp, 0x5FC7E8);
     PUSH32(esp, 0); fn_003D5A50_HUD_Update(); /* call 0x003D5A50 */
 
 loc_003D46E0:
+    if (hudmanager_update_logs <= 4) {
+        fprintf(stderr, "[FSW/HUD] after HUD_Update #%u esp=%08X\n",
+                (unsigned)hudmanager_update_logs, (unsigned)esp);
+    }
     PUSH32(esp, ebx);
     esi = 0x5FFDF0;
     PUSH32(esp, 0); fn_002CD490_HUDSubtitleManager_Update(); /* call 0x002CD490 */
 
 loc_003D46EB:
+    if (hudmanager_update_logs <= 4) {
+        fprintf(stderr, "[FSW/HUD] after HUDSubtitleManager_Update #%u esp=%08X\n",
+                (unsigned)hudmanager_update_logs, (unsigned)esp);
+    }
     PUSH32(esp, ebx);
     PUSH32(esp, 0); fn_002D0DF0_CHUDActorDataManager_Get(); /* call 0x002D0DF0 */
 
@@ -1714,6 +1765,10 @@ loc_003D46F1:
     PUSH32(esp, 0); fn_002D17A0_CHUDActorDataManager_Update(); /* call 0x002D17A0 */
 
 loc_003D46F6:
+    if (hudmanager_update_logs <= 4) {
+        fprintf(stderr, "[FSW/HUD] after CHUDActorDataManager_Update #%u esp=%08X\n",
+                (unsigned)hudmanager_update_logs, (unsigned)esp);
+    }
     ecx = MEM32(0x6009D8);
     eax = MEM32(ecx);
     { uint32_t _icall_esp = g_esp;
@@ -1722,6 +1777,10 @@ loc_003D46F6:
     }
 
 loc_003D4702:
+    if (hudmanager_update_logs <= 4) {
+        fprintf(stderr, "[FSW/HUD] after HUD singleton virtual update #%u esp=%08X\n",
+                (unsigned)hudmanager_update_logs, (unsigned)esp);
+    }
     if (TEST_NZ(MEM8(0x6A9D18), 1)) goto loc_003D4723; /* jne: not equal / not zero */
 
 loc_003D470B:
@@ -1862,6 +1921,10 @@ loc_003D47A8:
     PUSH32(esp, 0); fn_002EAF50_CHUDDPad_Update(); /* call 0x002EAF50 */
 
 loc_003D47AD:
+    if (hudmanager_update_logs <= 4) {
+        fprintf(stderr, "[FSW/HUD] after CHUDDPad_Update #%u esp=%08X\n",
+                (unsigned)hudmanager_update_logs, (unsigned)esp);
+    }
     PUSH32(esp, ebx);
     PUSH32(esp, 0); fn_002EB2A0_CHUDDesignatorManager_Get(); /* call 0x002EB2A0 */
 
@@ -1870,6 +1933,10 @@ loc_003D47B3:
     PUSH32(esp, 0); fn_002EB800_CHUDDesignatorManager_Update(); /* call 0x002EB800 */
 
 loc_003D47B9:
+    if (hudmanager_update_logs <= 4) {
+        fprintf(stderr, "[FSW/HUD] after CHUDDesignatorManager_Update #%u esp=%08X\n",
+                (unsigned)hudmanager_update_logs, (unsigned)esp);
+    }
     PUSH32(esp, ebx);
     PUSH32(esp, 0); fn_002E2320_CHUDGPSManager_Get(); /* call 0x002E2320 */
 
@@ -1877,6 +1944,10 @@ loc_003D47BF:
     PUSH32(esp, 0); fn_002E2470_CHUDGPSManager_Update(); /* call 0x002E2470 */
 
 loc_003D47C4:
+    if (hudmanager_update_logs <= 4) {
+        fprintf(stderr, "[FSW/HUD] after CHUDGPSManager_Update #%u esp=%08X\n",
+                (unsigned)hudmanager_update_logs, (unsigned)esp);
+    }
     PUSH32(esp, ebx);
     eax = 0x5FD380;
     PUSH32(esp, 0); fn_003B0640_CHUDObjectiveBox_Update(); /* call 0x003B0640 */
@@ -1885,6 +1956,10 @@ loc_003D47CF:
     PUSH32(esp, 0); fn_003B1470_CHUDIncomingFireIndMgr_Get(); /* call 0x003B1470 */
 
 loc_003D47D4:
+    if (hudmanager_update_logs <= 4) {
+        fprintf(stderr, "[FSW/HUD] after CHUDIncomingFireIndMgr_Get #%u manager=%08X esp=%08X\n",
+                (unsigned)hudmanager_update_logs, (unsigned)eax, (unsigned)esp);
+    }
     hudmanager_update_xmm2 = MEMF(esp + 0x14); /* movss */
     hudmanager_update_xmm3 = 0.0f; /* xorps self = zero */
     hudmanager_update_xmm5 = MEMF(0x561418); /* movss */
@@ -1981,11 +2056,19 @@ loc_003D4865:
     PUSH32(esp, 0); fn_002ED790_CTargetCursor_Update(); /* call 0x002ED790 */
 
 loc_003D4870:
+    if (hudmanager_update_logs <= 4) {
+        fprintf(stderr, "[FSW/HUD] after CTargetCursor_Update #%u esp=%08X\n",
+                (unsigned)hudmanager_update_logs, (unsigned)esp);
+    }
     PUSH32(esp, ebx);
     edi = 0x600ED0;
     PUSH32(esp, 0); fn_002C1690_HUDCursorPrecisionFire_Update(); /* call 0x002C1690 */
 
 loc_003D487B:
+    if (hudmanager_update_logs <= 4) {
+        fprintf(stderr, "[FSW/HUD] after HUDCursorPrecisionFire_Update #%u esp=%08X\n",
+                (unsigned)hudmanager_update_logs, (unsigned)esp);
+    }
     PUSH32(esp, ebx);
     PUSH32(esp, 0); fn_002CFC40_CCASEVACManager_Get(); /* call 0x002CFC40 */
 
@@ -1993,6 +2076,10 @@ loc_003D4881:
     PUSH32(esp, 0); fn_002CEF80_CCASEVACManager_Update(); /* call 0x002CEF80 */
 
 loc_003D4886:
+    if (hudmanager_update_logs <= 4) {
+        fprintf(stderr, "[FSW/HUD] after CCASEVACManager_Update #%u esp=%08X\n",
+                (unsigned)hudmanager_update_logs, (unsigned)esp);
+    }
     PUSH32(esp, ebx);
     PUSH32(esp, 0); fn_002073E0_CSavePointManager_Get(); /* call 0x002073E0 */
 
@@ -2019,36 +2106,64 @@ loc_003D48B8:
     PUSH32(esp, 0); fn_002C3AF0_CUIAnimMesh_Update(); /* call 0x002C3AF0 */
 
 loc_003D48C3:
+    if (hudmanager_update_logs <= 4) {
+        fprintf(stderr, "[FSW/HUD] after CUIAnimMesh_Update #%u esp=%08X\n",
+                (unsigned)hudmanager_update_logs, (unsigned)esp);
+    }
     PUSH32(esp, ebx);
     eax = 0x5FE960;
     PUSH32(esp, 0); fn_002D6A40_HUDRadialMenu_Update(); /* call 0x002D6A40 */
 
 loc_003D48CE:
+    if (hudmanager_update_logs <= 4) {
+        fprintf(stderr, "[FSW/HUD] after HUDRadialMenu_Update #%u esp=%08X\n",
+                (unsigned)hudmanager_update_logs, (unsigned)esp);
+    }
     PUSH32(esp, ebx);
     PUSH32(esp, 0x600634);
     PUSH32(esp, 0); fn_002CC6C0_HUDTeamDataManager_Update(); /* call 0x002CC6C0 */
 
 loc_003D48D9:
+    if (hudmanager_update_logs <= 4) {
+        fprintf(stderr, "[FSW/HUD] after HUDTeamDataManager_Update #%u esp=%08X\n",
+                (unsigned)hudmanager_update_logs, (unsigned)esp);
+    }
     PUSH32(esp, ebx);
     PUSH32(esp, 0x5FE398);
     PUSH32(esp, 0); fn_002DB760_HUDRadar_Update(); /* call 0x002DB760 */
 
 loc_003D48E4:
+    if (hudmanager_update_logs <= 4) {
+        fprintf(stderr, "[FSW/HUD] after HUDRadar_Update #%u esp=%08X\n",
+                (unsigned)hudmanager_update_logs, (unsigned)esp);
+    }
     PUSH32(esp, ebx);
     esi = 0x5FE150;
     PUSH32(esp, 0); fn_002DDED0_HUDContextSensitiveDisplay_Update(); /* call 0x002DDED0 */
 
 loc_003D48EF:
+    if (hudmanager_update_logs <= 4) {
+        fprintf(stderr, "[FSW/HUD] after HUDContextSensitiveDisplay_Update #%u esp=%08X\n",
+                (unsigned)hudmanager_update_logs, (unsigned)esp);
+    }
     PUSH32(esp, ebx);
     PUSH32(esp, 0x600714);
     PUSH32(esp, 0); fn_003AE8B0_HUDTextTicker_Update(); /* call 0x003AE8B0 */
 
 loc_003D48FA:
+    if (hudmanager_update_logs <= 4) {
+        fprintf(stderr, "[FSW/HUD] after HUDTextTicker_Update A #%u esp=%08X\n",
+                (unsigned)hudmanager_update_logs, (unsigned)esp);
+    }
     PUSH32(esp, ebx);
     PUSH32(esp, 0x600734);
     PUSH32(esp, 0); fn_003AE8B0_HUDTextTicker_Update(); /* call 0x003AE8B0 */
 
 loc_003D4905:
+    if (hudmanager_update_logs <= 4) {
+        fprintf(stderr, "[FSW/HUD] HUDManager_Update complete #%u esp=%08X\n",
+                (unsigned)hudmanager_update_logs, (unsigned)esp);
+    }
     POP32(esp, edi);
     POP32(esp, esi);
     POP32(esp, ebx);
@@ -2166,11 +2281,13 @@ loc_003D4986:
  */
 void fn_003D4990_HUDManager_Setup(void)
 {
+    uint32_t saved_esp;
     float xmm0;
 
 loc_003D4990:
-    PUSH32(esp, ebx);
-    PUSH32(esp, esi);
+	    hudmanager_scene_state("setup enter");
+	    PUSH32(esp, ebx);
+	    PUSH32(esp, esi);
     PUSH32(esp, edi);
     MEM32(0x60069C) = 0x57EFE0;
     MEM32(0x6006A0) = 0x57F038;
@@ -2178,15 +2295,18 @@ loc_003D4990:
     PUSH32(esp, 0); fn_002C8790_CHUDTexGroups_Get(); /* call 0x002C8790 */
 
 loc_003D49B6:
-    PUSH32(esp, eax);
-    PUSH32(esp, 0); fn_002C87C0_CHUDTexGroups_Initialize(); /* call 0x002C87C0 */
+	    hudmanager_scene_state("after CHUDTexGroups_Get");
+	    PUSH32(esp, eax);
+	    PUSH32(esp, 0); fn_002C87C0_CHUDTexGroups_Initialize(); /* call 0x002C87C0 */
 
 loc_003D49BC:
-    edi = 0x5FC7E8;
-    PUSH32(esp, 0); fn_003D5F80_HUD_Setup(); /* call 0x003D5F80 */
+	    hudmanager_scene_state("after CHUDTexGroups_Initialize");
+	    edi = 0x5FC7E8;
+	    PUSH32(esp, 0); fn_003D5F80_HUD_Setup(); /* call 0x003D5F80 */
 
 loc_003D49C6:
-    eax = 0x5FFDF0;
+	    hudmanager_scene_state("after HUD_Setup");
+	    eax = 0x5FFDF0;
     PUSH32(esp, 0); fn_002CD6E0_HUDSubtitleManager_Setup(); /* call 0x002CD6E0 */
 
 loc_003D49D0:
@@ -2206,26 +2326,30 @@ loc_003D49EE:
     PUSH32(esp, 0); fn_002C6760_HUDIconManager_Setup(); /* call 0x002C6760 */
 
 loc_003D49F8:
-    fprintf(stderr, "[FSW/HUD] before MovementCursor init esp=%08X\n", esp);
-    PUSH32(esp, 0); fn_002F1320_MovementCursor(); /* call 0x002F1320 */
+	    fprintf(stderr, "[FSW/HUD] before MovementCursor init esp=%08X\n", esp);
+	    hudmanager_scene_state("before MovementCursor init");
+	    PUSH32(esp, 0); fn_002F1320_MovementCursor(); /* call 0x002F1320 */
 
 loc_003D49FD:
-    esi = eax;
-    PUSH32(esp, 0); fn_002EFEC0_CMovementCursor_Init(); /* call 0x002EFEC0 */
+	    esi = eax;
+	    PUSH32(esp, 0); fn_002EFEC0_CMovementCursor_Init(); /* call 0x002EFEC0 */
 
 loc_003D4A04:
-    fprintf(stderr, "[FSW/HUD] after MovementCursor init esp=%08X cursor=%08X\n", esp, esi);
-    esi = 0x5FE150;
+	    fprintf(stderr, "[FSW/HUD] after MovementCursor init esp=%08X cursor=%08X\n", esp, esi);
+	    hudmanager_scene_state("after MovementCursor init");
+	    esi = 0x5FE150;
     PUSH32(esp, 0); fn_002DDC70_HUDContextSensitiveDisplay_Setup(); /* call 0x002DDC70 */
 
 loc_003D4A0E:
-    fprintf(stderr, "[FSW/HUD] after ContextSensitiveDisplay setup esp=%08X\n", esp);
-    esi = 0x6010B0;
+	    fprintf(stderr, "[FSW/HUD] after ContextSensitiveDisplay setup esp=%08X\n", esp);
+	    hudmanager_scene_state("after ContextSensitiveDisplay setup");
+	    esi = 0x6010B0;
     PUSH32(esp, 0); fn_002BF4E0_HUDCursorVehicleMove_Init(); /* call 0x002BF4E0 */
 
 loc_003D4A18:
-    fprintf(stderr, "[FSW/HUD] after CursorVehicleMove init esp=%08X\n", esp);
-    PUSH32(esp, 0); fn_002ED2C0_CTargetCursor_Get(); /* call 0x002ED2C0 */
+	    fprintf(stderr, "[FSW/HUD] after CursorVehicleMove init esp=%08X\n", esp);
+	    hudmanager_scene_state("after CursorVehicleMove init");
+	    PUSH32(esp, 0); fn_002ED2C0_CTargetCursor_Get(); /* call 0x002ED2C0 */
 
 loc_003D4A1D:
     fprintf(stderr, "[FSW/HUD] after TargetCursor get cursor=%08X esp=%08X\n", eax, esp);
@@ -2237,8 +2361,9 @@ loc_003D4A22:
     PUSH32(esp, 0); fn_002D0DA0_CHUDActorDataManager_Cleanup(); /* call 0x002D0DA0 */
 
 loc_003D4A29:
-    fprintf(stderr, "[FSW/HUD] after CHUDActorDataManager_Cleanup esp=%08X\n", esp);
-    PUSH32(esp, 0); fn_002E2320_CHUDGPSManager_Get(); /* call 0x002E2320 */
+	    fprintf(stderr, "[FSW/HUD] after CHUDActorDataManager_Cleanup esp=%08X\n", esp);
+	    hudmanager_scene_state("after CHUDActorDataManager_Cleanup");
+	    PUSH32(esp, 0); fn_002E2320_CHUDGPSManager_Get(); /* call 0x002E2320 */
 
 loc_003D4A2E:
     esi = eax;
@@ -2246,8 +2371,9 @@ loc_003D4A2E:
     PUSH32(esp, 0); fn_002E20F0_CHUDGPSManager_Setup(); /* call 0x002E20F0 */
 
 loc_003D4A35:
-    fprintf(stderr, "[FSW/HUD] after CHUDGPSManager_Setup esp=%08X\n", esp);
-    PUSH32(esp, ecx);
+	    fprintf(stderr, "[FSW/HUD] after CHUDGPSManager_Setup esp=%08X\n", esp);
+	    hudmanager_scene_state("after CHUDGPSManager_Setup");
+	    PUSH32(esp, ecx);
     eax = 0; /* xor self */
     ecx = 0x53CDC4;
     esi = esp;
@@ -2265,8 +2391,9 @@ loc_003D4A4B:
     PUSH32(esp, 0); fn_003B0C00_CHUDObjectiveBox_Setup(); /* call 0x003B0C00 */
 
 loc_003D4A5A:
-    fprintf(stderr, "[FSW/HUD] after ObjectiveBox_Setup esp=%08X\n", esp);
-    MEM32(0x5FD580) = esi;
+	    fprintf(stderr, "[FSW/HUD] after ObjectiveBox_Setup esp=%08X\n", esp);
+	    hudmanager_scene_state("after ObjectiveBox_Setup");
+	    MEM32(0x5FD580) = esi;
     MEM32(0x5FD9B8) = esi;
     MEM32(0x5FDE04) = esi;
     PUSH32(esp, 0); fn_002E0910_CHUDCmd_Get(); /* call 0x002E0910 */
@@ -2277,36 +2404,66 @@ loc_003D4A71:
     PUSH32(esp, 0); fn_002E0570_CHUDCmd_InitHandlerSetup(); /* call 0x002E0570 */
 
 loc_003D4A78:
-    fprintf(stderr, "[FSW/HUD] after CHUDCmd_InitHandlerSetup esp=%08X\n", esp);
-    edi = 0x600ED0;
+	    fprintf(stderr, "[FSW/HUD] after CHUDCmd_InitHandlerSetup esp=%08X\n", esp);
+	    hudmanager_scene_state("after CHUDCmd_InitHandlerSetup");
+	    edi = 0x600ED0;
+    saved_esp = esp;
     PUSH32(esp, 0); fn_002C0C70_HUDCursorPrecisionFire_Setup(); /* call 0x002C0C70 */
+    if (esp != saved_esp) {
+        fprintf(stderr, "[FSW/HUD] repaired PrecisionFire setup esp %08X -> %08X\n",
+                (unsigned)esp, (unsigned)saved_esp);
+        esp = saved_esp;
+    }
 
 loc_003D4A82:
-    fprintf(stderr, "[FSW/HUD] after PrecisionFire setup esp=%08X\n", esp);
+	    fprintf(stderr, "[FSW/HUD] after PrecisionFire setup esp=%08X\n", esp);
+	    hudmanager_scene_state("after PrecisionFire setup");
+	    saved_esp = esp;
     PUSH32(esp, 0x5FE960);
     PUSH32(esp, 0); fn_002D7000_HUDRadialMenu_Setup(); /* call 0x002D7000 */
+    if (esp != saved_esp) {
+        fprintf(stderr, "[FSW/HUD] repaired HUDRadialMenu setup esp %08X -> %08X\n",
+                (unsigned)esp, (unsigned)saved_esp);
+        esp = saved_esp;
+    }
 
 loc_003D4A8C:
-    fprintf(stderr, "[FSW/HUD] after HUDRadialMenu_Setup esp=%08X\n", esp);
-    esi = 0x5FE398;
+	    fprintf(stderr, "[FSW/HUD] after HUDRadialMenu_Setup esp=%08X\n", esp);
+	    hudmanager_scene_state("after HUDRadialMenu_Setup");
+	    esi = 0x5FE398;
+    saved_esp = esp;
     PUSH32(esp, 0); fn_002D8610_HUDRadar_Setup(); /* call 0x002D8610 */
+    if (esp != saved_esp) {
+        fprintf(stderr, "[FSW/HUD] repaired HUDRadar setup esp %08X -> %08X\n",
+                (unsigned)esp, (unsigned)saved_esp);
+        esp = saved_esp;
+    }
 
 loc_003D4A96:
-    fprintf(stderr, "[FSW/HUD] after HUDRadar_Setup esp=%08X\n", esp);
-    PUSH32(esp, 0); fn_002E63C0_CHUDDPad_Get(); /* call 0x002E63C0 */
+	    fprintf(stderr, "[FSW/HUD] after HUDRadar_Setup esp=%08X\n", esp);
+	    hudmanager_scene_state("after HUDRadar_Setup");
+	    PUSH32(esp, 0); fn_002E63C0_CHUDDPad_Get(); /* call 0x002E63C0 */
 
 loc_003D4A9B:
     fprintf(stderr, "[FSW/HUD] before CHUDDPad_Initialise dpad=%08X esp=%08X\n", eax, esp);
+    saved_esp = esp;
     PUSH32(esp, eax);
     PUSH32(esp, 0); fn_002E6420_CHUDDPad_Initialise(); /* call 0x002E6420 */
+    if (esp != saved_esp) {
+        fprintf(stderr, "[FSW/HUD] repaired CHUDDPad initialise esp %08X -> %08X\n",
+                (unsigned)esp, (unsigned)saved_esp);
+        esp = saved_esp;
+    }
 
 loc_003D4AA1:
-    fprintf(stderr, "[FSW/HUD] after CHUDDPad_Initialise esp=%08X\n", esp);
-    PUSH32(esp, 0); fn_002CB940_CHUDFrame_Setup(); /* call 0x002CB940 */
+	    fprintf(stderr, "[FSW/HUD] after CHUDDPad_Initialise esp=%08X\n", esp);
+	    hudmanager_scene_state("after CHUDDPad_Initialise");
+	    PUSH32(esp, 0); fn_002CB940_CHUDFrame_Setup(); /* call 0x002CB940 */
 
 loc_003D4AA6:
-    fprintf(stderr, "[FSW/HUD] after CHUDFrame_Setup esp=%08X\n", esp);
-    xmm0 = MEMF(0x5FA4D8); /* movss */
+	    fprintf(stderr, "[FSW/HUD] after CHUDFrame_Setup esp=%08X\n", esp);
+	    hudmanager_scene_state("after CHUDFrame_Setup");
+	    xmm0 = MEMF(0x5FA4D8); /* movss */
     eax = MEM32(0x5CFAC4);
     MEMF(0x600714) = xmm0; /* movss */
     xmm0 = MEMF(0x5FA4DC); /* movss */
@@ -2331,8 +2488,9 @@ loc_003D4AF6:
     PUSH32(esp, 0); fn_003AEAD0_HUDTextTicker_SetFont(); /* call 0x003AEAD0 */
 
 loc_003D4B05:
-    fprintf(stderr, "[FSW/HUD] after first HUDTextTicker_SetFont esp=%08X\n", esp);
-    xmm0 = MEMF(0x5FA4E4); /* movss */
+	    fprintf(stderr, "[FSW/HUD] after first HUDTextTicker_SetFont esp=%08X\n", esp);
+	    hudmanager_scene_state("after first HUDTextTicker_SetFont");
+	    xmm0 = MEMF(0x5FA4E4); /* movss */
     ecx = MEM32(0x5CFAC8);
     MEMF(0x600734) = xmm0; /* movss */
     xmm0 = MEMF(0x5FA4E8); /* movss */
@@ -2357,8 +2515,9 @@ loc_003D4B57:
     PUSH32(esp, 0); fn_003AEAD0_HUDTextTicker_SetFont(); /* call 0x003AEAD0 */
 
 loc_003D4B66:
-    fprintf(stderr, "[FSW/HUD] HUDManager_Setup complete esp=%08X\n", esp);
-    POP32(esp, edi);
+	    fprintf(stderr, "[FSW/HUD] HUDManager_Setup complete esp=%08X\n", esp);
+	    hudmanager_scene_state("HUDManager_Setup complete");
+	    POP32(esp, edi);
     POP32(esp, esi);
     MEM8(0x5CE969) = 1;
     POP32(esp, ebx);

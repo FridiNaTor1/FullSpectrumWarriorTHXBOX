@@ -7,6 +7,7 @@
 #define RECOMP_GENERATED_CODE
 #include "recomp_funcs.h"
 #include <math.h>
+#include <stdlib.h>
 
 /**
  * fn_0005DFA8_XGetAutoLogonFlag_0
@@ -21,6 +22,13 @@ void fn_0005DFA8_XGetAutoLogonFlag_0(void)
     int _flags = 0; /* fallback flag var */
 
 loc_0005DFA8:
+#ifdef XBOXRECOMP_VULKAN_GRAPHICS
+    {
+        const char *force = getenv("FSW_TH_AUTO_LOGON");
+        eax = (force != NULL && force[0] == '1') ? 1 : 2;
+        esp += 4; return; /* ret */
+    }
+#endif
     PUSH32(esp, ebp);
     ebp = esp;
     PUSH32(esp, ecx);

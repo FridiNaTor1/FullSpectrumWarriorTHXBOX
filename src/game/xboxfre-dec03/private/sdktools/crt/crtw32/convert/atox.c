@@ -35,9 +35,12 @@ loc_0009BB68:
  */
 void sub_0009BB6F(void)
 {
+    uint32_t ebp;
+    ebp = g_seh_ebp; /* fpo_leaf: inherit caller's frame */
 
 loc_0009BB6F:
     esi++;
+    g_seh_ebp = ebp; sub_0009BB70(); return; /* fallthrough */
 
 }
 
@@ -59,7 +62,7 @@ loc_0009BB70:
 loc_0009BB79:
     (void)0; /* test eax, eax - flags set for next jcc */
     POP32(esp, ecx);
-    if (TEST_NZ(eax, eax)) { sub_0009BB6F(); return; } /* jne: not equal / not zero */
+    if (TEST_NZ(eax, eax)) { g_seh_ebp = g_seh_ebp; sub_0009BB6F(); return; } /* jne: not equal / not zero */
 
 loc_0009BB7E:
     ecx = ZX8(MEM8(esi));
@@ -77,6 +80,7 @@ loc_0009BB8E:
 
 loc_0009BB92:
     eax = 0; /* xor self */
+    g_seh_ebp = g_seh_ebp; sub_0009BB94(); return; /* fallthrough */
 
 }
 
@@ -112,9 +116,12 @@ loc_0009BB9E:
  */
 void sub_0009BBA3(void)
 {
+    uint32_t ebp;
+    ebp = g_seh_ebp; /* fpo_leaf: inherit caller's frame */
 
 loc_0009BBA3:
     ecx = ecx | 0xFFFFFFFFu;
+    g_seh_ebp = ebp; sub_0009BBA6(); return; /* fallthrough */
 
 }
 

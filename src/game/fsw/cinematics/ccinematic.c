@@ -1715,10 +1715,9 @@ loc_0018A561:
                     (unsigned)esi, (unsigned)eax);
         }
         tickall_invalid_log_count++;
-        esi = MEM32(esi + 4);
-        if (esi != 0 && !ccinematic_va_range_is_valid(esi, 8)) {
-            esi = 0;
-        }
+        MEM32(0x612E10) = 0;
+        MEM32(0x612E0C) = 0;
+        esi = 0;
         goto loc_0018A591;
     }
     PUSH32(esp, 0); fn_0018A420_CCinematicData_Tick(); /* call 0x0018A420 */

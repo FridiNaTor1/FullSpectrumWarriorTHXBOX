@@ -14,7 +14,12 @@
 static void fsw_cuiinput_set_event(uint32_t event_id)
 {
     if (event_id < 0x18) {
+        uint32_t input = MEM32(0x5FA89C);
         MEM8(0x5F9E1C + event_id) = 1;
+        if (input >= 0x00010000u && input < 0x04000000u) {
+            MEM8(input + event_id) = 0;
+            MEM8(input + event_id + 0x18) = 0;
+        }
     }
 }
 
@@ -44,6 +49,7 @@ static void fsw_cuiinput_bridge_controller_events(void)
         if (xbox_InputGetState(port, &state) != ERROR_SUCCESS) {
             continue;
         }
+        MEM32(0x5FA870) = MEM32(0x5FA870) | (1u << port);
 
         if (state.Gamepad.bAnalogButtons[XBOX_BUTTON_A] >= XBOX_ANALOG_BUTTON_THRESHOLD) mask |= FSW_PAD_ACCEPT;
         if (state.Gamepad.bAnalogButtons[XBOX_BUTTON_B] >= XBOX_ANALOG_BUTTON_THRESHOLD) mask |= FSW_PAD_BACK;
@@ -91,6 +97,11 @@ static void fsw_cuiinput_bridge_controller_events(void)
     }
 
     previous_mask = mask;
+}
+
+void fsw_cuiinput_bridge_controller_events_host(void)
+{
+    fsw_cuiinput_bridge_controller_events();
 }
 
 /**

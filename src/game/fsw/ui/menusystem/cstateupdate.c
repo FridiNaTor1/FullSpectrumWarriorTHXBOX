@@ -8,6 +8,10 @@
 #include "recomp_funcs.h"
 #include <math.h>
 #include <stdio.h>
+#include <stdlib.h>
+
+extern void fsw_cuiinput_bridge_controller_events_host(void);
+extern void fsw_profile_manager_host_repair(const char *tag);
 
 static int cstateupdate_va_is_valid(uint32_t va)
 {
@@ -3436,6 +3440,18 @@ loc_001B3052:
     PUSH32(esp, 0); fn_0012F310_CUIMenu_GetSelectedControlIndex(); /* call 0x0012F310 */
 
 loc_001B305D:
+#ifdef XBOXRECOMP_VULKAN_GRAPHICS
+    {
+        const char *forced_main_index = getenv("FSW_TH_MAIN_MENU_INDEX");
+        if (forced_main_index != NULL && forced_main_index[0] != 0) {
+            eax = (uint32_t)strtoul(forced_main_index, NULL, 0);
+        }
+    }
+    if (getenv("FSW_TH_MAIN_MENU_DEBUG") != NULL) {
+        fprintf(stderr, "[FSW/Menu] MainMenu selected=%u menu=%08X\n",
+                (unsigned)eax, (unsigned)MEM32(esi + 0x970));
+    }
+#endif
     if (CMP_A(eax, 6)) goto loc_001B31DD; /* ja: above (unsigned >) */
 
 loc_001B3066:
@@ -6994,6 +7010,25 @@ loc_001B4650:
     PUSH32(esp, ebp);
     MEM32(esp + 0x4C) = eax;
     SET_LO8(eax, MEM8(0x60F111));
+    if (getenv("FSW_TH_LEVEL_LOADING_DEBUG") != NULL) {
+        static uint32_t level_loading_state_log_count = 0;
+        if (level_loading_state_log_count < 160) {
+            uint32_t settings = MEM32(0x5FA38C);
+            uint32_t menu = MEM32(0x5FA518);
+            fprintf(stderr,
+                    "[FSW/Menu] CStateUpdate::LevelLoading ready=%u continue=%u settings=%08X camp=%08X level=%08X flags44=%u shell=%u menu=%08X mode=%08X\n",
+                    (unsigned)MEM8(0x60F111),
+                    (unsigned)MEM8(0x60F112),
+                    (unsigned)settings,
+                    (settings >= 0x00010000u && settings < 0x04000000u) ? (unsigned)MEM32(settings + 0xD4) : 0,
+                    (settings >= 0x00010000u && settings < 0x04000000u) ? (unsigned)MEM32(settings + 0xD8) : 0,
+                    (settings >= 0x00010000u && settings < 0x04000000u) ? (unsigned)MEM8(settings + 0x44) : 0,
+                    (settings >= 0x00010000u && settings < 0x04000000u) ? (unsigned)MEM8(settings + 0xD1) : 0,
+                    (unsigned)menu,
+                    (menu >= 0x00010000u && menu < 0x04000000u) ? (unsigned)MEM32(menu + 0x78) : 0);
+            level_loading_state_log_count++;
+        }
+    }
     (void)0; /* test LO8(eax), LO8(eax) - flags set for next jcc */
     PUSH32(esp, esi);
     PUSH32(esp, edi);
@@ -7100,6 +7135,20 @@ void sub_001B4764(void)
     ebp = g_seh_ebp; /* fpo_leaf: inherit caller's frame */
 
 loc_001B4764:
+    if (getenv("FSW_TH_LEVEL_LOADING_DEBUG") != NULL) {
+        static uint32_t level_loading_wait_log_count = 0;
+        if (level_loading_wait_log_count < 160) {
+            uint32_t settings = MEM32(0x5FA38C);
+            fprintf(stderr,
+                    "[FSW/Menu] CStateUpdate::LevelLoading wait ready=%u continue=%u settings=%08X camp=%08X level=%08X\n",
+                    (unsigned)MEM8(0x60F111),
+                    (unsigned)MEM8(0x60F112),
+                    (unsigned)settings,
+                    (settings >= 0x00010000u && settings < 0x04000000u) ? (unsigned)MEM32(settings + 0xD4) : 0,
+                    (settings >= 0x00010000u && settings < 0x04000000u) ? (unsigned)MEM32(settings + 0xD8) : 0);
+            level_loading_wait_log_count++;
+        }
+    }
     SET_LO8(eax, MEM8(0x60F112));
     if (TEST_Z(LO8(eax), LO8(eax))) goto loc_001B47AC; /* je: equal / zero */
 
@@ -9663,6 +9712,18 @@ loc_001B57F4:
     PUSH32(esp, 0); fn_0012F310_CUIMenu_GetSelectedControlIndex(); /* call 0x0012F310 */
 
 loc_001B57FF:
+#ifdef XBOXRECOMP_VULKAN_GRAPHICS
+    {
+        const char *forced_play_index = getenv("FSW_TH_PLAY_MENU_INDEX");
+        if (forced_play_index != NULL && forced_play_index[0] != 0) {
+            eax = (uint32_t)strtoul(forced_play_index, NULL, 0);
+        }
+    }
+    if (getenv("FSW_TH_PLAY_MENU_DEBUG") != NULL) {
+        fprintf(stderr, "[FSW/Menu] PlayMenu selected=%u menu=%08X\n",
+                (unsigned)eax, (unsigned)MEM32(ebp + 0x970));
+    }
+#endif
     if (CMP_A(eax, 3)) goto loc_001B59AE; /* ja: above (unsigned >) */
 
 loc_001B5808:
@@ -9889,6 +9950,21 @@ void fn_001B5AB0_CStateUpdate_ProfileSelectionUpdate(void)
 
 loc_001B5AB0:
     esp = esp - 0x2C;
+    fsw_profile_manager_host_repair("ProfileSelectionUpdate");
+    {
+        static uint32_t profile_select_log_count = 0;
+        uint32_t input = MEM32(0x5FA89C);
+        if (profile_select_log_count < 80 && input >= 0x00010000u && input < 0x04000000u) {
+            fprintf(stderr,
+                    "[FSW/ProfileMenu] entry input0 raw=%u processed=%u fired=%u menu=%08X state_flags=%08X\n",
+                    (unsigned)MEM8(0x5F9E1C),
+                    (unsigned)MEM8(input),
+                    (unsigned)MEM8(input + 0x18),
+                    (unsigned)MEM32(ecx + 0x970),
+                    (unsigned)MEM32(ecx + 0x668));
+            profile_select_log_count++;
+        }
+    }
     eax = MEM32(0x57ED94);
     PUSH32(esp, ebx);
     MEM32(esp + 0x2C) = eax;
@@ -9984,6 +10060,20 @@ loc_001B5B89:
     PUSH32(esp, 0); fn_0012F310_CUIMenu_GetSelectedControlIndex(); /* call 0x0012F310 */
 
 loc_001B5B94:
+    {
+        static uint32_t profile_accept_log_count = 0;
+        if (profile_accept_log_count < 32) {
+            uint32_t mgr = MEM32(0x5FA358);
+            fprintf(stderr,
+                    "[FSW/ProfileMenu] accept selected=%d profiles=%u flags=%08X input_raw=%u input_processed=%u\n",
+                    (int32_t)eax,
+                    cstateupdate_va_is_valid(mgr) ? (unsigned)MEM32(mgr + 0x2C90) : 0,
+                    (unsigned)MEM32(ebp + 0x668),
+                    (unsigned)MEM8(0x5F9E1C),
+                    cstateupdate_va_is_valid(MEM32(0x5FA89C)) ? (unsigned)MEM8(MEM32(0x5FA89C)) : 0);
+            profile_accept_log_count++;
+        }
+    }
     if (TEST_NZ(eax, eax)) goto loc_001B5C64; /* jne: not equal / not zero */
 
 loc_001B5B9C:
@@ -10003,6 +10093,8 @@ loc_001B5BBE:
     eax = eax & 0xFFFFFFF9u;
     eax = eax + 7;
     MEM32(ebp + 0x96C) = eax;
+    fprintf(stderr, "[FSW/ProfileMenu] new-profile transition event=2 next=%u\n",
+            (unsigned)MEM32(ebp + 0x96C));
     goto loc_001B5B00;
 
 loc_001B5BD4:
@@ -10076,6 +10168,13 @@ loc_001B5C64:
     PUSH32(esp, 0); fn_002B57F0_CProfileManager_SetSelectedProfile(); /* call 0x002B57F0 */
 
 loc_001B5C72:
+    {
+        uint32_t mgr = MEM32(0x5FA358);
+        fprintf(stderr, "[FSW/ProfileMenu] select-profile transition candidate selected=%d event=%u next=%u\n",
+                cstateupdate_va_is_valid(mgr) ? (int32_t)MEM32(mgr + 0x2C8C) : -1,
+                (unsigned)MEM32(ebp + 0x968),
+                (unsigned)MEM32(ebp + 0x96C));
+    }
     eax = MEM32(0x5FA358);
     SET_LO8(ecx, MEM8(eax + 0x56C0));
     if (TEST_Z(LO8(ecx), LO8(ecx))) goto loc_001B5C90; /* je: equal / zero */
@@ -10145,6 +10244,14 @@ loc_001B5D27:
     MEM32(ebp + 0x668) = 0xD;
 
 loc_001B5D31:
+    if (cstateupdate_va_is_valid(ebp) && (MEM32(ebp + 0x968) != 0 || MEM32(ebp + 0x96C) != 0)) {
+        fprintf(stderr, "[FSW/ProfileMenu] return updater=%08X event=%u next=%u data=%u flags=%08X\n",
+                (unsigned)ebp,
+                (unsigned)MEM32(ebp + 0x968),
+                (unsigned)MEM32(ebp + 0x96C),
+                (unsigned)MEM32(ebp + 0x964),
+                (unsigned)MEM32(ebp + 0x668));
+    }
     ecx = MEM32(esp + 0x34);
     POP32(esp, esi);
     POP32(esp, ebp);
@@ -10466,7 +10573,17 @@ loc_001B5F2D:
 /* Fallback for unresolved generated target 0x001B5F50. */
 void fn_001B5F50_CStateUpdate_EnterInGameInterrupt(void)
 {
-    recomp_missing_target(0x001B5F50u);
+    uint32_t state_update = MEM32(esp + 4);
+    uint32_t interrupt_type = MEM32(esp + 8);
+    static uint32_t log_count = 0;
+    if (log_count < 8) {
+        fprintf(stderr,
+                "[FSW/Menu] EnterInGameInterrupt host passthrough state_update=%08X type=%u\n",
+                state_update, interrupt_type);
+    }
+    log_count++;
+    eax = 1;
+    esp += 12; return; /* ret 8 */
 }
 
 /**
@@ -10537,6 +10654,7 @@ loc_001B6090:
     MEM32(esi + 0x970) = ecx;
     PUSH32(esp, edi);
     MEM8(edx + 0x32) = LO8(eax);
+    fsw_cuiinput_bridge_controller_events_host();
     PUSH32(esp, 0); fn_00272490_CNetState_Get(); /* call 0x00272490 */
 
 loc_001B60B9:
@@ -10604,11 +10722,69 @@ loc_001B60DF:
     }
 
 loc_001B60E7:
+    {
+        static uint8_t profile_setup_accept_armed;
+        static uint32_t profile_setup_menu;
+        uint8_t accept_active = MEM8(0x5F9E1C) || MEM8(0x5F9E22);
+        if (edi != 0x0Du || profile_setup_menu != MEM32(esi + 0x970)) {
+            profile_setup_accept_armed = 0;
+            profile_setup_menu = (edi == 0x0Du) ? MEM32(esi + 0x970) : 0;
+        } else if (!accept_active) {
+            profile_setup_accept_armed = 1;
+        }
+        if (edi == 0x0Du && MEM32(esi + 0x968) == 0 && accept_active && profile_setup_accept_armed) {
+            static uint32_t profile_setup_log_count = 0;
+            MEM32(esi + 0x968) = 2;
+            MEM32(esi + 0x96C) = 0;
+            profile_setup_accept_armed = 0;
+            if (profile_setup_log_count < 8) {
+                fprintf(stderr, "[FSW/Menu] profile setup accepted via armed CUI event state=%08X menu=%08X\n",
+                        (unsigned)edi, (unsigned)MEM32(esi + 0x970));
+                profile_setup_log_count++;
+            }
+        }
+    }
+    if (esi != 0x6A9D38u &&
+        MEM32(0x6A9D38u + 0x968) != 0 &&
+        cstateupdate_va_is_valid(0x6A9D38u)) {
+        MEM32(esi + 0x964) = MEM32(0x6A9D38u + 0x964);
+        MEM32(esi + 0x968) = MEM32(0x6A9D38u + 0x968);
+        MEM32(esi + 0x96C) = MEM32(0x6A9D38u + 0x96C);
+        fprintf(stderr, "[FSW/Menu] bridged singleton transition active=%08X event=%u next=%u data=%u\n",
+                (unsigned)esi,
+                (unsigned)MEM32(esi + 0x968),
+                (unsigned)MEM32(esi + 0x96C),
+                (unsigned)MEM32(esi + 0x964));
+        MEM32(0x6A9D38u + 0x964) = 0;
+        MEM32(0x6A9D38u + 0x968) = 0;
+        MEM32(0x6A9D38u + 0x96C) = 0;
+    }
+    if (edi == 9 || edi == 0x3A) {
+        fprintf(stderr, "[FSW/Menu] post-state updater=%08X event=%u next=%u data=%u\n",
+                (unsigned)esi,
+                (unsigned)MEM32(esi + 0x968),
+                (unsigned)MEM32(esi + 0x96C),
+                (unsigned)MEM32(esi + 0x964));
+    }
     PUSH32(esp, 0); fn_00272490_CNetState_Get(); /* call 0x00272490 */
 
 loc_001B60EC:
     ecx = MEM32(esi + 0x964);
     edx = MEM32(eax);
+    {
+        static uint32_t state_transition_log_count = 0;
+        uint32_t net_state = MEM32(eax + 0xFA8);
+        uint32_t event = MEM32(esi + 0x968);
+        uint32_t next = MEM32(esi + 0x96C);
+        uint32_t data = MEM32(esi + 0x964);
+        if ((event != 0 || next != 0 || data != 0) && state_transition_log_count < 64) {
+            fprintf(stderr,
+                    "[FSW/Menu] submit state=%08X event=%08X next=%08X data=%08X connected=%08X primary=%08X flags=%02X\n",
+                    (unsigned)net_state, (unsigned)event, (unsigned)next, (unsigned)data,
+                    (unsigned)MEM32(0x5FA870), (unsigned)MEM32(0x602F28), (unsigned)MEM8(0x602F2C));
+            state_transition_log_count++;
+        }
+    }
     { uint32_t _icall_esp = g_esp;
     PUSH32(esp, ecx);
     ecx = MEM32(esi + 0x96C);
@@ -14773,6 +14949,9 @@ loc_001B8004:
     MEM32(eax + 0x68) = 0x1B3620;
     MEM32(eax + 0x64) = eax;
     MEM32(eax + 0x674) = ecx;
+    MEM32(eax + 0x70) = 0x1B2DB0; /* profile setup/brightness: accept advances */
+    MEM32(eax + 0x6C) = eax;
+    MEM32(eax + 0x678) = ecx;
     MEM32(eax + 0x80) = edi;
     MEM32(eax + 0x7C) = eax;
     MEM32(eax + 0x680) = esi;

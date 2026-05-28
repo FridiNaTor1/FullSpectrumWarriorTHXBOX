@@ -87,7 +87,7 @@ HANDLE    xbox_GetMappingHandle(void); // For creating additional mirror views
 
 // Heap (bump allocator, no free)
 uint32_t xbox_HeapAlloc(uint32_t size, uint32_t alignment);
-void     xbox_HeapFree(uint32_t xbox_va);  // No-op currently
+void     xbox_HeapFree(uint32_t xbox_va);  // frees host-backed Xbox heap blocks for reuse
 ```
 
 ### Customizing for Your Game

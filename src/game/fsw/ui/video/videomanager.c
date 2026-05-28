@@ -7,6 +7,10 @@
 #define RECOMP_GENERATED_CODE
 #include "recomp_funcs.h"
 #include <math.h>
+#include <stdio.h>
+#include <stdlib.h>
+
+#define FSW_BINK_MAGIC 0x42494E4Bu
 
 static int fsw_video_va_is_valid(uint32_t va)
 {
@@ -1000,8 +1004,39 @@ loc_001BB339:
 
 loc_001BB347:
     edi = eax;
+#ifdef XBOXRECOMP_VULKAN_GRAPHICS
+    if (getenv("FSW_TH_BINK_DEBUG") != NULL) {
+        uint32_t bink = fsw_video_va_is_valid(edi) ? MEM32(edi + 0x7C) : 0;
+        fprintf(stderr,
+                "[FSW/Bink] CVideoManager_Create decoder=%08X bink=%08X magic=%08X done=%u list=%08X\n",
+                (unsigned)edi,
+                (unsigned)bink,
+                (unsigned)(fsw_video_va_is_valid(bink) ? MEM32(bink + 0x20) : 0),
+                (unsigned)(fsw_video_va_is_valid(edi) ? MEM8(edi + 0x4C) : 0),
+                (unsigned)esi);
+    }
+#endif
     SET_LO8(eax, MEM8(edi + 0x4C));
     esp = esp + 8;
+#ifdef XBOXRECOMP_VULKAN_GRAPHICS
+    if (fsw_video_va_is_valid(edi)) {
+        uint32_t bink = MEM32(edi + 0x7C);
+        if (fsw_video_va_is_valid(bink) && MEM32(bink + 0x20) == FSW_BINK_MAGIC) {
+            MEM8(edi + 0x4C) = 0;
+            MEM32(esp + 0x20) = edi;
+            if (getenv("FSW_TH_BINK_DEBUG") != NULL) {
+                fprintf(stderr, "[FSW/Bink] CVideoManager_Create host return decoder=%08X bink=%08X\n",
+                        (unsigned)edi, (unsigned)bink);
+            }
+            eax = edi;
+            POP32(esp, edi);
+            POP32(esp, esi);
+            POP32(esp, ebx);
+            esp = esp + 0x10;
+            esp += 8; return; /* ret 4 */
+        }
+    }
+#endif
     (void)0; /* cmp LO8(eax), LO8(ebx) - flags set for next jcc */
     MEM32(esp + 0x20) = edi;
     if (CMP_EQ(LO8(eax), LO8(ebx))) goto loc_001BB36A; /* je: equal / zero */
@@ -1052,6 +1087,20 @@ loc_001BB3A1:
     PUSH32(esp, 0); fn_0004F4A0_PAVCUIMenu_ZeroList_Append(); /* call 0x0004F4A0 */
 
 loc_001BB3AA:
+#ifdef XBOXRECOMP_VULKAN_GRAPHICS
+    if (!fsw_video_va_is_valid(edi) && fsw_video_va_is_valid(MEM32(esp + 0x20))) {
+        edi = MEM32(esp + 0x20);
+    }
+    if (getenv("FSW_TH_BINK_DEBUG") != NULL) {
+        uint32_t bink = fsw_video_va_is_valid(edi) ? MEM32(edi + 0x7C) : 0;
+        fprintf(stderr,
+                "[FSW/Bink] CVideoManager_Create final decoder=%08X bink=%08X magic=%08X done=%u\n",
+                (unsigned)edi,
+                (unsigned)bink,
+                (unsigned)(fsw_video_va_is_valid(bink) ? MEM32(bink + 0x20) : 0),
+                (unsigned)(fsw_video_va_is_valid(edi) ? MEM8(edi + 0x4C) : 0));
+    }
+#endif
     eax = edi;
 
 loc_001BB3AC:

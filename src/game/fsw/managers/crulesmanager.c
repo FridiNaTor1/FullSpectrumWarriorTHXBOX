@@ -7,6 +7,7 @@
 #define RECOMP_GENERATED_CODE
 #include "recomp_funcs.h"
 #include <math.h>
+#include <stdio.h>
 
 /**
  * fn_0002F3F0_CCoverZone_AddEdge
@@ -2770,6 +2771,7 @@ void fn_002915A0_CRulesManager_Load(void)
     ebp = g_seh_ebp; /* fpo_leaf: inherit caller's frame */
 
 loc_002915A0:
+    fprintf(stderr, "[FSW/Rules] Load begin manager=%08X esp=%08X\n", ecx, esp);
     PUSH32(esp, 0xFFFFFFFFu);
     PUSH32(esp, 0x404903);
     eax = MEM32(0);
@@ -2797,6 +2799,9 @@ loc_002915A0:
     PUSH32(esp, 0); fn_00123A20_ZeroFile_OpenFile(); /* call 0x00123A20 */
 
 loc_002915FC:
+    fprintf(stderr,
+            "[FSW/Rules] Load after OpenFile status=%08X stream=%08X mem=%08X esp=%08X\n",
+            MEM32(esp + 0x14), MEM32(esp + 0x34), MEM32(esp + 0x40), esp);
     MEM32(esp + 0x40) = ebx;
     if (CMP_GE(MEM32(esp + 0x14), ebx)) { sub_00291636(); return; } /* jge: greater or equal (signed >=) */
 
@@ -4077,6 +4082,8 @@ loc_00292415:
     MEMF(esi) = xmm0; /* movss */
 
 loc_00292421:
+    fprintf(stderr, "[FSW/Rules] Load before CloseFile file=%08X stream=%08X esp=%08X\n",
+            esp + 0x10, MEM32(esp + 0x34), esp);
     xmm1 = MEMF(ebp); /* movss */
     xmm0 = MEMF(0x609108); /* movss */
     xmm1 = xmm1 * xmm0; /* mulss */
@@ -4089,6 +4096,7 @@ loc_00292421:
     PUSH32(esp, 0); fn_00123830_ZeroFile_CloseFile(); /* call 0x00123830 */
 
 loc_00292458:
+    fprintf(stderr, "[FSW/Rules] Load after CloseFile esp=%08X\n", esp);
     ecx = MEM32(esp + 0x38);
     POP32(esp, edi);
     POP32(esp, esi);
@@ -6829,15 +6837,28 @@ loc_00293D06:
  */
 void fn_00293D20_CRulesManager_Setup(void)
 {
+    uint32_t saved_manager;
+    uint32_t saved_stack_after_push;
     int _flags = 0; /* fallback flag var */
 
 loc_00293D20:
+    fprintf(stderr, "[FSW/Rules] Setup begin manager=%08X esp=%08X\n", eax, esp);
+    saved_manager = eax;
     PUSH32(esp, ebx);
+    saved_stack_after_push = esp;
     ebx = eax;
     ecx = ebx;
     PUSH32(esp, 0); fn_002915A0_CRulesManager_Load(); /* call 0x002915A0 */
 
 loc_00293D2A:
+    if (esp != saved_stack_after_push) {
+        fprintf(stderr, "[FSW/Rules] repaired Load esp %08X -> %08X\n",
+                esp, saved_stack_after_push);
+        esp = saved_stack_after_push;
+    }
+    ebx = saved_manager;
+    fprintf(stderr, "[FSW/Rules] Setup after Load result=%02X esp=%08X manager=%08X\n",
+            (unsigned)LO8(eax), esp, ebx);
     if (TEST_NZ(LO8(eax), LO8(eax))) { sub_00293D30(); return; } /* jne: not equal / not zero */
 
 loc_00293D2E:
@@ -6858,9 +6879,11 @@ void sub_00293D30(void)
 
 loc_00293D30:
     MEM32(ebx + 0x10) = MEM32(ebx + 0x10) & 0xFFFFFFFEu;
+    fprintf(stderr, "[FSW/Rules] before BuildCoverZones manager=%08X esp=%08X\n", ebx, esp);
     PUSH32(esp, 0); fn_00293220_CRulesManager_BuildCoverZones(); /* call 0x00293220 */
 
 loc_00293D39:
+    fprintf(stderr, "[FSW/Rules] after BuildCoverZones manager=%08X esp=%08X\n", ebx, esp);
     PUSH32(esp, 0); fn_00295730_CRulesCache_Get(); /* call 0x00295730 */
 
 loc_00293D3E:

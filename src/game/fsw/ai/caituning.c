@@ -19,6 +19,50 @@ static void fsw_caituning_restore_parser_this(void)
     esi = fsw_caituning_va_range_is_valid(saved_this, 0x130) ? saved_this : 0x614620;
 }
 
+static void fsw_caituning_open_file(void)
+{
+    static uint32_t repair_count;
+    uint32_t saved_esp = esp;
+
+    PUSH32(esp, 0);
+    fn_00123A20_ZeroFile_OpenFile();
+    if (esp != saved_esp) {
+        if (repair_count < 16 || (repair_count % 120) == 0) {
+            fprintf(stderr,
+                    "[FSW/CAITuning] repaired OpenFile esp %08X -> %08X file=%08X count=%u\n",
+                    (unsigned)esp,
+                    (unsigned)saved_esp,
+                    (unsigned)edx,
+                    (unsigned)(repair_count + 1));
+        }
+        repair_count++;
+        esp = saved_esp;
+    }
+}
+
+static void fsw_caituning_read_section_token(uint32_t file)
+{
+    static uint32_t repair_count;
+    uint32_t saved_esp = esp;
+
+    eax = file;
+    PUSH32(esp, 0);
+    fn_00123C40_ZeroFile_ReadSectionToken();
+    if (esp != saved_esp) {
+        if (repair_count < 16 || (repair_count % 120) == 0) {
+            fprintf(stderr,
+                    "[FSW/CAITuning] repaired ReadSectionToken esp %08X -> %08X file=%08X stream=%08X count=%u\n",
+                    (unsigned)esp,
+                    (unsigned)saved_esp,
+                    (unsigned)file,
+                    (unsigned)(fsw_caituning_va_range_is_valid(file, 0x28) ? MEM32(file + 0x24) : 0),
+                    (unsigned)(repair_count + 1));
+        }
+        repair_count++;
+        esp = saved_esp;
+    }
+}
+
 /**
  * fn_00018CC0_BZeroFile_QBEHXZ
  * Symbol: ??BZeroFile@@QBEHXZ
@@ -192,7 +236,7 @@ loc_0034ABE0:
     MEM32(esp + 0x20) = ebx;
     MEM8(esp + 0x24) = LO8(ebx);
     MEM32(esp + 0x30) = ebx;
-    PUSH32(esp, 0); fn_00123A20_ZeroFile_OpenFile(); /* call 0x00123A20 */
+    fsw_caituning_open_file(); /* call 0x00123A20 */
 
 loc_0034AC3A:
     MEM32(esp + 0x3C) = ebx;
@@ -239,7 +283,7 @@ loc_0034AC77:
     PUSH32(esp, 0x539074);
     PUSH32(esp, 0x53906C);
     eax = esp + 0x1C;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    fsw_caituning_read_section_token(eax); /* call 0x00123C40 */
 
 loc_0034AC90:
     esp = esp + 0x10;
@@ -257,7 +301,7 @@ loc_0034ACA3:
     PUSH32(esp, 0x539050);
     PUSH32(esp, 0x53906C);
     eax = esp + 0x1C;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    fsw_caituning_read_section_token(eax); /* call 0x00123C40 */
 
 loc_0034ACBF:
     esp = esp + 0x10;
@@ -275,7 +319,7 @@ loc_0034ACD2:
     PUSH32(esp, 0x539030);
     PUSH32(esp, 0x53906C);
     eax = esp + 0x1C;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    fsw_caituning_read_section_token(eax); /* call 0x00123C40 */
 
 loc_0034ACEE:
     esp = esp + 0x10;
@@ -293,7 +337,7 @@ loc_0034AD01:
     PUSH32(esp, 0x539010);
     PUSH32(esp, 0x53906C);
     eax = esp + 0x1C;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    fsw_caituning_read_section_token(eax); /* call 0x00123C40 */
 
 loc_0034AD1D:
     esp = esp + 0x10;
@@ -311,7 +355,7 @@ loc_0034AD30:
     PUSH32(esp, 0x538FEC);
     PUSH32(esp, 0x53906C);
     eax = esp + 0x1C;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    fsw_caituning_read_section_token(eax); /* call 0x00123C40 */
 
 loc_0034AD4C:
     esp = esp + 0x10;
@@ -329,7 +373,7 @@ loc_0034AD5F:
     PUSH32(esp, 0x538FCC);
     PUSH32(esp, 0x53906C);
     eax = esp + 0x1C;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    fsw_caituning_read_section_token(eax); /* call 0x00123C40 */
 
 loc_0034AD7B:
     esp = esp + 0x10;
@@ -347,7 +391,7 @@ loc_0034AD8E:
     PUSH32(esp, 0x538FB4);
     PUSH32(esp, 0x53906C);
     eax = esp + 0x1C;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    fsw_caituning_read_section_token(eax); /* call 0x00123C40 */
 
 loc_0034ADAA:
     esp = esp + 0x10;
@@ -365,7 +409,7 @@ loc_0034ADBD:
     PUSH32(esp, 0x538F94);
     PUSH32(esp, 0x53906C);
     eax = esp + 0x1C;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    fsw_caituning_read_section_token(eax); /* call 0x00123C40 */
 
 loc_0034ADD9:
     esp = esp + 0x10;
@@ -383,7 +427,7 @@ loc_0034ADEC:
     PUSH32(esp, 0x538F74);
     PUSH32(esp, 0x53906C);
     eax = esp + 0x1C;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    fsw_caituning_read_section_token(eax); /* call 0x00123C40 */
 
 loc_0034AE08:
     esp = esp + 0x10;
@@ -401,7 +445,7 @@ loc_0034AE1B:
     PUSH32(esp, 0x538F50);
     PUSH32(esp, 0x53906C);
     eax = esp + 0x1C;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    fsw_caituning_read_section_token(eax); /* call 0x00123C40 */
 
 loc_0034AE37:
     esp = esp + 0x10;
@@ -419,7 +463,7 @@ loc_0034AE4A:
     PUSH32(esp, 0x538F30);
     PUSH32(esp, 0x53906C);
     eax = esp + 0x1C;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    fsw_caituning_read_section_token(eax); /* call 0x00123C40 */
 
 loc_0034AE66:
     esp = esp + 0x10;
@@ -437,7 +481,7 @@ loc_0034AE79:
     PUSH32(esp, 0x538F1C);
     PUSH32(esp, 0x53906C);
     eax = esp + 0x1C;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    fsw_caituning_read_section_token(eax); /* call 0x00123C40 */
 
 loc_0034AE95:
     esp = esp + 0x10;
@@ -455,7 +499,7 @@ loc_0034AEA8:
     PUSH32(esp, 0x538F08);
     PUSH32(esp, 0x53906C);
     eax = esp + 0x1C;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    fsw_caituning_read_section_token(eax); /* call 0x00123C40 */
 
 loc_0034AEC4:
     esp = esp + 0x10;
@@ -473,7 +517,7 @@ loc_0034AED7:
     PUSH32(esp, 0x538EEC);
     PUSH32(esp, 0x53906C);
     eax = esp + 0x1C;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    fsw_caituning_read_section_token(eax); /* call 0x00123C40 */
 
 loc_0034AEF3:
     esp = esp + 0x10;
@@ -491,7 +535,7 @@ loc_0034AF01:
     PUSH32(esp, 0x538ED0);
     PUSH32(esp, 0x53906C);
     eax = esp + 0x1C;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    fsw_caituning_read_section_token(eax); /* call 0x00123C40 */
 
 loc_0034AF1D:
     esp = esp + 0x10;
@@ -509,7 +553,7 @@ loc_0034AF30:
     PUSH32(esp, 0x538EBC);
     PUSH32(esp, 0x53906C);
     eax = esp + 0x1C;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    fsw_caituning_read_section_token(eax); /* call 0x00123C40 */
 
 loc_0034AF4C:
     esp = esp + 0x10;
@@ -527,7 +571,7 @@ loc_0034AF5F:
     PUSH32(esp, 0x538E98);
     PUSH32(esp, 0x53906C);
     eax = esp + 0x1C;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    fsw_caituning_read_section_token(eax); /* call 0x00123C40 */
 
 loc_0034AF7B:
     esp = esp + 0x10;
@@ -544,7 +588,7 @@ loc_0034AF87:
     PUSH32(esp, 0x538E80);
     PUSH32(esp, 0x53906C);
     eax = esp + 0x1C;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    fsw_caituning_read_section_token(eax); /* call 0x00123C40 */
 
 loc_0034AFA3:
     esp = esp + 0x10;
@@ -562,7 +606,7 @@ loc_0034AFB6:
     PUSH32(esp, 0x538E60);
     PUSH32(esp, 0x53906C);
     eax = esp + 0x1C;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    fsw_caituning_read_section_token(eax); /* call 0x00123C40 */
 
 loc_0034AFD2:
     esp = esp + 0x10;
@@ -580,7 +624,7 @@ loc_0034AFE5:
     PUSH32(esp, 0x538E40);
     PUSH32(esp, 0x53906C);
     eax = esp + 0x1C;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    fsw_caituning_read_section_token(eax); /* call 0x00123C40 */
 
 loc_0034B001:
     esp = esp + 0x10;
@@ -598,7 +642,7 @@ loc_0034B014:
     PUSH32(esp, 0x538E20);
     PUSH32(esp, 0x53906C);
     eax = esp + 0x1C;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    fsw_caituning_read_section_token(eax); /* call 0x00123C40 */
 
 loc_0034B030:
     esp = esp + 0x10;
@@ -616,7 +660,7 @@ loc_0034B043:
     PUSH32(esp, 0x538E04);
     PUSH32(esp, 0x53906C);
     eax = esp + 0x1C;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    fsw_caituning_read_section_token(eax); /* call 0x00123C40 */
 
 loc_0034B05F:
     esp = esp + 0x10;
@@ -634,7 +678,7 @@ loc_0034B072:
     PUSH32(esp, 0x538DF4);
     PUSH32(esp, 0x53906C);
     eax = esp + 0x1C;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    fsw_caituning_read_section_token(eax); /* call 0x00123C40 */
 
 loc_0034B08E:
     esp = esp + 0x10;
@@ -652,7 +696,7 @@ loc_0034B0A1:
     PUSH32(esp, 0x538DDC);
     PUSH32(esp, 0x53906C);
     eax = esp + 0x1C;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    fsw_caituning_read_section_token(eax); /* call 0x00123C40 */
 
 loc_0034B0BD:
     esp = esp + 0x10;
@@ -670,7 +714,7 @@ loc_0034B0D0:
     PUSH32(esp, 0x538DC8);
     PUSH32(esp, 0x53906C);
     eax = esp + 0x1C;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    fsw_caituning_read_section_token(eax); /* call 0x00123C40 */
 
 loc_0034B0EC:
     esp = esp + 0x10;
@@ -688,7 +732,7 @@ loc_0034B0FF:
     PUSH32(esp, 0x538DB0);
     PUSH32(esp, 0x53906C);
     eax = esp + 0x1C;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    fsw_caituning_read_section_token(eax); /* call 0x00123C40 */
 
 loc_0034B11B:
     esp = esp + 0x10;
@@ -706,7 +750,7 @@ loc_0034B12E:
     PUSH32(esp, 0x538D98);
     PUSH32(esp, 0x53906C);
     eax = esp + 0x1C;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    fsw_caituning_read_section_token(eax); /* call 0x00123C40 */
 
 loc_0034B14A:
     esp = esp + 0x10;
@@ -724,7 +768,7 @@ loc_0034B15D:
     PUSH32(esp, 0x538D80);
     PUSH32(esp, 0x53906C);
     eax = esp + 0x1C;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    fsw_caituning_read_section_token(eax); /* call 0x00123C40 */
 
 loc_0034B179:
     esp = esp + 0x10;
@@ -742,7 +786,7 @@ loc_0034B18C:
     PUSH32(esp, 0x538D60);
     PUSH32(esp, 0x53906C);
     eax = esp + 0x1C;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    fsw_caituning_read_section_token(eax); /* call 0x00123C40 */
 
 loc_0034B1A8:
     esp = esp + 0x10;
@@ -760,7 +804,7 @@ loc_0034B1BB:
     PUSH32(esp, 0x538D48);
     PUSH32(esp, 0x53906C);
     eax = esp + 0x1C;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    fsw_caituning_read_section_token(eax); /* call 0x00123C40 */
 
 loc_0034B1D7:
     esp = esp + 0x10;
@@ -778,7 +822,7 @@ loc_0034B1EA:
     PUSH32(esp, 0x538D30);
     PUSH32(esp, 0x53906C);
     eax = esp + 0x1C;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    fsw_caituning_read_section_token(eax); /* call 0x00123C40 */
 
 loc_0034B206:
     esp = esp + 0x10;
@@ -796,7 +840,7 @@ loc_0034B219:
     PUSH32(esp, 0x538D18);
     PUSH32(esp, 0x53906C);
     eax = esp + 0x1C;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    fsw_caituning_read_section_token(eax); /* call 0x00123C40 */
 
 loc_0034B238:
     esp = esp + 0x10;
@@ -814,7 +858,7 @@ loc_0034B24B:
     PUSH32(esp, 0x538D00);
     PUSH32(esp, 0x53906C);
     eax = esp + 0x1C;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    fsw_caituning_read_section_token(eax); /* call 0x00123C40 */
 
 loc_0034B26A:
     esp = esp + 0x10;
@@ -832,7 +876,7 @@ loc_0034B27D:
     PUSH32(esp, 0x538CE8);
     PUSH32(esp, 0x53906C);
     eax = esp + 0x1C;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    fsw_caituning_read_section_token(eax); /* call 0x00123C40 */
 
 loc_0034B29C:
     esp = esp + 0x10;
@@ -850,7 +894,7 @@ loc_0034B2AF:
     PUSH32(esp, 0x538CCC);
     PUSH32(esp, 0x53906C);
     eax = esp + 0x1C;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    fsw_caituning_read_section_token(eax); /* call 0x00123C40 */
 
 loc_0034B2CE:
     esp = esp + 0x10;
@@ -868,7 +912,7 @@ loc_0034B2E1:
     PUSH32(esp, 0x538CC0);
     PUSH32(esp, 0x53906C);
     eax = esp + 0x1C;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    fsw_caituning_read_section_token(eax); /* call 0x00123C40 */
 
 loc_0034B300:
     esp = esp + 0x10;
@@ -886,7 +930,7 @@ loc_0034B313:
     PUSH32(esp, 0x538CA4);
     PUSH32(esp, 0x53906C);
     eax = esp + 0x1C;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    fsw_caituning_read_section_token(eax); /* call 0x00123C40 */
 
 loc_0034B332:
     esp = esp + 0x10;
@@ -903,7 +947,7 @@ loc_0034B33E:
     PUSH32(esp, 0x538C88);
     PUSH32(esp, 0x53906C);
     eax = esp + 0x1C;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    fsw_caituning_read_section_token(eax); /* call 0x00123C40 */
 
 loc_0034B35D:
     esp = esp + 0x10;
@@ -920,7 +964,7 @@ loc_0034B369:
     PUSH32(esp, 0x538C78);
     PUSH32(esp, 0x53906C);
     eax = esp + 0x1C;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    fsw_caituning_read_section_token(eax); /* call 0x00123C40 */
 
 loc_0034B388:
     esp = esp + 0x10;
@@ -938,7 +982,7 @@ loc_0034B39B:
     PUSH32(esp, 0x538C60);
     PUSH32(esp, 0x53906C);
     eax = esp + 0x1C;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    fsw_caituning_read_section_token(eax); /* call 0x00123C40 */
 
 loc_0034B3BA:
     esp = esp + 0x10;
@@ -956,7 +1000,7 @@ loc_0034B3CD:
     PUSH32(esp, 0x538C44);
     PUSH32(esp, 0x53906C);
     eax = esp + 0x1C;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    fsw_caituning_read_section_token(eax); /* call 0x00123C40 */
 
 loc_0034B3EC:
     esp = esp + 0x10;
@@ -974,7 +1018,7 @@ loc_0034B3FF:
     PUSH32(esp, 0x538C28);
     PUSH32(esp, 0x53906C);
     eax = esp + 0x1C;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    fsw_caituning_read_section_token(eax); /* call 0x00123C40 */
 
 loc_0034B41E:
     esp = esp + 0x10;
@@ -992,7 +1036,7 @@ loc_0034B431:
     PUSH32(esp, 0x538C0C);
     PUSH32(esp, 0x53906C);
     eax = esp + 0x1C;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    fsw_caituning_read_section_token(eax); /* call 0x00123C40 */
 
 loc_0034B450:
     esp = esp + 0x10;
@@ -1010,7 +1054,7 @@ loc_0034B463:
     PUSH32(esp, 0x538BF4);
     PUSH32(esp, 0x53906C);
     eax = esp + 0x1C;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    fsw_caituning_read_section_token(eax); /* call 0x00123C40 */
 
 loc_0034B482:
     esp = esp + 0x10;
@@ -1028,7 +1072,7 @@ loc_0034B495:
     PUSH32(esp, 0x538BE0);
     PUSH32(esp, 0x53906C);
     eax = esp + 0x1C;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    fsw_caituning_read_section_token(eax); /* call 0x00123C40 */
 
 loc_0034B4B4:
     esp = esp + 0x10;
@@ -1046,7 +1090,7 @@ loc_0034B4C7:
     PUSH32(esp, 0x538BCC);
     PUSH32(esp, 0x53906C);
     eax = esp + 0x1C;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    fsw_caituning_read_section_token(eax); /* call 0x00123C40 */
 
 loc_0034B4E6:
     esp = esp + 0x10;
@@ -1064,7 +1108,7 @@ loc_0034B4F9:
     PUSH32(esp, 0x538BB8);
     PUSH32(esp, 0x53906C);
     eax = esp + 0x1C;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    fsw_caituning_read_section_token(eax); /* call 0x00123C40 */
 
 loc_0034B518:
     esp = esp + 0x10;
@@ -1082,7 +1126,7 @@ loc_0034B52B:
     PUSH32(esp, 0x538BA4);
     PUSH32(esp, 0x53906C);
     eax = esp + 0x1C;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    fsw_caituning_read_section_token(eax); /* call 0x00123C40 */
 
 loc_0034B54A:
     esp = esp + 0x10;
@@ -1100,7 +1144,7 @@ loc_0034B55D:
     PUSH32(esp, 0x538B90);
     PUSH32(esp, 0x53906C);
     eax = esp + 0x1C;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    fsw_caituning_read_section_token(eax); /* call 0x00123C40 */
 
 loc_0034B57C:
     esp = esp + 0x10;
@@ -1118,7 +1162,7 @@ loc_0034B58F:
     PUSH32(esp, 0x538B84);
     PUSH32(esp, 0x53906C);
     eax = esp + 0x1C;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    fsw_caituning_read_section_token(eax); /* call 0x00123C40 */
 
 loc_0034B5AE:
     esp = esp + 0x10;
@@ -1136,7 +1180,7 @@ loc_0034B5C1:
     PUSH32(esp, 0x538B70);
     PUSH32(esp, 0x53906C);
     eax = esp + 0x1C;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    fsw_caituning_read_section_token(eax); /* call 0x00123C40 */
 
 loc_0034B5E0:
     esp = esp + 0x10;
@@ -1154,7 +1198,7 @@ loc_0034B5F3:
     PUSH32(esp, 0x538B58);
     PUSH32(esp, 0x53906C);
     eax = esp + 0x1C;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    fsw_caituning_read_section_token(eax); /* call 0x00123C40 */
 
 loc_0034B612:
     esp = esp + 0x10;
@@ -1172,7 +1216,7 @@ loc_0034B625:
     PUSH32(esp, 0x538B44);
     PUSH32(esp, 0x53906C);
     eax = esp + 0x1C;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    fsw_caituning_read_section_token(eax); /* call 0x00123C40 */
 
 loc_0034B644:
     esp = esp + 0x10;
@@ -1190,7 +1234,7 @@ loc_0034B657:
     PUSH32(esp, 0x538B34);
     PUSH32(esp, 0x53906C);
     eax = esp + 0x1C;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    fsw_caituning_read_section_token(eax); /* call 0x00123C40 */
 
 loc_0034B676:
     esp = esp + 0x10;
@@ -1208,7 +1252,7 @@ loc_0034B689:
     PUSH32(esp, 0x538B1C);
     PUSH32(esp, 0x53906C);
     eax = esp + 0x1C;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    fsw_caituning_read_section_token(eax); /* call 0x00123C40 */
 
 loc_0034B6A8:
     esp = esp + 0x10;
@@ -1226,7 +1270,7 @@ loc_0034B6BB:
     PUSH32(esp, 0x538B04);
     PUSH32(esp, 0x53906C);
     eax = esp + 0x1C;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    fsw_caituning_read_section_token(eax); /* call 0x00123C40 */
 
 loc_0034B6DA:
     esp = esp + 0x10;
@@ -1244,7 +1288,7 @@ loc_0034B6ED:
     PUSH32(esp, 0x538AEC);
     PUSH32(esp, 0x53906C);
     eax = esp + 0x1C;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    fsw_caituning_read_section_token(eax); /* call 0x00123C40 */
 
 loc_0034B70C:
     esp = esp + 0x10;
@@ -1262,7 +1306,7 @@ loc_0034B71F:
     PUSH32(esp, 0x538AD0);
     PUSH32(esp, 0x53906C);
     eax = esp + 0x1C;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    fsw_caituning_read_section_token(eax); /* call 0x00123C40 */
 
 loc_0034B73E:
     esp = esp + 0x10;
@@ -1280,7 +1324,7 @@ loc_0034B751:
     PUSH32(esp, 0x538AB8);
     PUSH32(esp, 0x53906C);
     eax = esp + 0x1C;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    fsw_caituning_read_section_token(eax); /* call 0x00123C40 */
 
 loc_0034B770:
     esp = esp + 0x10;
@@ -1298,7 +1342,7 @@ loc_0034B77E:
     PUSH32(esp, 0x538AA4);
     PUSH32(esp, 0x53906C);
     eax = esp + 0x1C;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    fsw_caituning_read_section_token(eax); /* call 0x00123C40 */
 
 loc_0034B79D:
     esp = esp + 0x10;
@@ -1316,7 +1360,7 @@ loc_0034B7B0:
     PUSH32(esp, 0x538A88);
     PUSH32(esp, 0x53906C);
     eax = esp + 0x1C;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    fsw_caituning_read_section_token(eax); /* call 0x00123C40 */
 
 loc_0034B7CF:
     esp = esp + 0x10;
@@ -1334,7 +1378,7 @@ loc_0034B7E2:
     PUSH32(esp, 0x538A70);
     PUSH32(esp, 0x53906C);
     eax = esp + 0x1C;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    fsw_caituning_read_section_token(eax); /* call 0x00123C40 */
 
 loc_0034B801:
     esp = esp + 0x10;
@@ -1352,7 +1396,7 @@ loc_0034B814:
     PUSH32(esp, 0x538A54);
     PUSH32(esp, 0x53906C);
     eax = esp + 0x1C;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    fsw_caituning_read_section_token(eax); /* call 0x00123C40 */
 
 loc_0034B833:
     esp = esp + 0x10;
@@ -1370,7 +1414,7 @@ loc_0034B846:
     PUSH32(esp, 0x538A38);
     PUSH32(esp, 0x53906C);
     eax = esp + 0x1C;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    fsw_caituning_read_section_token(eax); /* call 0x00123C40 */
 
 loc_0034B865:
     esp = esp + 0x10;
@@ -1388,7 +1432,7 @@ loc_0034B878:
     PUSH32(esp, 0x538A1C);
     PUSH32(esp, 0x53906C);
     eax = esp + 0x1C;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    fsw_caituning_read_section_token(eax); /* call 0x00123C40 */
 
 loc_0034B897:
     esp = esp + 0x10;
@@ -1406,7 +1450,7 @@ loc_0034B8A5:
     PUSH32(esp, 0x538A0C);
     PUSH32(esp, 0x53906C);
     eax = esp + 0x1C;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    fsw_caituning_read_section_token(eax); /* call 0x00123C40 */
 
 loc_0034B8C4:
     esp = esp + 0x10;
@@ -1424,7 +1468,7 @@ loc_0034B8D7:
     PUSH32(esp, 0x5389F4);
     PUSH32(esp, 0x53906C);
     eax = esp + 0x1C;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    fsw_caituning_read_section_token(eax); /* call 0x00123C40 */
 
 loc_0034B8F6:
     esp = esp + 0x10;
@@ -1442,7 +1486,7 @@ loc_0034B909:
     PUSH32(esp, 0x5389DC);
     PUSH32(esp, 0x53906C);
     eax = esp + 0x1C;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    fsw_caituning_read_section_token(eax); /* call 0x00123C40 */
 
 loc_0034B928:
     esp = esp + 0x10;
@@ -1460,7 +1504,7 @@ loc_0034B93B:
     PUSH32(esp, 0x5389C4);
     PUSH32(esp, 0x53906C);
     eax = esp + 0x1C;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    fsw_caituning_read_section_token(eax); /* call 0x00123C40 */
 
 loc_0034B95A:
     esp = esp + 0x10;
@@ -1478,7 +1522,7 @@ loc_0034B96D:
     PUSH32(esp, 0x5389A8);
     PUSH32(esp, 0x53906C);
     eax = esp + 0x1C;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    fsw_caituning_read_section_token(eax); /* call 0x00123C40 */
 
 loc_0034B98C:
     esp = esp + 0x10;
@@ -1496,7 +1540,7 @@ loc_0034B99F:
     PUSH32(esp, 0x53898C);
     PUSH32(esp, 0x53906C);
     eax = esp + 0x1C;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    fsw_caituning_read_section_token(eax); /* call 0x00123C40 */
 
 loc_0034B9BE:
     esp = esp + 0x10;
@@ -1514,7 +1558,7 @@ loc_0034B9CC:
     PUSH32(esp, 0x538980);
     PUSH32(esp, 0x53906C);
     eax = esp + 0x1C;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    fsw_caituning_read_section_token(eax); /* call 0x00123C40 */
 
 loc_0034B9EB:
     esp = esp + 0x10;
@@ -1532,7 +1576,7 @@ loc_0034B9F9:
     PUSH32(esp, 0x53896C);
     PUSH32(esp, 0x53906C);
     eax = esp + 0x1C;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    fsw_caituning_read_section_token(eax); /* call 0x00123C40 */
 
 loc_0034BA18:
     esp = esp + 0x10;
@@ -1550,7 +1594,7 @@ loc_0034BA26:
     PUSH32(esp, 0x538954);
     PUSH32(esp, 0x53906C);
     eax = esp + 0x1C;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    fsw_caituning_read_section_token(eax); /* call 0x00123C40 */
 
 loc_0034BA45:
     esp = esp + 0x10;
@@ -1568,7 +1612,7 @@ loc_0034BA53:
     PUSH32(esp, 0x538940);
     PUSH32(esp, 0x53906C);
     eax = esp + 0x1C;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    fsw_caituning_read_section_token(eax); /* call 0x00123C40 */
 
 loc_0034BA72:
     esp = esp + 0x10;
@@ -1586,7 +1630,7 @@ loc_0034BA85:
     PUSH32(esp, 0x538928);
     PUSH32(esp, 0x53906C);
     eax = esp + 0x1C;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    fsw_caituning_read_section_token(eax); /* call 0x00123C40 */
 
 loc_0034BAA4:
     esp = esp + 0x10;

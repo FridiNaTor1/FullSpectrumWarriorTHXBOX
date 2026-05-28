@@ -21,7 +21,9 @@ void fn_0005B520_XLaunchNewImageA_8(void)
     int _flags = 0; /* fallback flag var */
 
 loc_0005B520:
-    fprintf(stderr, "[XAPI] XLaunchNewImageA ignored on host\n");
+    fprintf(stderr, "[XAPI] XLaunchNewImageA ignored on host path=%s launch_data=%08X\n",
+            MEM32(esp + 4) ? (const char*)XBOX_PTR(MEM32(esp + 4)) : "(null)",
+            MEM32(esp + 8));
     eax = 0;
     esp += 12; return; /* ret 8 */
 

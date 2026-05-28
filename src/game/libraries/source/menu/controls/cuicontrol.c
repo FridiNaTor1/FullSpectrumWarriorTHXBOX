@@ -8,6 +8,7 @@
 #include "recomp_funcs.h"
 #include <math.h>
 #include <stdio.h>
+#include <stdlib.h>
 
 extern uint32_t xbox_HeapAlloc(uint32_t size, uint32_t alignment);
 
@@ -148,6 +149,11 @@ static int fsw_cuicontrol_type_is_known(uint8_t type)
            type == 7 || type == 8 || type == 9 || type == 10 || type == 12;
 }
 
+static int fsw_cuicontrol_type_is_known_child_record(uint8_t type)
+{
+    return type == 0 || fsw_cuicontrol_type_is_known(type);
+}
+
 static uint32_t fsw_cuicontrol_find_base(uint32_t file)
 {
     uint32_t stream;
@@ -269,6 +275,13 @@ static uint32_t fsw_cuicontrol_host_update_callback(uint32_t crc)
     case 0x7E7E9F9Cu: return 0x00387900u; /* XBCrossGameInviteMsgUpdate */
     case 0xE5657F2Cu: return 0x003FF9D0u; /* PandemicLogoUpdate */
     case 0x6F56DC51u: return 0x003FFA50u; /* THQLogoUpdate */
+    case 0xA016F518u: return 0x001A5A50u; /* PlayMenuUpdate */
+    case 0xFD277D04u: return 0x001A5C20u; /* CampaignSelectorUpdate */
+    case 0xC31DA533u: return 0x001A76D0u; /* DifficultySelectorUpdate */
+    case 0x78241EB4u: return 0x001A8480u; /* LevelLoadingUpdate */
+    case 0x7A11385Du: return 0x001A70E0u; /* MPCampaignSelectorUpdate */
+    case 0x6494AFE6u: return 0x001A7480u; /* MPLevelSelectionUpdate */
+    case 0xCFD3D614u: return 0x001A4CA0u; /* MPOptimatchLevelSelectionUpdate */
     default: return 0;
     }
 }
@@ -358,8 +371,10 @@ static uint32_t fsw_cuicontrol_alloc(uint8_t type)
         fn_0012A340_0CUITextEditControl_QAE_XZ();
         break;
     default:
+        PUSH32(esp, esi);
         PUSH32(esp, 0);
         fn_00132000_0CUIControl_QAE_XZ();
+        esp += 4;
         break;
     }
     esp = saved_esp;
@@ -607,7 +622,7 @@ static uint32_t fsw_cuicontrol_load_child_by_type(uint32_t file, uint32_t parent
     uint32_t saved_edi = edi;
     uint32_t saved_esp = esp;
 
-    if (!fsw_cuicontrol_type_is_known(type)) {
+    if (!fsw_cuicontrol_type_is_known_child_record(type)) {
         static uint32_t unknown_child_log_count = 0;
         if (unknown_child_log_count < 16) {
             fprintf(stderr,
@@ -4559,13 +4574,29 @@ loc_00132485:
     if (TEST_Z(eax, eax)) goto loc_001324BF; /* je: equal / zero */
 
 loc_0013248F:
-    ecx = MEM32(ebx + 0xE0);
-    edx = 0; /* xor self */
-    SET_LO8(edx, MEM8(ebx + 0xE4));
-    SET_LO8(edx, LO8(edx) >> 2);
-    { uint32_t _icall_esp = g_esp;
-    PUSH32(esp, ecx);
-    ecx = MEM32(ebp + 8);
+	    ecx = MEM32(ebx + 0xE0);
+	    edx = 0; /* xor self */
+	    SET_LO8(edx, MEM8(ebx + 0xE4));
+	    SET_LO8(edx, LO8(edx) >> 2);
+	    if (eax == 0x001A5C20u || eax == 0x001A5A50u ||
+	        eax == 0x001A76D0u || eax == 0x001A8480u) {
+	        static uint32_t update_invoke_log_count = 0;
+	        if (update_invoke_log_count < 64 ||
+	            (eax == 0x001A8480u && getenv("FSW_TH_LEVEL_LOADING_DEBUG") != NULL)) {
+	            fprintf(stderr,
+	                    "[FSW/Menu] invoke update control=%08X type=%u callback=%08X crc=%08X tick=%u flags=%02X visible=%u\n",
+	                    (unsigned)ebx, (unsigned)MEM8(ebx + 0xD1),
+	                    (unsigned)eax, (unsigned)MEM32(ebx + 0xC8),
+	                    (unsigned)MEM32(ebx + 0xE0), (unsigned)MEM8(ebx + 0xE4),
+	                    (unsigned)MEM8(ebp + 0x14));
+	            if (update_invoke_log_count < 64) {
+	                update_invoke_log_count++;
+	            }
+	        }
+	    }
+	    { uint32_t _icall_esp = g_esp;
+	    PUSH32(esp, ecx);
+	    ecx = MEM32(ebp + 8);
     edx = edx & 0xFFFFFF01u;
     PUSH32(esp, edx);
     PUSH32(esp, ebx);
@@ -4829,13 +4860,22 @@ void fn_00132650_CUIControl_SetUpdateCRC(void)
 
 loc_00132650:
 #ifdef XBOXRECOMP_VULKAN_GRAPHICS
-    {
-        uint32_t crc = MEM32(esp + 4);
-        uint32_t callback = fsw_cuicontrol_host_update_callback(crc);
-        if (callback != 0 || crc == 0xC9EF9119u) {
-            MEM32(edi + 0xC8) = crc;
-            MEM32(edi + 0xBC) = callback;
-            esp += 8; return; /* ret 4 */
+	    {
+	        uint32_t crc = MEM32(esp + 4);
+	        uint32_t callback = fsw_cuicontrol_host_update_callback(crc);
+	        if (callback != 0 || crc == 0xC9EF9119u) {
+	            if (callback != 0) {
+	                static uint32_t update_bind_log_count = 0;
+	                if (update_bind_log_count < 64) {
+	                    fprintf(stderr,
+	                            "[FSW/Menu] bind update control=%08X crc=%08X callback=%08X\n",
+	                            (unsigned)edi, (unsigned)crc, (unsigned)callback);
+	                    update_bind_log_count++;
+	                }
+	            }
+	            MEM32(edi + 0xC8) = crc;
+	            MEM32(edi + 0xBC) = callback;
+	            esp += 8; return; /* ret 4 */
         }
     }
 #endif

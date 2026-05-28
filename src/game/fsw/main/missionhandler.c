@@ -8,6 +8,7 @@
 #include "recomp_funcs.h"
 #include <math.h>
 #include <stdio.h>
+#include <stdlib.h>
 
 static int missionhandler_va_range_is_valid(uint32_t va, uint32_t size)
 {
@@ -27,6 +28,7 @@ static int missionhandler_logged_invalid_havok_step;
 static int missionhandler_logged_invalid_havok_entities;
 extern uint32_t g_fsw_xbvideo_global_video;
 extern uint32_t g_fsw_xbvideo_global_vtable;
+extern void fsw_xbvideo_ensure_default_render_surfaces(uint32_t video, const char *reason);
 
 static int missionhandler_video_is_valid(uint32_t video)
 {
@@ -56,7 +58,21 @@ static uint32_t missionhandler_get_video(void)
                 "[FSW/Mission] restoring video vtable video=%08X old=%08X new=%08X\n",
                 video, MEM32(video), g_fsw_xbvideo_global_vtable);
         MEM32(video) = g_fsw_xbvideo_global_vtable;
+        fsw_xbvideo_ensure_default_render_surfaces(video, "mission-vtable");
         return video;
+    }
+
+    if (missionhandler_va_range_is_valid(g_fsw_xbvideo_global_video, 0x7140) &&
+        g_fsw_xbvideo_global_vtable >= 0x00400000u &&
+        g_fsw_xbvideo_global_vtable < 0x00700000u) {
+        fprintf(stderr,
+                "[FSW/Mission] restoring cached video object current=%08X cached=%08X old_vtbl=%08X new_vtbl=%08X\n",
+                video, g_fsw_xbvideo_global_video,
+                MEM32(g_fsw_xbvideo_global_video), g_fsw_xbvideo_global_vtable);
+        MEM32(g_fsw_xbvideo_global_video) = g_fsw_xbvideo_global_vtable;
+        MEM32(0x5FA8E8) = g_fsw_xbvideo_global_video;
+        fsw_xbvideo_ensure_default_render_surfaces(g_fsw_xbvideo_global_video, "mission-cached");
+        return g_fsw_xbvideo_global_video;
     }
 
     if (missionhandler_video_is_valid(g_fsw_xbvideo_global_video)) {
@@ -64,6 +80,7 @@ static uint32_t missionhandler_get_video(void)
                 "[FSW/Mission] restoring video singleton current=%08X cached=%08X vtable=%08X\n",
                 video, g_fsw_xbvideo_global_video, MEM32(g_fsw_xbvideo_global_video));
         MEM32(0x5FA8E8) = g_fsw_xbvideo_global_video;
+        fsw_xbvideo_ensure_default_render_surfaces(g_fsw_xbvideo_global_video, "mission-singleton");
         return g_fsw_xbvideo_global_video;
     }
 
@@ -2079,10 +2096,29 @@ void sub_002A8140(void)
 loc_002A8140:
     edx = edx + ecx;
     MEM32(eax + 0xC) = edx;
-    missionhandler_process_game_base_esp = esp;
-    missionhandler_process_game_sim_flag = MEM8(esp + 0x0E);
-    missionhandler_process_game_render_flag = MEM8(esp + 0x0D);
-    missionhandler_process_game_replay_flag = MEM8(esp + 0x0F);
+	missionhandler_process_game_base_esp = esp;
+	missionhandler_process_game_sim_flag = MEM8(esp + 0x0E);
+	missionhandler_process_game_render_flag = MEM8(esp + 0x0D);
+	missionhandler_process_game_replay_flag = MEM8(esp + 0x0F);
+    if (getenv("FSW_TH_LEVEL") != NULL) {
+        static uint32_t direct_sim_repairs;
+        if (missionhandler_process_game_sim_flag == 0 &&
+            (direct_sim_repairs < 8 || (direct_sim_repairs % 120) == 0)) {
+            fprintf(stderr,
+                    "[FSW/Mission] forcing direct-level simulation sim=%u render=%u replay=%u count=%u\n",
+                    (unsigned)missionhandler_process_game_sim_flag,
+                    (unsigned)missionhandler_process_game_render_flag,
+                    (unsigned)missionhandler_process_game_replay_flag,
+                    (unsigned)(direct_sim_repairs + 1));
+        }
+        direct_sim_repairs++;
+        missionhandler_process_game_sim_flag = 1;
+        missionhandler_process_game_render_flag = 1;
+        missionhandler_process_game_replay_flag = 0;
+        MEM8(esp + 0x0E) = 1;
+        MEM8(esp + 0x0D) = 1;
+        MEM8(esp + 0x0F) = 0;
+    }
     {
         static uint32_t process_stage_logs = 0;
         process_stage_logs++;
@@ -2103,12 +2139,28 @@ loc_002A8140:
     if (TEST_Z(LO8(eax), LO8(eax))) goto loc_002A8159; /* je: equal / zero */
 
 loc_002A814D:
+    if (missionhandler_process_game_logs <= 8 || (missionhandler_process_game_logs % 120) == 0) {
+        fprintf(stderr, "[FSW/Mission] before ScriptManager_Update #%u esp=%08X\n",
+                (unsigned)missionhandler_process_game_logs, (unsigned)esp);
+    }
     PUSH32(esp, ebx);
     PUSH32(esp, 0); fn_002047A0_CScriptManager_Get(); /* call 0x002047A0 */
 
 loc_002A8153:
     PUSH32(esp, eax);
     PUSH32(esp, 0); fn_00204910_CScriptManager_Update(); /* call 0x00204910 */
+    if (missionhandler_process_game_base_esp != 0 && esp != missionhandler_process_game_base_esp) {
+        fprintf(stderr, "[FSW/Mission] repaired stack after ScriptManager_Update before=%08X after=%08X\n",
+                (unsigned)missionhandler_process_game_base_esp, (unsigned)esp);
+        esp = missionhandler_process_game_base_esp;
+    }
+    MEM8(esp + 0x0E) = missionhandler_process_game_sim_flag;
+    MEM8(esp + 0x0D) = missionhandler_process_game_render_flag;
+    MEM8(esp + 0x0F) = missionhandler_process_game_replay_flag;
+    if (missionhandler_process_game_logs <= 8 || (missionhandler_process_game_logs % 120) == 0) {
+        fprintf(stderr, "[FSW/Mission] after ScriptManager_Update #%u esp=%08X\n",
+                (unsigned)missionhandler_process_game_logs, (unsigned)esp);
+    }
 
 loc_002A8159:
     SET_LO8(eax, MEM8(0x5FA389));
@@ -2641,13 +2693,25 @@ loc_002A84B9:
     if (TEST_NZ(LO8(eax), LO8(eax))) goto loc_002A84D0; /* jne: not equal / not zero */
 
 loc_002A84C7:
+    if (missionhandler_process_game_logs <= 4) {
+        fprintf(stderr, "[FSW/Mission] before HUDManager_Update #%u esp=%08X hud_dt=%08X\n",
+                (unsigned)missionhandler_process_game_logs, (unsigned)esp, (unsigned)edi);
+    }
     PUSH32(esp, edi);
     PUSH32(esp, 0); fn_003D46C0_HUDManager_Update(); /* call 0x003D46C0 */
 
 loc_002A84CD:
     esp = esp + 4;
+    if (missionhandler_process_game_logs <= 4) {
+        fprintf(stderr, "[FSW/Mission] after HUDManager_Update #%u esp=%08X\n",
+                (unsigned)missionhandler_process_game_logs, (unsigned)esp);
+    }
 
 loc_002A84D0:
+    if (missionhandler_process_game_logs <= 4) {
+        fprintf(stderr, "[FSW/Mission] before MovementCursor_Update #%u esp=%08X\n",
+                (unsigned)missionhandler_process_game_logs, (unsigned)esp);
+    }
     PUSH32(esp, edi);
     PUSH32(esp, 0); fn_002F1320_MovementCursor(); /* call 0x002F1320 */
 
@@ -2656,11 +2720,19 @@ loc_002A84D6:
     PUSH32(esp, 0); fn_002F57F0_CMovementCursor_Update(); /* call 0x002F57F0 */
 
 loc_002A84DC:
+    if (missionhandler_process_game_logs <= 4) {
+        fprintf(stderr, "[FSW/Mission] after MovementCursor_Update #%u esp=%08X\n",
+                (unsigned)missionhandler_process_game_logs, (unsigned)esp);
+    }
     PUSH32(esp, edi);
     eax = 0x6010B0;
     PUSH32(esp, 0); fn_002C0810_HUDCursorVehicleMove_Update(); /* call 0x002C0810 */
 
 loc_002A84E7:
+    if (missionhandler_process_game_logs <= 4) {
+        fprintf(stderr, "[FSW/Mission] after HUDCursorVehicleMove_Update #%u esp=%08X\n",
+                (unsigned)missionhandler_process_game_logs, (unsigned)esp);
+    }
     PUSH32(esp, 0); fn_00118820_ZeroTime_GetVisTime(); /* call 0x00118820 */
 
 loc_002A84EC:
@@ -2714,10 +2786,18 @@ loc_002A850B:
 loc_002A8513:
     edx = MEM32(eax + 0x18);
     edi = MEM32(0x5FA518);
+    if (missionhandler_process_game_logs <= 4) {
+        fprintf(stderr, "[FSW/Mission] before CMenuSystem_Update #%u dt=%08X menu=%08X esp=%08X\n",
+                (unsigned)missionhandler_process_game_logs, (unsigned)edx, (unsigned)edi, (unsigned)esp);
+    }
     PUSH32(esp, edx);
     PUSH32(esp, 0); fn_001BA940_CMenuSystem_Update(); /* call 0x001BA940 */
 
 loc_002A8522:
+    if (missionhandler_process_game_logs <= 4) {
+        fprintf(stderr, "[FSW/Mission] after CMenuSystem_Update #%u esp=%08X\n",
+                (unsigned)missionhandler_process_game_logs, (unsigned)esp);
+    }
     SET_LO8(eax, MEM8(0x5FA494));
     if (TEST_Z(LO8(eax), LO8(eax))) goto loc_002A8530; /* je: equal / zero */
 
@@ -2794,6 +2874,10 @@ loc_002A8594:
     if (TEST_Z(LO8(eax), LO8(eax))) goto loc_002A85C8; /* je: equal / zero */
 
 loc_002A859C:
+    if (missionhandler_process_game_logs <= 4) {
+        fprintf(stderr, "[FSW/Mission] before SceneManager_CullBounds #%u esp=%08X\n",
+                (unsigned)missionhandler_process_game_logs, (unsigned)esp);
+    }
     PUSH32(esp, 0); fn_00284E40_CSceneManager_Get(); /* call 0x00284E40 */
 
 loc_002A85A1:
@@ -2801,6 +2885,10 @@ loc_002A85A1:
     PUSH32(esp, 0); fn_00280D90_CSceneManager_CullBounds(); /* call 0x00280D90 */
 
 loc_002A85A8:
+    if (missionhandler_process_game_logs <= 4) {
+        fprintf(stderr, "[FSW/Mission] after SceneManager_CullBounds #%u esp=%08X\n",
+                (unsigned)missionhandler_process_game_logs, (unsigned)esp);
+    }
     PUSH32(esp, 0); fn_00284E40_CSceneManager_Get(); /* call 0x00284E40 */
 
 loc_002A85AD:
@@ -2808,6 +2896,10 @@ loc_002A85AD:
     PUSH32(esp, 0); fn_002850D0_CSceneManager_RenderBounds(); /* call 0x002850D0 */
 
 loc_002A85B3:
+    if (missionhandler_process_game_logs <= 4) {
+        fprintf(stderr, "[FSW/Mission] after SceneManager_RenderBounds #%u esp=%08X\n",
+                (unsigned)missionhandler_process_game_logs, (unsigned)esp);
+    }
     if (!missionhandler_video_is_valid(esi)) {
         fprintf(stderr, "[FSW/Mission] restoring video before RenderBounds tail old=%08X\n",
                 (unsigned)esi);
@@ -2828,8 +2920,17 @@ loc_002A85C8:
     if (!missionhandler_video_is_valid(esi)) {
         fprintf(stderr, "[FSW/Mission] restoring video before frame end old=%08X\n",
                 (unsigned)esi);
-        esi = missionhandler_get_video();
+        esi = missionhandler_restore_process_video("frame-end");
         if (!missionhandler_video_is_valid(esi)) goto loc_002A85CF;
+    }
+    if (getenv("FSW_TH_LEVEL") != NULL) {
+        static uint32_t direct_skip_end_scene_logs;
+        if (direct_skip_end_scene_logs < 8) {
+            fprintf(stderr, "[FSW/Mission] skipping XBVideo_EndScene during direct-level bring-up video=%08X\n",
+                    (unsigned)esi);
+            direct_skip_end_scene_logs++;
+        }
+        goto loc_002A85CF;
     }
     edx = MEM32(esi);
     ecx = esi;

@@ -1143,8 +1143,10 @@ loc_00024630:
     if (!caicell_va_range_is_valid(eax, 8) || !caicell_va_range_is_valid(ecx, 0xC)) {
         static uint32_t invalid_deadguy_head_logs = 0;
         if (invalid_deadguy_head_logs < 8 || (invalid_deadguy_head_logs % 8192) == 0) {
-            fprintf(stderr, "[FSW/AI] DeadGuy list GetHead invalid out=%08X list=%08X\n",
-                    (unsigned)eax, (unsigned)ecx);
+            fprintf(stderr,
+                    "[FSW/AI] DeadGuy list GetHead invalid out=%08X list=%08X esp=%08X ebx=%08X esi=%08X edi=%08X edx=%08X\n",
+                    (unsigned)eax, (unsigned)ecx, (unsigned)esp,
+                    (unsigned)ebx, (unsigned)esi, (unsigned)edi, (unsigned)edx);
         }
         invalid_deadguy_head_logs++;
         if (caicell_va_range_is_valid(eax, 8)) {

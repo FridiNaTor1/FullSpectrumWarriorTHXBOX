@@ -8,6 +8,53 @@
 #include "recomp_funcs.h"
 #include <math.h>
 #include <stdio.h>
+#include <stdlib.h>
+
+static int fsw_app_va_range_is_valid(uint32_t va, uint32_t size);
+
+static int fsw_app_debug_enabled(void)
+{
+    return getenv("FSW_TH_APP_DEBUG") != NULL;
+}
+
+static void fsw_app_debug_context_slots(const char *reason, uint32_t app, uint32_t requested)
+{
+    if (!fsw_app_debug_enabled()) {
+        return;
+    }
+
+    uint32_t count = fsw_app_va_range_is_valid(app + 0x18, 4) ? MEM32(app + 0x18) : 0;
+    fprintf(stderr,
+            "[FSW/App] %s app=%08X current=%08X pending=%08X count=%u requested=%08X\n",
+            reason ? reason : "?",
+            (unsigned)app,
+            (unsigned)(fsw_app_va_range_is_valid(app, 8) ? MEM32(app) : 0),
+            (unsigned)(fsw_app_va_range_is_valid(app + 4, 4) ? MEM32(app + 4) : 0),
+            (unsigned)count,
+            (unsigned)requested);
+    for (uint32_t i = 0; i < 4; i++) {
+        uint32_t ctx = fsw_app_va_range_is_valid(app + 8 + i * 4, 4) ? MEM32(app + 8 + i * 4) : 0;
+        uint32_t vtbl = fsw_app_va_range_is_valid(ctx, 4) ? MEM32(ctx) : 0;
+        uint32_t crc = fsw_app_va_range_is_valid(ctx + 4, 4) ? MEM32(ctx + 4) : 0;
+        fprintf(stderr,
+                "[FSW/App]   slot%u ctx=%08X crc=%08X vtbl=%08X setup=%08X shutdown=%08X restart=%08X update=%08X\n",
+                (unsigned)i,
+                (unsigned)ctx,
+                (unsigned)crc,
+                (unsigned)vtbl,
+                (unsigned)(fsw_app_va_range_is_valid(vtbl + 4, 4) ? MEM32(vtbl + 4) : 0),
+                (unsigned)(fsw_app_va_range_is_valid(vtbl + 8, 4) ? MEM32(vtbl + 8) : 0),
+                (unsigned)(fsw_app_va_range_is_valid(vtbl + 0x0C, 4) ? MEM32(vtbl + 0x0C) : 0),
+                (unsigned)(fsw_app_va_range_is_valid(vtbl + 0x10, 4) ? MEM32(vtbl + 0x10) : 0));
+    }
+}
+
+static void fsw_app_debug_cleanup_step(const char *step)
+{
+    if (fsw_app_debug_enabled()) {
+        fprintf(stderr, "[FSW/App] cleanup %s esp=%08X\n", step ? step : "?", (unsigned)esp);
+    }
+}
 
 static int fsw_app_va_is_valid(uint32_t va)
 {
@@ -23,6 +70,48 @@ static int fsw_app_va_range_is_valid(uint32_t va, uint32_t size)
         return 0;
     }
     return va + size <= 0x04000000u;
+}
+
+static void fsw_app_repair_known_vtable(uint32_t vtbl, const char *reason)
+{
+    static uint32_t repair_logs = 0;
+    const uint32_t *expected = NULL;
+    const char *name = NULL;
+    uint32_t shell_vtbl[] = {
+        0x0004C470u, 0x001B9280u, 0x001B8E10u, 0x001B8BB0u, 0x001B98B0u,
+    };
+    uint32_t mission_vtbl[] = {
+        0x0002DDA0u, 0x002A7D50u, 0x002A7B40u, 0x002A7730u, 0x002A8870u,
+    };
+
+    if (vtbl == 0x0055A448u) {
+        expected = shell_vtbl;
+        name = "CShellHandler";
+    } else if (vtbl == 0x005406C0u) {
+        expected = mission_vtbl;
+        name = "MissionHandler";
+    }
+
+    if (expected == NULL || !fsw_app_va_range_is_valid(vtbl, 0x14)) {
+        return;
+    }
+
+    for (uint32_t i = 0; i < 5; i++) {
+        uint32_t slot = vtbl + i * 4;
+        if (MEM32(slot) != expected[i]) {
+            if (repair_logs < 16 || (repair_logs % 120) == 0) {
+                fprintf(stderr,
+                        "[FSW/App] repairing %s vtable during %s slot=%u old=%08X expected=%08X\n",
+                        name,
+                        reason ? reason : "?",
+                        (unsigned)i,
+                        (unsigned)MEM32(slot),
+                        (unsigned)expected[i]);
+            }
+            repair_logs++;
+            MEM32(slot) = expected[i];
+        }
+    }
 }
 
 static void fsw_app_repair_known_context(uint32_t context, const char *reason)
@@ -47,11 +136,15 @@ static void fsw_app_repair_known_context(uint32_t context, const char *reason)
         repair_logs++;
         MEM32(context) = expected_vtbl;
     }
+    if (expected_vtbl != 0) {
+        fsw_app_repair_known_vtable(expected_vtbl, reason);
+    }
 }
 
 static int fsw_app_context_is_valid(uint32_t context, const char *reason)
 {
     uint32_t vtbl;
+    int valid;
 
     if (!fsw_app_va_range_is_valid(context, 4)) {
         return 0;
@@ -59,11 +152,29 @@ static int fsw_app_context_is_valid(uint32_t context, const char *reason)
 
     fsw_app_repair_known_context(context, reason);
     vtbl = MEM32(context);
-    return fsw_app_va_range_is_valid(vtbl, 0x14) &&
-           fsw_app_va_is_valid(MEM32(vtbl + 4)) &&
-           fsw_app_va_is_valid(MEM32(vtbl + 8)) &&
-           fsw_app_va_is_valid(MEM32(vtbl + 0x0C)) &&
-           fsw_app_va_is_valid(MEM32(vtbl + 0x10));
+    valid = fsw_app_va_range_is_valid(vtbl, 0x14) &&
+            fsw_app_va_is_valid(MEM32(vtbl + 4)) &&
+            fsw_app_va_is_valid(MEM32(vtbl + 8)) &&
+            fsw_app_va_is_valid(MEM32(vtbl + 0x0C)) &&
+            fsw_app_va_is_valid(MEM32(vtbl + 0x10));
+    if (!valid) {
+        static uint32_t invalid_context_logs = 0;
+        if (invalid_context_logs < 16 || (invalid_context_logs % 120) == 0) {
+            fprintf(stderr,
+                    "[FSW/App] invalid context reason=%s ctx=%08X vtbl=%08X slots=%08X,%08X,%08X,%08X,%08X count=%u\n",
+                    reason ? reason : "?",
+                    (unsigned)context,
+                    (unsigned)vtbl,
+                    (unsigned)(fsw_app_va_range_is_valid(vtbl, 4) ? MEM32(vtbl) : 0),
+                    (unsigned)(fsw_app_va_range_is_valid(vtbl + 4, 4) ? MEM32(vtbl + 4) : 0),
+                    (unsigned)(fsw_app_va_range_is_valid(vtbl + 8, 4) ? MEM32(vtbl + 8) : 0),
+                    (unsigned)(fsw_app_va_range_is_valid(vtbl + 0x0C, 4) ? MEM32(vtbl + 0x0C) : 0),
+                    (unsigned)(fsw_app_va_range_is_valid(vtbl + 0x10, 4) ? MEM32(vtbl + 0x10) : 0),
+                    (unsigned)(invalid_context_logs + 1));
+        }
+        invalid_context_logs++;
+    }
+    return valid;
 }
 
 /**
@@ -214,6 +325,7 @@ loc_002B0CA0:
     edi = MEM32(esp + 8);
     edx = 0; /* xor self */
     ecx = esi + 8;
+    fsw_app_debug_context_slots("ContextSwitch begin", esi, edi);
     /* nop */
 
 loc_002B0CB0:
@@ -229,6 +341,7 @@ loc_002B0CBB:
     if (CMP_L(edx, 4)) goto loc_002B0CB0; /* jl: less (signed <) */
 
 loc_002B0CC4:
+    fsw_app_debug_context_slots("ContextSwitch miss", esi, edi);
     POP32(esp, edi);
     esp += 8; return; /* ret 4 */
 
@@ -247,6 +360,7 @@ loc_002B0CC8:
     eax = MEM32(esi + edx * 4 + 8);
     POP32(esp, edi);
     MEM32(esi + 4) = eax;
+    fsw_app_debug_context_slots("ContextSwitch hit", esi, MEM32(eax + 4));
     esp += 8; return; /* ret 4 */
 
 }
@@ -264,6 +378,7 @@ void fn_002B0CE0_CApplicationManager_Cleanup(void)
     int _flags = 0; /* fallback flag var */
 
 loc_002B0CE0:
+    fsw_app_debug_cleanup_step("begin");
     PUSH32(esp, ebx);
     PUSH32(esp, esi);
     PUSH32(esp, edi);
@@ -307,6 +422,7 @@ loc_002B0D27:
     PUSH32(esp, 0); fn_001580C0_CParticleTextureRenderer_Cleanup(); /* call 0x001580C0 */
 
 loc_002B0D2C:
+    fsw_app_debug_cleanup_step("after particle cleanup");
     ecx = MEM32(0x5FA674);
     ebx = 0; /* xor self */
     if (CMP_EQ(ecx, ebx)) goto loc_002B0D44; /* je: equal / zero */
@@ -425,6 +541,7 @@ loc_002B0DEC:
     PUSH32(esp, 0); fn_00297F10_CReplayManager_Init(); /* call 0x00297F10 */
 
 loc_002B0DF3:
+    fsw_app_debug_cleanup_step("after replay cleanup");
     PUSH32(esp, 0); fn_00118880_ZeroTime_GetSimTime(); /* call 0x00118880 */
 
 loc_002B0DF8:
@@ -594,6 +711,7 @@ loc_002B0F4A:
     }
 
 loc_002B0F51:
+    fsw_app_debug_cleanup_step("after hud subtitle cleanup");
     esi = 0x60DCA8;
     MEM32(0x60061C) = ebx;
     PUSH32(esp, 0); fn_0004FF90_PAVCUIMenu_ZeroList_RemoveAll(); /* call 0x0004FF90 */
@@ -753,6 +871,7 @@ loc_002B1075:
     PUSH32(esp, 0); fn_001CDCC0_CSoundMap_Cleanup(); /* call 0x001CDCC0 */
 
 loc_002B107C:
+    fsw_app_debug_cleanup_step("before FreeLevel");
     PUSH32(esp, 0); fn_002AC120_FreeLevel(); /* call 0x002AC120 */
 
 loc_002B1081:
@@ -780,8 +899,19 @@ loc_002B109E:
     }
 
 loc_002B10AC:
+    fsw_app_debug_cleanup_step("after video reset");
     ecx = MEM32(0x5FA8E8);
     eax = MEM32(ecx);
+    if (getenv("FSW_TH_ENABLE_APP_VIDEO_CLEANUP_CALLBACK") == NULL) {
+        if (fsw_app_debug_enabled()) {
+            fprintf(stderr,
+                    "[FSW/App] skip video cleanup callback video=%08X vtbl=%08X slot14=%08X\n",
+                    (unsigned)ecx,
+                    (unsigned)eax,
+                    (unsigned)(fsw_app_va_range_is_valid(eax + 0x14, 4) ? MEM32(eax + 0x14) : 0));
+        }
+        goto loc_002B10B7;
+    }
     { uint32_t _icall_esp = g_esp;
     PUSH32(esp, 0); RECOMP_ICALL_SAFE(MEM32(eax + 0x14), _icall_esp); /* indirect call */
     }
@@ -810,6 +940,7 @@ loc_002B10E2:
     PUSH32(esp, 0); fn_00129820_ZeroMemoryManager_Clear(); /* call 0x00129820 */
 
 loc_002B110C:
+    fsw_app_debug_cleanup_step("end");
     POP32(esp, edi);
     POP32(esp, esi);
     POP32(esp, ebx);
@@ -925,6 +1056,13 @@ loc_002B1150:
     ebx = 0;
     eax = MEM32(esi + 4);
     ecx = eax;
+    if (fsw_app_debug_enabled()) {
+        fprintf(stderr,
+                "[FSW/App] switching current old=%08X pending=%08X new=%08X\n",
+                (unsigned)MEM32(esi),
+                (unsigned)MEM32(esi + 4),
+                (unsigned)eax);
+    }
     MEM32(esi) = eax;
     MEM32(esi + 4) = ebx;
     if (!fsw_app_context_is_valid(ecx, "enter")) {
@@ -939,6 +1077,13 @@ loc_002B1150:
         goto loc_002B115F;
     }
     edx = MEM32(ecx);
+    if (fsw_app_debug_enabled()) {
+        fprintf(stderr,
+                "[FSW/App] enter ctx=%08X vtbl=%08X setup=%08X\n",
+                (unsigned)ecx,
+                (unsigned)edx,
+                (unsigned)MEM32(edx + 4));
+    }
     app_enter_esp = esp;
     { uint32_t _icall_esp = g_esp;
     PUSH32(esp, 0); RECOMP_ICALL_SAFE(MEM32(edx + 4), _icall_esp); /* indirect call */

@@ -7,6 +7,10 @@
 #define RECOMP_GENERATED_CODE
 #include "recomp_funcs.h"
 #include <math.h>
+#include <stdio.h>
+#include <stdlib.h>
+
+#define FSW_BINK_MAGIC 0x42494E4Bu
 
 /**
  * fn_003FF620_MovieRender
@@ -27,6 +31,20 @@ void fn_003FF620_MovieRender(void)
     #define fp_st1() _fp_stack[(_fp_top + 1) & 7]
 
 loc_003FF620:
+    #ifdef XBOXRECOMP_VULKAN_GRAPHICS
+    if (getenv("FSW_TH_BINK_DEBUG") != NULL) {
+        static uint32_t movie_render_log_count;
+        if (movie_render_log_count < 48) {
+            fprintf(stderr, "[FSW/Bink] MovieRender control=%08X video=%08X active=%u flags=%02X/%02X\n",
+                    (unsigned)MEM32(esp + 4),
+                    (unsigned)MEM32(0x60F0A8),
+                    (unsigned)(MEM32(0x60F0A8) != 0),
+                    (unsigned)MEM8(0x60F0B0),
+                    (unsigned)MEM8(0x60F0BC));
+            movie_render_log_count++;
+        }
+    }
+    #endif
     ecx = MEM32(0x60F0A8);
     esp = esp - 0xC;
     (void)0; /* test ecx, ecx - flags set for next jcc */
@@ -231,6 +249,26 @@ loc_003FF7B5:
     esi = eax;
     (void)0; /* cmp esi, ebx - flags set for next jcc */
     MEM32(0x60F0A8) = esi;
+#ifdef XBOXRECOMP_VULKAN_GRAPHICS
+    if (getenv("FSW_TH_BINK_DEBUG") != NULL) {
+        uint32_t bink_debug = (esi >= 0x00010000u && esi < 0x04000000u) ? MEM32(esi + 0x7C) : 0;
+        fprintf(stderr, "[FSW/Bink] InitVideo create returned decoder=%08X bink=%08X done=%u\n",
+                (unsigned)esi, (unsigned)bink_debug,
+                (unsigned)((esi >= 0x00010000u && esi < 0x04000000u) ? MEM8(esi + 0x4C) : 0));
+    }
+    if (esi >= 0x00010000u && esi < 0x04000000u) {
+        uint32_t bink = MEM32(esi + 0x7C);
+        if (bink >= 0x00010000u && bink < 0x04000000u && MEM32(bink + 0x20) == FSW_BINK_MAGIC) {
+            MEM8(esi + 0x4C) = 0;
+            MEM8(0x60F0BC) = 0;
+            if (getenv("FSW_TH_BINK_DEBUG") != NULL) {
+                fprintf(stderr, "[FSW/Bink] InitVideo active decoder=%08X bink=%08X frame=%u/%u\n",
+                        (unsigned)esi, (unsigned)bink,
+                        (unsigned)MEM32(bink + 0x0C), (unsigned)MEM32(bink + 0x08));
+            }
+        }
+    }
+#endif
     if (CMP_EQ(esi, ebx)) { sub_003FF7E7(); return; } /* je: equal / zero */
 
 loc_003FF7C1:
@@ -243,6 +281,7 @@ loc_003FF7C1:
     ecx = ecx - MEM32(esi + 0x54);
     xmm0 = (float)(int32_t)ecx; /* cvtsi2ss */
     MEMF(0x60F0B8) = xmm0; /* movss */
+    sub_003FF7E7(); return; /* original fallthrough */
 
 }
 
@@ -517,6 +556,14 @@ loc_003FF9A9:
     g_seh_ebp = ebp; fn_003FF730_InitVideo(); return; /* tail jmp 0x003FF730 */
 
 loc_003FF9B3:
+#ifdef XBOXRECOMP_VULKAN_GRAPHICS
+    if (getenv("FSW_TH_BINK_DEBUG") != NULL) {
+        fprintf(stderr, "[FSW/Bink] MovieUpdate complete video=%08X done=%u restart=%u\n",
+                (unsigned)ecx,
+                (unsigned)((ecx >= 0x00010000u && ecx < 0x04000000u) ? MEM8(ecx + 0x4C) : 0),
+                (unsigned)MEM8(0x60F0B1));
+    }
+#endif
     MEM8(0x60F0BC) = 1;
     MEM32(0x60F0C0) = 0;
 

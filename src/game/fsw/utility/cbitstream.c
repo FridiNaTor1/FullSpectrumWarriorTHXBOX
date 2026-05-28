@@ -7,6 +7,7 @@
 #define RECOMP_GENERATED_CODE
 #include "recomp_funcs.h"
 #include <math.h>
+#include <stdio.h>
 
 /**
  * fn_00029B00_EIterator_ZeroList_UCBlock_CBitFile_QAE_AV01_H_Z
@@ -1248,6 +1249,38 @@ void fn_001946E0_CBitStream_WriteBits(void)
     ebp = g_seh_ebp; /* fpo_leaf: inherit caller's frame */
 
 loc_001946E0:
+    if (MEM32(edi) == 0x55DA10u) {
+        static uint32_t fsw_writebits_log_count = 0;
+        uint32_t value = MEM32(esp + 4);
+        uint32_t bits = MEM32(esp + 8);
+        uint32_t bit_pos = MEM32(edi + 0x10);
+        uint32_t capacity = MEM32(edi + 0xC);
+        uint32_t buffer = MEM32(edi + 8);
+        if (fsw_writebits_log_count < 40) {
+            fprintf(stderr, "[FSW/BitStream] WriteBits stream=%08X pos=%u bits=%u value=%08X cap=%u esp=%08X\n",
+                    edi, bit_pos, bits, value, capacity, esp);
+            fsw_writebits_log_count++;
+        }
+
+        if (buffer != 0 && bits <= 32 && bit_pos <= capacity && bits <= capacity - bit_pos) {
+            uint8_t *dst = (uint8_t *)XBOX_PTR(buffer);
+            for (uint32_t i = 0; i < bits; ++i) {
+                uint32_t src_bit = bits - 1 - i;
+                uint32_t out_bit = bit_pos + i;
+                uint8_t mask = (uint8_t)(0x80u >> (out_bit & 7));
+                if ((value >> src_bit) & 1u) {
+                    dst[out_bit >> 3] |= mask;
+                } else {
+                    dst[out_bit >> 3] &= (uint8_t)~mask;
+                }
+            }
+            MEM32(edi + 0x10) = bit_pos + bits;
+            eax = 1;
+        } else {
+            eax = 0;
+        }
+        esp += 12; return; /* ret 8 */
+    }
     eax = MEM32(edi);
     esp = esp - 0xC;
     { uint32_t _icall_esp = g_esp;

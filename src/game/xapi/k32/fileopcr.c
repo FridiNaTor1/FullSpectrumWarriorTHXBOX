@@ -6,7 +6,72 @@
 
 #define RECOMP_GENERATED_CODE
 #include "recomp_funcs.h"
+#include "kernel.h"
 #include <math.h>
+#include <stdio.h>
+
+const char* fsw_xapi_last_save_file_path(void);
+
+static int fsw_host_CreateFileA(uint32_t ebp)
+{
+    uint32_t path_va = MEM32(ebp + 0x08);
+    uint32_t desired_access = MEM32(ebp + 0x0C);
+    uint32_t share_mode = MEM32(ebp + 0x10);
+    uint32_t creation_disposition = MEM32(ebp + 0x18);
+    uint32_t flags_and_attributes = MEM32(ebp + 0x1C);
+    const char* path = path_va ? (const char*)XBOX_PTR(path_va) : NULL;
+    DWORD err = ERROR_SUCCESS;
+
+    if (!path || !path[0] || (unsigned char)path[0] < 0x20) {
+        const char* fallback = fsw_xapi_last_save_file_path();
+        if (fallback && fallback[0]) {
+            eax = xbox_kernel_bridge_create_file_handle(
+                fallback,
+                desired_access,
+                share_mode,
+                creation_disposition,
+                flags_and_attributes,
+                &err);
+            if (eax) {
+                fprintf(stderr,
+                        "[FSW/File] CreateFileA recovered path_va=%08X path0=%02X -> %s\n",
+                        path_va,
+                        path ? (unsigned char)path[0] : 0,
+                        fallback);
+                fflush(stderr);
+                return 1;
+            }
+        }
+
+        SetLastError(err == ERROR_SUCCESS ? ERROR_PATH_NOT_FOUND : err);
+        eax = 0xFFFFFFFFu;
+        fprintf(stderr,
+                "[FSW/File] CreateFileA rejected path_va=%08X path0=%02X access=%08X disp=%u flags=%08X err=%u\n",
+                path_va,
+                path ? (unsigned char)path[0] : 0,
+                desired_access,
+                creation_disposition,
+                flags_and_attributes,
+                err);
+        fflush(stderr);
+        return 1;
+    }
+
+    eax = xbox_kernel_bridge_create_file_handle(
+        path,
+        desired_access,
+        share_mode,
+        creation_disposition,
+        flags_and_attributes,
+        &err);
+
+    if (!eax) {
+        SetLastError(err);
+        eax = 0xFFFFFFFFu;
+    }
+
+    return 1;
+}
 
 /**
  * fn_0005E365_CreateFileA_28
@@ -24,6 +89,11 @@ loc_0005E365:
     PUSH32(esp, ebp);
     ebp = esp;
     esp = esp - 0x20;
+    if (fsw_host_CreateFileA(ebp)) {
+        esp = ebp;
+        POP32(esp, ebp);
+        esp += 32; return;
+    }
     eax = MEM32(ebp + 0x18);
     eax--;
     PUSH32(esp, ebx);

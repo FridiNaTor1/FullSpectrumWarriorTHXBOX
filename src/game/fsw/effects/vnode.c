@@ -7,6 +7,7 @@
 #define RECOMP_GENERATED_CODE
 #include "recomp_funcs.h"
 #include <math.h>
+#include <stdio.h>
 
 /**
  * fn_0015EF60_VNode_GetAtomicString
@@ -375,10 +376,19 @@ loc_0015F1B2:
 
 }
 
-/* Fallback for unresolved generated target 0x0015F1D0. */
 void fn_0015F1D0_VNode_Clear(void)
 {
-    recomp_missing_target(0x0015F1D0u);
+    uint32_t node = ecx;
+
+    if (node >= 0x00010000u && node + 0x14u >= node && node + 0x14u <= 0x04000000u) {
+        MEM32(node) = 0;
+        MEM32(node + 4) = 0;
+        MEM32(node + 8) = 0;
+        MEM32(node + 0xC) = 0;
+        MEM32(node + 0x10) = 0;
+    }
+
+    esp += 4; return; /* ret */
 }
 
 /**
@@ -627,9 +637,17 @@ void fn_0015F3A0_VNode_NewAtomicNode(void)
     uint32_t ebp;
     int _flags = 0; /* fallback flag var */
     float xmm0;
+    static uint32_t new_atomic_log_count;
     ebp = g_seh_ebp; /* fpo_leaf: inherit caller's frame */
 
 loc_0015F3A0:
+    if (new_atomic_log_count < 16) {
+        uint32_t source = MEM32(esp + 4);
+        uint32_t type = source ? MEM32(source) : 0xFFFFFFFFu;
+        uint32_t subtype = source ? MEM32(source + 4) : 0xFFFFFFFFu;
+        fprintf(stderr, "[FSW/VNode] NewAtomicNode entry esp=%08X source=%08X type=%08X subtype=%08X\n",
+                (unsigned)esp, (unsigned)source, (unsigned)type, (unsigned)subtype);
+    }
     PUSH32(esp, ebp);
     ebp = MEM32(esp + 8);
     ecx = MEM32(ebp + 4);
@@ -709,6 +727,11 @@ loc_0015F417:
     PUSH32(esp, 0); fn_0015F2F0_VNode_SetupString(); /* call 0x0015F2F0 */
 
 loc_0015F41C:
+    if (new_atomic_log_count < 16) {
+        fprintf(stderr, "[FSW/VNode] NewAtomicNode string epilogue A esp=%08X out=%08X\n",
+                (unsigned)esp, (unsigned)ebx);
+        new_atomic_log_count++;
+    }
     eax = ebx;
     POP32(esp, ebx);
     POP32(esp, esi);
@@ -723,6 +746,11 @@ loc_0015F42C:
     PUSH32(esp, 0); fn_0015F2F0_VNode_SetupString(); /* call 0x0015F2F0 */
 
 loc_0015F431:
+    if (new_atomic_log_count < 16) {
+        fprintf(stderr, "[FSW/VNode] NewAtomicNode string epilogue B esp=%08X out=%08X\n",
+                (unsigned)esp, (unsigned)ebx);
+        new_atomic_log_count++;
+    }
     eax = ebx;
     POP32(esp, ebx);
     POP32(esp, esi);
@@ -736,6 +764,11 @@ loc_0015F43C:
     PUSH32(esp, 0); fn_0015F2F0_VNode_SetupString(); /* call 0x0015F2F0 */
 
 loc_0015F441:
+    if (new_atomic_log_count < 16) {
+        fprintf(stderr, "[FSW/VNode] NewAtomicNode string epilogue C esp=%08X out=%08X\n",
+                (unsigned)esp, (unsigned)ebx);
+        new_atomic_log_count++;
+    }
     eax = ebx;
     POP32(esp, ebx);
     POP32(esp, esi);
@@ -786,6 +819,11 @@ loc_0015F489:
     PUSH32(esp, 0); fn_0015F1D0_VNode_Clear(); /* call 0x0015F1D0 */
 
 loc_0015F496:
+    if (new_atomic_log_count < 16) {
+        fprintf(stderr, "[FSW/VNode] NewAtomicNode float epilogue esp=%08X out=%08X\n",
+                (unsigned)esp, (unsigned)esi);
+        new_atomic_log_count++;
+    }
     xmm0 = MEMF(esp + 0xC); /* movss */
     MEM32(esi) = 2;
     MEM32(esi + 4) = 2;
@@ -872,6 +910,11 @@ loc_0015F51B:
     PUSH32(esp, 0); fn_0015F1D0_VNode_Clear(); /* call 0x0015F1D0 */
 
 loc_0015F522:
+    if (new_atomic_log_count < 16) {
+        fprintf(stderr, "[FSW/VNode] NewAtomicNode int epilogue esp=%08X out=%08X\n",
+                (unsigned)esp, (unsigned)edi);
+        new_atomic_log_count++;
+    }
     MEM32(edi) = 1;
     MEM32(edi + 4) = 1;
     MEM32(edi + 8) = esi;

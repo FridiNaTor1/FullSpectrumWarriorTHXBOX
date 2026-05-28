@@ -7,6 +7,93 @@
 #define RECOMP_GENERATED_CODE
 #include "recomp_funcs.h"
 #include <math.h>
+#include <stdio.h>
+
+static void fsw_log_profile_state(const char* tag, uint32_t mgr)
+{
+    char first_name[64];
+    uint32_t i;
+
+    if (!mgr) {
+        fprintf(stderr, "[FSW/Profile] %s mgr=NULL\n", tag);
+        return;
+    }
+
+    for (i = 0; i + 1 < sizeof(first_name); ++i) {
+        uint16_t ch = MEM16(mgr + 0x2A2E + i * 2);
+        if (!ch) {
+            break;
+        }
+        first_name[i] = (ch >= 0x20 && ch < 0x80) ? (char)ch : '?';
+    }
+    first_name[i] = 0;
+
+    fprintf(stderr,
+            "[FSW/Profile] %s mgr=%08X count=%u f56C0=%u f56C1=%u f56C2=%u f5702=%u current='%s'\n",
+            tag,
+            mgr,
+            MEM32(mgr + 0x2C90),
+            MEM8(mgr + 0x56C0),
+            MEM8(mgr + 0x56C1),
+            MEM8(mgr + 0x56C2),
+            MEM8(mgr + 0x5702),
+            first_name);
+}
+
+static uint32_t fsw_profile_manager_snapshot = 0;
+static uint32_t fsw_profile_count_snapshot = 0;
+
+void fsw_profile_manager_host_snapshot(uint32_t mgr)
+{
+    if (mgr < 0x00010000u || mgr >= 0x04000000u) {
+        return;
+    }
+
+    uint32_t count = MEM32(mgr + 0x2C90);
+    if (count > 0x11u) {
+        return;
+    }
+
+    fsw_profile_manager_snapshot = mgr;
+    fsw_profile_count_snapshot = count;
+}
+
+void fsw_profile_manager_host_repair(const char *tag)
+{
+    uint32_t mgr = MEM32(0x5FA358);
+    uint32_t repaired = 0;
+
+    if (fsw_profile_manager_snapshot >= 0x00010000u &&
+        fsw_profile_manager_snapshot < 0x04000000u &&
+        (mgr < 0x00010000u || mgr >= 0x04000000u)) {
+        MEM32(0x5FA358) = fsw_profile_manager_snapshot;
+        mgr = fsw_profile_manager_snapshot;
+        repaired = 1;
+    }
+
+    if (mgr >= 0x00010000u && mgr < 0x04000000u) {
+        uint32_t count = MEM32(mgr + 0x2C90);
+        if (count > 0x11u && fsw_profile_count_snapshot <= 0x11u) {
+            MEM32(mgr + 0x2C90) = fsw_profile_count_snapshot;
+            repaired = 1;
+        } else if (count <= 0x11u) {
+            fsw_profile_manager_snapshot = mgr;
+            fsw_profile_count_snapshot = count;
+        }
+    }
+
+    if (repaired) {
+        fprintf(stderr,
+                "[FSW/Profile] repaired manager tag=%s mgr=%08X count=%u snapshot=%08X/%u\n",
+                tag ? tag : "?",
+                (unsigned)MEM32(0x5FA358),
+                (MEM32(0x5FA358) >= 0x00010000u && MEM32(0x5FA358) < 0x04000000u)
+                    ? (unsigned)MEM32(MEM32(0x5FA358) + 0x2C90)
+                    : 0,
+                (unsigned)fsw_profile_manager_snapshot,
+                (unsigned)fsw_profile_count_snapshot);
+    }
+}
 
 /**
  * fn_0002D570_4CProfile_QAEAAV0_ABV0_Z
@@ -2444,10 +2531,15 @@ loc_002B24A0:
 void fn_002B24B0_CProfileManager_SaveStream(void)
 {
     uint32_t ebp;
+    uint32_t fsw_savestream_stream;
     int _flags = 0; /* fallback flag var */
     ebp = g_seh_ebp; /* fpo_leaf: inherit caller's frame */
 
 loc_002B24B0:
+    fsw_savestream_stream = esi;
+    fprintf(stderr, "[FSW/Profile] SaveStreamA entry stream=%08X vtbl=%08X cursor=%u cap=%u path=%08X profile=%08X mgr_arg=%08X esp=%08X\n",
+            esi, MEM32(esi), MEM32(esi + 0x10), MEM32(esi + 0xC),
+            MEM32(esp + 0x148), edi, MEM32(esp + 0x144), esp);
     esp = esp - 0x134;
     (void)0; /* test esi, esi - flags set for next jcc */
     eax = MEM32(0x57ED94);
@@ -2456,24 +2548,26 @@ loc_002B24B0:
 
 loc_002B24CA:
     eax = MEM32(esi);
-    { uint32_t _icall_esp = g_esp;
     PUSH32(esp, ebx);
     PUSH32(esp, ebp);
     PUSH32(esp, edi);
     edi = MEM32(esi + 8);
     ecx = esi;
-    PUSH32(esp, 0); RECOMP_ICALL_SAFE(MEM32(eax + 8), _icall_esp); /* indirect call */
-    }
+    eax = MEM32(esi + 0x10);
 
 loc_002B24D7:
     eax = eax + 7;
     eax = eax >> 3;
+    fprintf(stderr, "[FSW/Profile] SaveStreamA calc signature bytes=%u data=%08X esp=%08X\n",
+            eax, edi, esp);
     PUSH32(esp, eax);
     PUSH32(esp, edi);
     edi = esp + 0x14;
     PUSH32(esp, 0); fn_002B1940_CProfileManager_CalcSignature(); /* call 0x002B1940 */
 
 loc_002B24E8:
+    fprintf(stderr, "[FSW/Profile] SaveStreamA signature returned eax=%08X esp=%08X\n", eax, esp);
+    esi = fsw_savestream_stream;
     ecx = MEM32(eax);
     edx = MEM32(eax + 4);
     MEM32(esp + 0x28) = ecx;
@@ -2490,6 +2584,10 @@ loc_002B24E8:
 
 loc_002B2516:
     ecx = ZX8(MEM8(ebx));
+    if (ebp == 0x14 || ebp == 1) {
+        fprintf(stderr, "[FSW/Profile] SaveStreamA signature byte remaining=%u src=%08X value=%02X stream=%08X edi=%08X esp=%08X\n",
+                ebp, ebx, ecx & 0xFFu, esi, edi, esp);
+    }
     PUSH32(esp, 8);
     PUSH32(esp, ecx);
     edi = esi;
@@ -2502,6 +2600,8 @@ loc_002B2523:
 
 loc_002B2527:
     eax = MEM32(esp + 0x14C);
+    fprintf(stderr, "[FSW/Profile] SaveStreamA bitbytes=%u path=%08X profile=%08X esp=%08X\n",
+            eax, MEM32(esp + 0x148), edi, esp);
     PUSH32(esp, 0x104);
     edx = esp + 0x38;
     PUSH32(esp, edx);
@@ -2561,14 +2661,13 @@ loc_002B2597:
     PUSH32(esp, 0); fn_0009BC40_strncat(); /* call 0x0009BC40 */
 
 loc_002B25A5:
+    esi = fsw_savestream_stream;
     edx = MEM32(esi);
     MEM8(esp + edi + 0x40) = 0;
     edi = MEM32(esi + 8);
     esp = esp + 0xC;
     ecx = esi;
-    { uint32_t _icall_esp = g_esp;
-    PUSH32(esp, 0); RECOMP_ICALL_SAFE(MEM32(edx + 8), _icall_esp); /* indirect call */
-    }
+    eax = MEM32(esi + 0x10);
 
 loc_002B25B7:
     eax = eax + 7;
@@ -2579,6 +2678,8 @@ loc_002B25B7:
 
 loc_002B25C7:
     esp = esp + 4;
+    fprintf(stderr, "[FSW/Profile] SaveStream write result=%u esp=%08X mgr=%08X\n",
+            LO8(eax), esp, MEM32(esp + 0x144));
     if (TEST_Z(LO8(eax), LO8(eax))) { sub_002B2612(); return; } /* je: equal / zero */
 
 loc_002B25CE:
@@ -2777,6 +2878,8 @@ void fn_002B2710_CProfileManager_SavePrioritySave(void)
     int _flags = 0; /* fallback flag var */
 
 loc_002B2710:
+    fprintf(stderr, "[FSW/Profile] SavePriority entry profile=%08X mgr=%08X stream=%08X name0=%04X esp=%08X\n",
+            eax, edi, MEM32(esp + 4), MEM16(eax + 0x16), esp);
     PUSH32(esp, esi);
     esi = eax;
     eax = esi + 0x16;
@@ -2813,6 +2916,8 @@ void sub_002B2746(void)
 loc_002B2746:
     PUSH32(esp, esi);
     esi = MEM32(esp + 0xC);
+    fprintf(stderr, "[FSW/Profile] SavePriority writing stream=%08X mgr=%08X profile=%08X esp=%08X\n",
+            esi, edi, eax, esp);
     PUSH32(esp, 0x535B6C);
     PUSH32(esp, edi);
     PUSH32(esp, 0); fn_002B24B0_CProfileManager_SaveStream(); /* call 0x002B24B0 */
@@ -5522,6 +5627,8 @@ void fn_002B3AC0_CProfileManager_SaveCurrentPriorities(void)
     ebp = g_seh_ebp; /* fpo_leaf: inherit caller's frame */
 
 loc_002B3AC0:
+    fprintf(stderr, "[FSW/Profile] SavePriorities entry esp=%08X arg=%08X ecx=%08X\n",
+            esp, MEM32(esp + 4), ecx);
     eax = MEM32(0);
     PUSH32(esp, 0xFFFFFFFFu);
     PUSH32(esp, 0x4029D8);
@@ -5637,6 +5744,8 @@ loc_002B3B2E:
 
 loc_002B3B3E:
     ebx = MEM32(esp + 0x34);
+    fprintf(stderr, "[FSW/Profile] SavePriorities body mgr=%08X count=%u esp=%08X\n",
+            ebx, MEM32(ebx + 0x7648), esp);
     esi = ebx + 0x7648;
     MEM32(esp + 0x14) = 4;
     PUSH32(esp, edi);
@@ -5820,6 +5929,8 @@ loc_002B3CDD:
 
 loc_002B3CE1:
     eax = ebx + 0x2C94;
+    fprintf(stderr, "[FSW/Profile] SavePriorities saving stream mgr=%08X count=%u esp=%08X\n",
+            ebx, MEM32(ebx + 0x7648), esp);
     PUSH32(esp, ebp);
     edi = ebx;
     PUSH32(esp, 0); fn_002B2710_CProfileManager_SavePrioritySave(); /* call 0x002B2710 */
@@ -5838,6 +5949,8 @@ loc_002B3CFA:
 
 loc_002B3CFB:
     ecx = MEM32(esp + 0x24);
+    fprintf(stderr, "[FSW/Profile] SavePriorities exit result=%u esp=%08X seh=%08X\n",
+            LO8(ebx), esp, ecx);
     POP32(esp, esi);
     POP32(esp, ebp);
     SET_LO8(eax, LO8(ebx));
@@ -6591,10 +6704,13 @@ loc_002B419E:
 void fn_002B41B0_CProfileManager_SaveSelectedProfile(void)
 {
     uint32_t ebp;
+    uint32_t fsw_save_selected_mgr;
     int _flags = 0; /* fallback flag var */
     ebp = g_seh_ebp; /* fpo_leaf: inherit caller's frame */
 
 loc_002B41B0:
+    fprintf(stderr, "[FSW/Profile] SaveSelected entry esp=%08X manager=%08X\n", esp, esi);
+    fsw_save_selected_mgr = esi;
     esp = esp - 0x120;
     eax = MEM32(0x57ED94);
     MEM32(esp + 0x11C) = eax;
@@ -6679,14 +6795,24 @@ loc_002B4258:
 
 loc_002B4293:
     esp = esp + 0x18;
+    fprintf(stderr, "[FSW/Profile] SaveSelected profile write done esp=%08X result=%u\n", esp, LO8(eax));
+    esi = fsw_save_selected_mgr;
+    if (MEM32(fsw_save_selected_mgr + 0x7648) == 0) {
+        fprintf(stderr, "[FSW/Profile] SaveSelected skipping empty priority/score sidecars mgr=%08X\n",
+                fsw_save_selected_mgr);
+        goto loc_002B42A2;
+    }
     PUSH32(esp, esi);
     PUSH32(esp, 0); fn_002B3AC0_CProfileManager_SaveCurrentPriorities(); /* call 0x002B3AC0 */
 
 loc_002B429C:
+    fprintf(stderr, "[FSW/Profile] SaveSelected priorities done esp=%08X\n", esp);
+    esi = fsw_save_selected_mgr;
     PUSH32(esp, esi);
     PUSH32(esp, 0); fn_002B3180_CProfileManager_SaveCurrentScores(); /* call 0x002B3180 */
 
 loc_002B42A2:
+    fprintf(stderr, "[FSW/Profile] SaveSelected scores done esp=%08X\n", esp);
     POP32(esp, ebp);
     POP32(esp, ebx);
 
@@ -6695,6 +6821,7 @@ loc_002B42A4:
 
 loc_002B42A5:
     ecx = MEM32(esp + 0x11C);
+    fprintf(stderr, "[FSW/Profile] SaveSelected exit esp=%08X cookie=%08X\n", esp, ecx);
     PUSH32(esp, 0); fn_00401B62_security_check_cookie_4(); /* call 0x00401B62 */
 
 loc_002B42B1:
@@ -6776,6 +6903,7 @@ void fn_002B4320_CProfileManager_SaveGlobalSettings(void)
     ebp = g_seh_ebp; /* fpo_leaf: inherit caller's frame */
 
 loc_002B4320:
+    fprintf(stderr, "[FSW/Profile] SaveGlobal entry esp=%08X arg=%08X\n", esp, MEM32(esp + 4));
     esp = esp - 0x22C;
     eax = MEM32(0x57ED94);
     PUSH32(esp, 0x104);
@@ -9030,6 +9158,7 @@ loc_002B536D:
 loc_002B5375:
     POP32(esp, esi);
     MEM32(0x5FA358) = eax;
+    fsw_profile_manager_host_snapshot(eax);
     PUSH32(esp, 0); fn_002B14D0_CReplaySaveManager_Init(); /* call 0x002B14D0 */
 
 loc_002B5380:
@@ -9820,10 +9949,14 @@ loc_002B5950:
 void fn_002B5960_CProfileManager_AddNewProfile(void)
 {
     uint32_t ebp;
+    uint32_t fsw_profile_mgr;
+    uint32_t fsw_add_frame_esp;
+    uint32_t fsw_saved_profile_count;
     int _flags = 0; /* fallback flag var */
     ebp = g_seh_ebp; /* fpo_leaf: inherit caller's frame */
 
 loc_002B5960:
+    fsw_profile_mgr = ebx;
     esp = esp - 0x90;
     eax = MEM32(0x57ED94);
     PUSH32(esp, ebp);
@@ -9832,6 +9965,7 @@ loc_002B5960:
     (void)0; /* test LO8(eax), LO8(eax) - flags set for next jcc */
     PUSH32(esp, esi);
     PUSH32(esp, edi);
+    fsw_add_frame_esp = esp;
     if (TEST_NZ(LO8(eax), LO8(eax))) goto loc_002B598F; /* jne: not equal / not zero */
 
 loc_002B5980:
@@ -9859,6 +9993,7 @@ loc_002B598F:
     PUSH32(esp, 0); fn_0002D570_4CProfile_QAEAAV0_ABV0_Z(); /* call 0x0002D570 */
 
 loc_002B59C6:
+    ebx = fsw_profile_mgr;
     edx = MEM32(ebx + 0x2D84);
     PUSH32(esp, ecx);
     eax = esp;
@@ -9869,6 +10004,7 @@ loc_002B59C6:
     PUSH32(esp, 0); fn_002A6A80_CSettings_SetCurrentCampaign(); /* call 0x002A6A80 */
 
 loc_002B59E0:
+    ebx = fsw_profile_mgr;
     eax = MEM32(ebx + 0x2D88);
     ecx = MEM32(0x5FA38C);
     MEM32(0x60F148) = eax;
@@ -9877,6 +10013,7 @@ loc_002B59E0:
     PUSH32(esp, 0); fn_002B65D0_0CScore_QAE_XZ(); /* call 0x002B65D0 */
 
 loc_002B5A00:
+    ebx = fsw_profile_mgr;
     eax = MEM32(ebx + 0x2D84);
     edx = MEM32(ebx + 0x2D88);
     MEM32(esp + 0x10) = eax;
@@ -9890,12 +10027,15 @@ loc_002B5A23:
     PUSH32(esp, 0); fn_002B65D0_0CScore_QAE_XZ(); /* call 0x002B65D0 */
 
 loc_002B5A2C:
+    ebx = fsw_profile_mgr;
     edx = ebx + 0x76D4;
     ecx = eax;
     eax = edx;
     PUSH32(esp, 0); fn_0002D6A0_4CScore_QAEAAU0_ABU0_Z(); /* call 0x0002D6A0 */
 
 loc_002B5A3B:
+    ebx = fsw_profile_mgr;
+    ebp = ebx + 0x14;
     edi = ebx + 0x56DC;
     ecx = 9;
     esi = ebp;
@@ -9903,13 +10043,26 @@ loc_002B5A3B:
     esi += ecx * 4; edi += ecx * 4; ecx = 0; /* rep movsd */
     esi = ebx;
     MEM32(ebx + 0x7648) = 0;
+    fsw_saved_profile_count = MEM32(fsw_profile_mgr + 0x2C90);
+    esp = fsw_add_frame_esp;
+    esi = fsw_profile_mgr;
     PUSH32(esp, 0); fn_002B41B0_CProfileManager_SaveSelectedProfile(); /* call 0x002B41B0 */
 
 loc_002B5A5B:
+    esp = fsw_add_frame_esp;
+    fprintf(stderr, "[FSW/Profile] AddNewProfile SaveSelected returned esp=%08X count=%u\n",
+            esp, MEM32(fsw_profile_mgr + 0x2C90));
+    ebx = fsw_profile_mgr;
     PUSH32(esp, ebx);
     PUSH32(esp, 0); fn_002B4320_CProfileManager_SaveGlobalSettings(); /* call 0x002B4320 */
+    if (MEM32(fsw_profile_mgr + 0x2C90) > 0x11) {
+        MEM32(fsw_profile_mgr + 0x2C90) = fsw_saved_profile_count;
+    }
 
 loc_002B5A61:
+    esp = fsw_add_frame_esp;
+    fsw_log_profile_state("add new profile exit", fsw_profile_mgr);
+    fsw_profile_manager_host_snapshot(fsw_profile_mgr);
     ecx = MEM32(esp + 0x98);
     PUSH32(esp, 0); fn_00401B62_security_check_cookie_4(); /* call 0x00401B62 */
 
@@ -9982,6 +10135,7 @@ loc_002B5AD4:
 void fn_002B5AE0_CProfileManager_SetUp(void)
 {
     uint32_t ebp;
+    uint32_t fsw_setup_frame_esp;
     int _flags = 0; /* fallback flag var */
     ebp = g_seh_ebp; /* fpo_leaf: inherit caller's frame */
 
@@ -9991,11 +10145,13 @@ loc_002B5AE0:
     ebp = MEM32(esp + 0xC);
     PUSH32(esp, esi);
     PUSH32(esp, edi);
+    fsw_setup_frame_esp = esp;
     PUSH32(esp, ebp);
     PUSH32(esp, 0); fn_002B2E70_CProfileManager_EnumerateProfiles(); /* call 0x002B2E70 */
 
 loc_002B5AEE:
     esi = MEM32(0x5FA358);
+    fsw_log_profile_state("setup after enumerate", ebp);
     SET_LO8(eax, MEM8(esi + 0x5702));
     if (TEST_Z(LO8(eax), LO8(eax))) goto loc_002B5B47; /* je: equal / zero */
 
@@ -10017,6 +10173,7 @@ loc_002B5B28:
     PUSH32(esp, 0); fn_002B5A80_CProfileManager_CreateDefaultProfile(); /* call 0x002B5A80 */
 
 loc_002B5B2F:
+    fsw_log_profile_state("setup after create default", ebp);
     edi = ebp + 0x56DC;
     ecx = 9;
     esi = 0x5CE974;
@@ -10026,6 +10183,7 @@ loc_002B5B2F:
     PUSH32(esp, 0); fn_002B4320_CProfileManager_SaveGlobalSettings(); /* call 0x002B4320 */
 
 loc_002B5B47:
+    fsw_log_profile_state("setup before checks", ebp);
     SET_LO8(eax, MEM8(ebp + 0x56C2));
     if (TEST_NZ(LO8(eax), LO8(eax))) goto loc_002B5B94; /* jne: not equal / not zero */
 
@@ -10043,14 +10201,15 @@ loc_002B5B69:
 
 loc_002B5B6D:
     SET_LO8(eax, MEM8(ebp + 0x56C1));
-    if (TEST_Z(LO8(eax), LO8(eax))) { sub_002B5B9D(); return; } /* je: equal / zero */
+    if (TEST_Z(LO8(eax), LO8(eax))) { esp = fsw_setup_frame_esp; g_seh_ebp = ebp; sub_002B5B9D(); return; } /* je: equal / zero */
 
 loc_002B5B77:
     edi = ebp;
     PUSH32(esp, 0); fn_002B1C00_CProfileManager_DefaultProfileExists(); /* call 0x002B1C00 */
 
 loc_002B5B7E:
-    if (TEST_NZ(LO8(eax), LO8(eax))) { sub_002B5B9D(); return; } /* jne: not equal / not zero */
+    fsw_log_profile_state("setup default profile check", ebp);
+    if (TEST_NZ(LO8(eax), LO8(eax))) { esp = fsw_setup_frame_esp; g_seh_ebp = ebp; sub_002B5B9D(); return; } /* jne: not equal / not zero */
 
 loc_002B5B82:
     esi = esp + 0x14;
@@ -10058,9 +10217,10 @@ loc_002B5B82:
     PUSH32(esp, 0); fn_002B7390_CDiskSpaceManager_HasSpace(); /* call 0x002B7390 */
 
 loc_002B5B90:
-    if (TEST_NZ(LO8(eax), LO8(eax))) { sub_002B5B9D(); return; } /* jne: not equal / not zero */
+    if (TEST_NZ(LO8(eax), LO8(eax))) { esp = fsw_setup_frame_esp; g_seh_ebp = ebp; sub_002B5B9D(); return; } /* jne: not equal / not zero */
 
 loc_002B5B94:
+    fsw_log_profile_state("setup returning false", ebp);
     POP32(esp, edi);
     POP32(esp, esi);
     POP32(esp, ebp);
@@ -10079,10 +10239,12 @@ loc_002B5B94:
 void sub_002B5B9D(void)
 {
     uint32_t ebp;
+    uint32_t fsw_success_frame_esp;
     int _flags = 0; /* fallback flag var */
     ebp = g_seh_ebp; /* fpo_leaf: inherit caller's frame */
 
 loc_002B5B9D:
+    fsw_success_frame_esp = esp;
     SET_LO8(eax, MEM8(ebp + 0x56C1));
     (void)0; /* test LO8(eax), LO8(eax) - flags set for next jcc */
     ebx = 1;
@@ -10093,20 +10255,26 @@ loc_002B5BAC:
     PUSH32(esp, 0); fn_002B4520_CProfileManager_CreateGlobalSettings(); /* call 0x002B4520 */
 
 loc_002B5BB2:
+    esp = fsw_success_frame_esp;
     MEM8(ebp + 0x77A8) = LO8(ebx);
 
 loc_002B5BB8:
+    esp = fsw_success_frame_esp;
     edi = ebp;
     PUSH32(esp, 0); fn_002B1C00_CProfileManager_DefaultProfileExists(); /* call 0x002B1C00 */
 
 loc_002B5BBF:
-    if (TEST_NZ(LO8(eax), LO8(eax))) { sub_002B5BF9(); return; } /* jne: not equal / not zero */
+    esp = fsw_success_frame_esp;
+    fsw_log_profile_state("setup success default profile check", ebp);
+    if (TEST_NZ(LO8(eax), LO8(eax))) { g_seh_ebp = ebp; sub_002B5BF9(); return; } /* jne: not equal / not zero */
 
 loc_002B5BC3:
+    esp = fsw_success_frame_esp;
     eax = ebp;
     PUSH32(esp, 0); fn_002B5A80_CProfileManager_CreateDefaultProfile(); /* call 0x002B5A80 */
 
 loc_002B5BCA:
+    esp = fsw_success_frame_esp;
     if (CMP_NE(MEM32(ebp + 0x2C90), ebx)) goto loc_002B5BEA; /* jne: not equal / not zero */
 
 loc_002B5BD2:
@@ -10119,10 +10287,14 @@ loc_002B5BD2:
     PUSH32(esp, 0); fn_002B4320_CProfileManager_SaveGlobalSettings(); /* call 0x002B4320 */
 
 loc_002B5BEA:
+    esp = fsw_success_frame_esp;
     PUSH32(esp, ebp);
     PUSH32(esp, 0); fn_002B2BA0_CProfileManager_SortProfiles(); /* call 0x002B2BA0 */
 
 loc_002B5BF0:
+    esp = fsw_success_frame_esp;
+    fsw_log_profile_state("setup returning true", ebp);
+    fsw_profile_manager_host_snapshot(ebp);
     POP32(esp, edi);
     POP32(esp, esi);
     POP32(esp, ebp);

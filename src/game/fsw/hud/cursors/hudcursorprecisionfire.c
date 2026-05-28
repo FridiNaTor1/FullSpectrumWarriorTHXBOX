@@ -8,6 +8,7 @@
 #include "recomp_funcs.h"
 #include <math.h>
 #include <stdio.h>
+#include <stdlib.h>
 
 static int hudprecision_va_range_is_valid(uint32_t va, uint32_t size)
 {
@@ -448,10 +449,16 @@ loc_002C0C68:
 void fn_002C0C70_HUDCursorPrecisionFire_Setup(void)
 {
     uint32_t ebp;
+    uint32_t cursor_base;
+    uint32_t saved_loop_ebp;
+    uint32_t saved_loop_esi;
+    uint32_t tex_arg_esp;
+    uint32_t panel_expected_esp;
     int _flags = 0; /* fallback flag var */
     ebp = g_seh_ebp; /* fpo_leaf: inherit caller's frame */
 
 loc_002C0C70:
+    cursor_base = edi;
     PUSH32(esp, ebx);
     PUSH32(esp, ebp);
     PUSH32(esp, esi);
@@ -459,8 +466,9 @@ loc_002C0C70:
     PUSH32(esp, 0); fn_002C0B10_HUDCursorPrecisionFire_Clear(); /* call 0x002C0B10 */
 
 loc_002C0C7A:
+    edi = cursor_base;
     ebx = 0; /* xor self */
-    ebp = edi + 0x5C;
+    ebp = cursor_base + 0x5C;
     esi = 0; /* xor self */
 
 loc_002C0C81:
@@ -480,15 +488,38 @@ loc_002C0C9A:
     eax = 0x600EC0;
 
 loc_002C0C9F:
-    eax = MEM32(eax);
-    PUSH32(esp, ecx);
-    ecx = esp;
-    MEM32(ecx) = eax;
-    PUSH32(esp, 0); fn_002C7EE0_HUDUtil_CreateTexGroup(); /* call 0x002C7EE0 */
+	    eax = MEM32(eax);
+	    PUSH32(esp, ecx);
+	    tex_arg_esp = esp;
+	    saved_loop_ebp = ebp;
+	    saved_loop_esi = esi;
+	    if (getenv("FSW_TH_HUD_DEBUG") != NULL) {
+	        fprintf(stderr,
+	                "[FSW/HUD] PrecisionFire texgroup before index=%u object=%08X crc=%08X esp=%08X\n",
+	                (unsigned)(saved_loop_esi >> 2), (unsigned)MEM32(saved_loop_esi + 0x57F8C0),
+	                (unsigned)eax, (unsigned)esp);
+	    }
+	    ecx = esp;
+	    MEM32(ecx) = eax;
+	    PUSH32(esp, 0); fn_002C7EE0_HUDUtil_CreateTexGroup(); /* call 0x002C7EE0 */
 
 loc_002C0CAB:
-    esp = esp + 4;
-    MEM32(ebp) = eax;
+    if (esp != tex_arg_esp) {
+        fprintf(stderr,
+                "[FSW/HUD] repaired PrecisionFire texgroup esp %08X -> %08X index=%u\n",
+                (unsigned)esp, (unsigned)tex_arg_esp, (unsigned)(saved_loop_esi >> 2));
+        esp = tex_arg_esp;
+	    }
+	    ebp = saved_loop_ebp;
+	    esi = saved_loop_esi;
+	    edi = cursor_base;
+	    esp = esp + 4;
+	    if (getenv("FSW_TH_HUD_DEBUG") != NULL) {
+	        fprintf(stderr,
+	                "[FSW/HUD] PrecisionFire texgroup after index=%u result=%08X esp=%08X\n",
+	                (unsigned)(esi >> 2), (unsigned)eax, (unsigned)esp);
+	    }
+	    MEM32(ebp) = eax;
 
 loc_002C0CB1:
     esi = esi + 4;
@@ -496,22 +527,24 @@ loc_002C0CB1:
     if (CMP_B(esi, 0x94)) goto loc_002C0C81; /* jb: below (unsigned <) */
 
 loc_002C0CBF:
-    MEM32(edi + 0x148) = 2;
-    MEM32(edi + 0x14C) = ebx;
-    eax = MEM32(edi + 0x148);
+    edi = cursor_base;
+    MEM32(cursor_base + 0x148) = 2;
+    MEM32(cursor_base + 0x14C) = ebx;
+    eax = MEM32(cursor_base + 0x148);
     if (CMP_LE(eax, ebx)) goto loc_002C0D21; /* jle: less or equal (signed <=) */
 
 loc_002C0CD9:
     if (CMP_AE(eax, 4)) goto loc_002C0D21; /* jae: above or equal (unsigned >=) */
 
 loc_002C0CDE:
-    edx = MEM32(edi + 0x134);
-    esi = MEM32(edi + 0x138);
+    edi = cursor_base;
+    edx = MEM32(cursor_base + 0x134);
+    esi = MEM32(cursor_base + 0x138);
     MEM32(edx + 8) = esi;
     edx = MEM32(edi + 0x138);
     esi = MEM32(edi + 0x134);
     ecx = eax + eax * 2;
-    eax = edi + 0x130;
+    eax = cursor_base + 0x130;
     MEM32(edx + 4) = esi;
     ecx = ecx * 4 + 0x6006E4;
     MEM32(eax + 4) = eax;
@@ -546,13 +579,32 @@ loc_002C0D30:
 loc_002C0D55:
     eax = ~eax;
     MEM32(esi) = eax;
-    esi = edi + 0x150;
-    PUSH32(esp, 3);
-    eax = esi;
-    PUSH32(esp, 0); fn_003D2540_HUDPanel_Setup(); /* call 0x003D2540 */
+    edi = cursor_base;
+    esi = cursor_base + 0x150;
+    panel_expected_esp = esp + 4;
+	    PUSH32(esp, 3);
+	    eax = esi;
+	    if (getenv("FSW_TH_HUD_DEBUG") != NULL) {
+	        fprintf(stderr,
+	                "[FSW/HUD] PrecisionFire panel before panel=%08X crc=%08X esp=%08X\n",
+	                (unsigned)esi, (unsigned)MEM32(panel_expected_esp - 4), (unsigned)esp);
+	    }
+	    PUSH32(esp, 0); fn_003D2540_HUDPanel_Setup(); /* call 0x003D2540 */
 
 loc_002C0D68:
-    MEM8(edi + 0x19F) = LO8(ebx);
+    if (esp != panel_expected_esp) {
+        fprintf(stderr,
+                "[FSW/HUD] repaired PrecisionFire panel setup esp %08X -> %08X\n",
+                (unsigned)esp, (unsigned)panel_expected_esp);
+        esp = panel_expected_esp;
+	    }
+	    edi = cursor_base;
+	    if (getenv("FSW_TH_HUD_DEBUG") != NULL) {
+	        fprintf(stderr,
+	                "[FSW/HUD] PrecisionFire panel after result=%08X panel=%08X esp=%08X\n",
+	                (unsigned)eax, (unsigned)esi, (unsigned)esp);
+	    }
+	    MEM8(edi + 0x19F) = LO8(ebx);
     eax = MEM32(esi + 0x58);
     if (CMP_LE(eax, ebx)) goto loc_002C0DAE; /* jle: less or equal (signed <=) */
 

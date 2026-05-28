@@ -7,6 +7,93 @@
 #define RECOMP_GENERATED_CODE
 #include "recomp_funcs.h"
 #include <math.h>
+#include <stdio.h>
+#include <stdlib.h>
+
+static uint32_t g_csoundmap_data_base = 0;
+static uint32_t g_csoundmap_data_size = 0;
+
+static int csoundmap_loading_enabled(void)
+{
+    const char *value = getenv("FSW_TH_ENABLE_SOUNDMAP");
+    return value != NULL && value[0] == '1' && value[1] == '\0';
+}
+
+static int csoundmap_va_range_is_valid(uint32_t va, uint32_t size)
+{
+    if (size == 0) {
+        return va >= 0x00010000u && va < 0x04000000u;
+    }
+    if (va < 0x00010000u || va >= 0x04000000u || va + size < va) {
+        return 0;
+    }
+    return va + size <= 0x04000000u;
+}
+
+static void csoundmap_log_file_state(const char *label, uint32_t file)
+{
+    static uint32_t log_count = 0;
+    uint32_t data;
+    uint32_t stream;
+
+    if (log_count++ >= 12) {
+        return;
+    }
+
+    if (!csoundmap_va_range_is_valid(file, 0x28)) {
+        fprintf(stderr, "[FSW/CSoundMap] %s invalid file=%08X esp=%08X\n",
+                label, (unsigned)file, (unsigned)esp);
+        return;
+    }
+
+    data = MEM32(file + 8);
+    stream = MEM32(file + 0x24);
+    g_csoundmap_data_base = data;
+    g_csoundmap_data_size = 0;
+    fprintf(stderr,
+            "[FSW/CSoundMap] %s file=%08X status=%08X data=%08X current=%08X stream=%08X esp=%08X\n",
+            label, (unsigned)file, (unsigned)MEM32(file + 4), (unsigned)data,
+            (unsigned)MEM32(file + 0x14), (unsigned)stream, (unsigned)esp);
+    if (csoundmap_va_range_is_valid(stream, 0x10)) {
+        g_csoundmap_data_size = MEM32(stream + 8);
+        fprintf(stderr,
+                "[FSW/CSoundMap] %s stream vtbl=%08X base=%08X size=%u cursor=%08X\n",
+                label, (unsigned)MEM32(stream), (unsigned)MEM32(stream + 4),
+                (unsigned)MEM32(stream + 8), (unsigned)MEM32(stream + 0xC));
+    }
+    if (csoundmap_va_range_is_valid(data, 0x20)) {
+        fprintf(stderr,
+                "[FSW/CSoundMap] %s data %08X: %08X %08X %08X %08X %08X %08X %08X %08X\n",
+                label, (unsigned)data, (unsigned)MEM32(data + 0),
+                (unsigned)MEM32(data + 4), (unsigned)MEM32(data + 8),
+                (unsigned)MEM32(data + 0xC), (unsigned)MEM32(data + 0x10),
+                (unsigned)MEM32(data + 0x14), (unsigned)MEM32(data + 0x18),
+                (unsigned)MEM32(data + 0x1C));
+    }
+}
+
+static void csoundmap_log_parse_state(const char *label, uint32_t cursor)
+{
+    static uint32_t log_count = 0;
+
+    if (log_count++ >= 12) {
+        return;
+    }
+
+    if (!csoundmap_va_range_is_valid(cursor, 0x20)) {
+        fprintf(stderr, "[FSW/CSoundMap] %s invalid cursor=%08X esp=%08X\n",
+                label, (unsigned)cursor, (unsigned)esp);
+        return;
+    }
+
+    fprintf(stderr,
+            "[FSW/CSoundMap] %s cursor=%08X s16=%d,%d,%d,%d u32=%08X %08X %08X %08X esp=%08X\n",
+            label, (unsigned)cursor, (int)SMEM16(cursor), (int)SMEM16(cursor + 2),
+            (int)SMEM16(cursor + 4), (int)SMEM16(cursor + 6),
+            (unsigned)MEM32(cursor + 0), (unsigned)MEM32(cursor + 4),
+            (unsigned)MEM32(cursor + 8), (unsigned)MEM32(cursor + 0xC),
+            (unsigned)esp);
+}
 
 /**
  * fn_0004BE60_1_ZeroArray_VZeroVector3_QAE_XZ
@@ -2084,6 +2171,14 @@ void fn_001CD6D0_CSoundMap_Load(void)
     ebp = g_seh_ebp; /* fpo_leaf: inherit caller's frame */
 
 loc_001CD6D0:
+    if (!csoundmap_loading_enabled()) {
+        static uint32_t skip_logs = 0;
+        if (skip_logs++ < 4) {
+            fprintf(stderr, "[FSW/CSoundMap] skipping sound map load until sound propagation is recovered\n");
+        }
+        SET_LO8(eax, 1);
+        esp += 8; return; /* ret 4 */
+    }
     PUSH32(esp, 0xFFFFFFFFu);
     PUSH32(esp, 0x40352C);
     eax = MEM32(0);
@@ -2111,6 +2206,7 @@ loc_001CD6D0:
     PUSH32(esp, 0); fn_00123A20_ZeroFile_OpenFile(); /* call 0x00123A20 */
 
 loc_001CD726:
+    csoundmap_log_file_state("after-open", esp + 0x44);
     MEM32(esp + 0x74) = ebx;
     if (CMP_GE(MEM32(esp + 0x48), ebx)) goto loc_001CD736; /* jge: greater or equal (signed >=) */
 
@@ -2119,6 +2215,7 @@ loc_001CD730:
 
 loc_001CD736:
     eax = MEM32(esp + 0x4C);
+    csoundmap_log_parse_state("magic", eax);
     (void)0; /* cmp MEM32(eax), 0x32504D53 - flags set for next jcc */
     edi = eax + 4;
     if (CMP_EQ(MEM32(eax), 0x32504D53)) { sub_001CD76D(); return; } /* je: equal / zero */
@@ -2156,6 +2253,7 @@ void sub_001CD76D(void)
     ebp = g_seh_ebp; /* fpo_leaf: inherit caller's frame */
 
 loc_001CD76D:
+    csoundmap_log_parse_state("vectors", edi);
     ebp = (uint32_t)(int32_t)SMEM16(edi);
     eax = ebp;
     esi = esp + 0x30;
@@ -2187,6 +2285,7 @@ loc_001CD796:
     if ((ebp != 0)) goto loc_001CD796; /* jne: not equal / not zero */
 
 loc_001CD7B3:
+    csoundmap_log_parse_state("rooms", edi);
     eax = (uint32_t)(int32_t)SMEM16(edi);
     ebp = MEM32(esp + 0x7C);
     esi = eax;
@@ -2296,6 +2395,23 @@ loc_001CD840:
     ecx = ecx | edx;
     ebx = ecx;
     ebx = (uint32_t)((int32_t)ebx >> 8);
+    if ((int32_t)ebx < 0 ||
+        ebx > 0x100u ||
+        (g_csoundmap_data_size != 0 &&
+         (edi < g_csoundmap_data_base ||
+          edi - g_csoundmap_data_base > g_csoundmap_data_size ||
+          ebx > (g_csoundmap_data_size - (edi - g_csoundmap_data_base)) / 6u))) {
+        static uint32_t bad_room_logs = 0;
+        if (bad_room_logs++ < 16) {
+            fprintf(stderr,
+                    "[FSW/CSoundMap] clamping invalid room edge count room=%d cursor=%08X packed=%08X edges=%d base=%08X size=%u\n",
+                    (int)MEM32(esp + 0x10), (unsigned)edi, (unsigned)ecx,
+                    (int32_t)ebx, (unsigned)g_csoundmap_data_base,
+                    (unsigned)g_csoundmap_data_size);
+        }
+        ecx = ecx & 0xFFu;
+        ebx = 0;
+    }
     eax = ebx;
     eax = (uint32_t)((int32_t)eax * (int32_t)0x2C);
     eax = eax + 4;

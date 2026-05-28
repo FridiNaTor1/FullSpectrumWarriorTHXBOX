@@ -33,6 +33,22 @@ static void cmenusystem_ensure_init(void)
     in_progress = 0;
 }
 
+#ifdef XBOXRECOMP_VULKAN_GRAPHICS
+static void fsw_menu_log_net_guard(const char *tag)
+{
+    static uint32_t guard_log_count = 0;
+    if (guard_log_count < 96) {
+        fprintf(stderr,
+                "[FSW/Menu] net guard %s singleton=%08X vtbl=%08X state=%08X pending=%08X menu_system=%08X\n",
+                tag, (unsigned)MEM32(0x6971E8), (unsigned)MEM32(0x6971F0),
+                (unsigned)MEM32(0x6971F0 + 0xFA8),
+                (unsigned)MEM32(0x6971F0 + 0xFAC),
+                (unsigned)MEM32(0x5FA518));
+        guard_log_count++;
+    }
+}
+#endif
+
 /**
  * fn_0004C440_CUIMouseCursor_Pos
  * Symbol: ?Pos@CUIMouseCursor@@QAEABV?$ZeroPoint@H@@XZ
@@ -2171,6 +2187,7 @@ loc_001BA77A:
 
 loc_001BA77E:
 #ifdef XBOXRECOMP_VULKAN_GRAPHICS
+    fsw_menu_log_net_guard("after-ui-launch");
     {
         static uint32_t launch_state_log_count = 0;
         uint32_t manager = MEM32(0x5FA8B0);
@@ -2189,16 +2206,23 @@ loc_001BA77E:
     PUSH32(esp, 0); fn_00272490_CNetState_Get(); /* call 0x00272490 */
 
 loc_001BA78A:
+#ifdef XBOXRECOMP_VULKAN_GRAPHICS
+    fsw_menu_log_net_guard("after-net-get");
+#endif
     ecx = MEM32(eax + 0xFA8);
     MEM32(esi + 0xAC) = ecx;
     PUSH32(esp, 0); fn_001BA160_CMenuSystem_PostProcess(); /* call 0x001BA160 */
 
 loc_001BA79B:
+#ifdef XBOXRECOMP_VULKAN_GRAPHICS
+    fsw_menu_log_net_guard("after-postprocess-1");
+#endif
     edx = MEM32(0x5FA8B0);
     PUSH32(esp, 0); fn_0012FAD0_CUIMenuManager_GetTopMenu(); /* call 0x0012FAD0 */
 
 loc_001BA7A6:
 #ifdef XBOXRECOMP_VULKAN_GRAPHICS
+    fsw_menu_log_net_guard("after-get-top");
     {
         static uint32_t post_state_log_count = 0;
         uint32_t manager = MEM32(0x5FA8B0);
@@ -2220,9 +2244,15 @@ loc_001BA7AA:
     PUSH32(esp, 0); fn_0012FC60_CUIMenuManager_Update(); /* call 0x0012FC60 */
 
 loc_001BA7B1:
+#ifdef XBOXRECOMP_VULKAN_GRAPHICS
+    fsw_menu_log_net_guard("after-menu-update");
+#endif
     PUSH32(esp, 0); fn_001BA160_CMenuSystem_PostProcess(); /* call 0x001BA160 */
 
 loc_001BA7B6:
+#ifdef XBOXRECOMP_VULKAN_GRAPHICS
+    fsw_menu_log_net_guard("after-postprocess-2");
+#endif
     edx = MEM32(0x5FA89C);
     PUSH32(esp, 0); fn_00132E60_CUIInputSystem_ClearEvents(); /* call 0x00132E60 */
 

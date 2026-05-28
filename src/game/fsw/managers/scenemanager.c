@@ -8,10 +8,12 @@
 #include "recomp_funcs.h"
 #include <math.h>
 #include <stdio.h>
+#include <string.h>
 
 extern uint32_t g_fsw_xbvideo_global_video;
 extern uint32_t g_fsw_xbvideo_global_vtable;
 extern void fsw_xbvideo_ensure_default_render_surfaces(uint32_t video, const char *reason);
+extern uint32_t xbox_HeapAlloc(uint32_t size, uint32_t alignment);
 
 static int scenemanager_va_range_is_valid(uint32_t va, uint32_t size)
 {
@@ -69,6 +71,176 @@ static uint32_t scenemanager_restore_video(const char *reason)
     return video;
 }
 
+static void scenemanager_ensure_entries(uint32_t manager)
+{
+    uint32_t entries;
+    uint32_t count;
+    uint32_t block;
+
+    if (!scenemanager_va_range_is_valid(manager + 0xE0, 4)) {
+        return;
+    }
+
+    entries = MEM32(manager + 0xDC);
+    count = MEM32(manager + 0xE0);
+    if (scenemanager_va_range_is_valid(entries, 0x4C) && count <= 0x2000u) {
+        return;
+    }
+
+    block = xbox_HeapAlloc(4u + 0x2000u * 0x4Cu, 16);
+    if (!scenemanager_va_range_is_valid(block, 4u + 0x2000u * 0x4Cu)) {
+        return;
+    }
+    memset((void *)XBOX_PTR(block), 0, 4u + 0x2000u * 0x4Cu);
+    MEM32(block) = 0x2000u;
+    MEM32(manager + 0xDC) = block + 4u;
+    if (count > 0x2000u) {
+        MEM32(manager + 0xE0) = 0;
+    }
+    fprintf(stderr,
+            "[FSW/Scene] repaired scene entries manager=%08X old=%08X new=%08X count=%u\n",
+            (unsigned)manager, (unsigned)entries, (unsigned)(block + 4u),
+            (unsigned)MEM32(manager + 0xE0));
+}
+
+static void scenemanager_ensure_submit_storage(uint32_t manager)
+{
+    uint32_t submit;
+    uint32_t count;
+    uint32_t block;
+
+    if (!scenemanager_va_range_is_valid(manager + 0xF4, 4)) {
+        return;
+    }
+
+    submit = MEM32(manager + 0xF0);
+    count = MEM32(manager + 0xF4);
+    if (scenemanager_va_range_is_valid(submit, 0x2000u * 4u) && count <= 0x2000u) {
+        return;
+    }
+
+    block = xbox_HeapAlloc(0x2000u * 4u, 16);
+    if (!scenemanager_va_range_is_valid(block, 0x2000u * 4u)) {
+        return;
+    }
+    memset((void *)XBOX_PTR(block), 0, 0x2000u * 4u);
+    MEM32(manager + 0xF0) = block;
+    MEM32(manager + 0xF4) = 0;
+    fprintf(stderr,
+            "[FSW/Scene] repaired submit storage manager=%08X old=%08X new=%08X count=%u\n",
+            (unsigned)manager, (unsigned)submit, (unsigned)block, (unsigned)count);
+}
+
+static uint32_t scenemanager_append_ptr_to_list(uint32_t list, uint32_t value)
+{
+    uint32_t saved_esp;
+    uint32_t node;
+    uint32_t tail;
+
+    if (!scenemanager_va_range_is_valid(list, 0xC)) {
+        return 0;
+    }
+
+    saved_esp = esp;
+    PUSH32(esp, 0xC);
+    PUSH32(esp, 0);
+    fn_0009E3F2_malloc();
+    esp = saved_esp;
+
+    node = eax;
+    if (!scenemanager_va_range_is_valid(node, 0xC)) {
+        return 0;
+    }
+
+    tail = MEM32(list + 4);
+    MEM32(node) = value;
+    MEM32(node + 4) = 0;
+    MEM32(node + 8) = tail;
+
+    if (tail != 0 && scenemanager_va_range_is_valid(tail, 0xC)) {
+        MEM32(tail + 4) = node;
+    } else {
+        MEM32(list + 8) = node;
+    }
+
+    MEM32(list + 4) = node;
+    MEM32(list) = MEM32(list) + 1;
+    return node;
+}
+
+static uint32_t g_scenemanager_collect_seen[8192];
+static uint32_t g_scenemanager_collect_seen_count;
+static uint32_t g_scenemanager_collect_log_count;
+
+static int scenemanager_collect_seen_or_add(uint32_t object)
+{
+    uint32_t i;
+
+    for (i = 0; i < g_scenemanager_collect_seen_count; i++) {
+        if (g_scenemanager_collect_seen[i] == object) {
+            return 1;
+        }
+    }
+
+    if (g_scenemanager_collect_seen_count < 8192) {
+        g_scenemanager_collect_seen[g_scenemanager_collect_seen_count++] = object;
+    }
+    return 0;
+}
+
+static int scenemanager_collect_by_flags_safe(uint32_t object, uint32_t flags, uint32_t list, uint32_t depth)
+{
+    uint32_t child;
+    uint32_t steps = 0;
+
+    if (!scenemanager_va_range_is_valid(object, 0xCC) ||
+        !scenemanager_va_range_is_valid(list, 0xC)) {
+        return 0;
+    }
+
+    if (depth > 256 || scenemanager_collect_seen_or_add(object)) {
+        if (g_scenemanager_collect_log_count++ < 32) {
+            fprintf(stderr,
+                    "[FSW/SceneManager] CollectByFlags stopped cycle/depth object=%08X flags=%08X depth=%u list=%08X count=%u esp=%08X\n",
+                    (unsigned)object, (unsigned)flags, (unsigned)depth,
+                    (unsigned)list, (unsigned)MEM32(list), (unsigned)esp);
+        }
+        return MEM32(list) > 0;
+    }
+
+    if ((MEM32(object + 0xC8) & flags) == flags) {
+        if (g_scenemanager_collect_log_count < 16) {
+            fprintf(stderr,
+                    "[FSW/SceneManager] CollectByFlags append object=%08X flags=%08X oflags=%08X depth=%u list=%08X count=%u\n",
+                    (unsigned)object, (unsigned)flags, (unsigned)MEM32(object + 0xC8),
+                    (unsigned)depth, (unsigned)list, (unsigned)MEM32(list));
+            g_scenemanager_collect_log_count++;
+        }
+        scenemanager_append_ptr_to_list(list, object);
+        return 1;
+    }
+
+    child = MEM32(object + 0x14);
+    while (child != 0) {
+        uint32_t next;
+
+        if (!scenemanager_va_range_is_valid(child, 0x1C) || ++steps > 8192) {
+            if (g_scenemanager_collect_log_count++ < 32) {
+                fprintf(stderr,
+                        "[FSW/SceneManager] CollectByFlags stopped invalid sibling child=%08X parent=%08X flags=%08X steps=%u\n",
+                        (unsigned)child, (unsigned)object, (unsigned)flags, (unsigned)steps);
+            }
+            break;
+        }
+
+        next = MEM32(child + 0x18);
+        scenemanager_collect_by_flags_safe(child, flags, list, depth + 1);
+        child = next;
+    }
+
+    return MEM32(list) > 0;
+}
+
 static int scenemanager_object_vtable_is_valid(uint32_t object, uint32_t min_size)
 {
     uint32_t vtbl;
@@ -82,6 +254,138 @@ static int scenemanager_object_vtable_is_valid(uint32_t object, uint32_t min_siz
 static int scenemanager_manager_is_valid(uint32_t manager)
 {
     return scenemanager_va_range_is_valid(manager, 0xF8);
+}
+
+#define FSW_SCENE_ENTRY_SIZE 0x4Cu
+#define FSW_SCENE_ENTRY_SNAPSHOT_MAX 0x2000u
+
+static unsigned char g_scenemanager_scene_entry_snapshot[FSW_SCENE_ENTRY_SNAPSHOT_MAX * FSW_SCENE_ENTRY_SIZE];
+static uint32_t g_scenemanager_scene_entry_snapshot_count;
+static uint32_t g_scenemanager_scene_entry_snapshot_manager;
+static uint32_t g_scenemanager_scene_entry_snapshot_base;
+
+static void scenemanager_snapshot_entry(uint32_t manager, uint32_t entry, const char *reason)
+{
+    uint32_t entries;
+    uint32_t offset;
+    uint32_t index;
+    uint32_t object;
+    static uint32_t snapshot_logs;
+
+    if (!scenemanager_manager_is_valid(manager) ||
+        !scenemanager_va_range_is_valid(entry, FSW_SCENE_ENTRY_SIZE)) {
+        return;
+    }
+
+    entries = MEM32(manager + 0xDC);
+    if (!scenemanager_va_range_is_valid(entries, FSW_SCENE_ENTRY_SIZE) ||
+        entry < entries) {
+        return;
+    }
+
+    offset = entry - entries;
+    if ((offset % FSW_SCENE_ENTRY_SIZE) != 0) {
+        return;
+    }
+
+    index = offset / FSW_SCENE_ENTRY_SIZE;
+    if (index >= FSW_SCENE_ENTRY_SNAPSHOT_MAX) {
+        return;
+    }
+
+    object = MEM32(entry);
+    if (!scenemanager_object_vtable_is_valid(object, 0x48)) {
+        return;
+    }
+
+    if (g_scenemanager_scene_entry_snapshot_manager != manager ||
+        g_scenemanager_scene_entry_snapshot_base != entries) {
+        g_scenemanager_scene_entry_snapshot_manager = manager;
+        g_scenemanager_scene_entry_snapshot_base = entries;
+        g_scenemanager_scene_entry_snapshot_count = 0;
+        memset(g_scenemanager_scene_entry_snapshot, 0, sizeof(g_scenemanager_scene_entry_snapshot));
+    }
+
+    memcpy(&g_scenemanager_scene_entry_snapshot[index * FSW_SCENE_ENTRY_SIZE],
+           (const void *)XBOX_PTR(entry),
+           FSW_SCENE_ENTRY_SIZE);
+    if (g_scenemanager_scene_entry_snapshot_count <= index) {
+        g_scenemanager_scene_entry_snapshot_count = index + 1;
+    }
+
+    if (snapshot_logs < 16 || (snapshot_logs % 512) == 0) {
+        fprintf(stderr,
+                "[FSW/Scene] snap entry #%u reason=%s manager=%08X index=%u entry=%08X object=%08X flags=%08X count=%u\n",
+                (unsigned)(snapshot_logs + 1),
+                reason,
+                (unsigned)manager,
+                (unsigned)index,
+                (unsigned)entry,
+                (unsigned)object,
+                (unsigned)MEM32(entry + 0x44),
+                (unsigned)MEM32(manager + 0xE0));
+    }
+    snapshot_logs++;
+}
+
+static void scenemanager_restore_entries_from_snapshot(uint32_t manager, const char *reason)
+{
+    uint32_t entries;
+    uint32_t count;
+    uint32_t first_object;
+    uint32_t snapshot_first;
+    uint32_t restore_count;
+    static uint32_t restore_logs;
+
+    if (!scenemanager_manager_is_valid(manager) ||
+        g_scenemanager_scene_entry_snapshot_manager != manager ||
+        g_scenemanager_scene_entry_snapshot_count == 0) {
+        return;
+    }
+
+    scenemanager_ensure_entries(manager);
+    entries = MEM32(manager + 0xDC);
+    count = MEM32(manager + 0xE0);
+    if (!scenemanager_va_range_is_valid(entries, FSW_SCENE_ENTRY_SIZE)) {
+        return;
+    }
+
+    first_object = MEM32(entries);
+    memcpy(&snapshot_first, &g_scenemanager_scene_entry_snapshot[0], sizeof(snapshot_first));
+    if (scenemanager_object_vtable_is_valid(first_object, 0x48) ||
+        !scenemanager_object_vtable_is_valid(snapshot_first, 0x48)) {
+        return;
+    }
+
+    restore_count = g_scenemanager_scene_entry_snapshot_count;
+    if (restore_count > FSW_SCENE_ENTRY_SNAPSHOT_MAX) {
+        restore_count = FSW_SCENE_ENTRY_SNAPSHOT_MAX;
+    }
+
+    memcpy((void *)XBOX_PTR(entries),
+           g_scenemanager_scene_entry_snapshot,
+           restore_count * FSW_SCENE_ENTRY_SIZE);
+    if (count < restore_count || count > FSW_SCENE_ENTRY_SNAPSHOT_MAX) {
+        MEM32(manager + 0xE0) = restore_count;
+    }
+
+    if (restore_logs < 16 || (restore_logs % 120) == 0) {
+        fprintf(stderr,
+                "[FSW/Scene] restored scene entries reason=%s manager=%08X entries=%08X count=%u old_first=%08X new_first=%08X snapshots=%u\n",
+                reason,
+                (unsigned)manager,
+                (unsigned)entries,
+                (unsigned)MEM32(manager + 0xE0),
+                (unsigned)first_object,
+                (unsigned)MEM32(entries),
+                (unsigned)restore_count);
+    }
+    restore_logs++;
+}
+
+void fsw_scenemanager_restore_entries_from_snapshot(uint32_t manager, const char *reason)
+{
+    scenemanager_restore_entries_from_snapshot(manager, reason);
 }
 
 /**
@@ -3204,6 +3508,22 @@ void fn_00280960_CSceneManager_CollectByFlags(void)
     ebp = g_seh_ebp; /* fpo_leaf: inherit caller's frame */
 
 loc_00280960:
+    {
+        uint32_t object = MEM32(esp + 4);
+        uint32_t flags = MEM32(esp + 8);
+        uint32_t list = MEM32(esp + 0xC);
+        int result;
+
+        if (g_scenemanager_collect_seen_count == 0) {
+            g_scenemanager_collect_log_count = 0;
+        }
+
+        result = scenemanager_collect_by_flags_safe(object, flags, list, 0);
+        g_scenemanager_collect_seen_count = 0;
+        SET_LO8(eax, result ? 1 : 0);
+        esp += 16; return; /* ret 12 */
+    }
+
     eax = MEM32(esp + 4);
     PUSH32(esp, ebx);
     PUSH32(esp, ebp);
@@ -9545,6 +9865,7 @@ loc_00284600:
         esp += 8; return; /* ret 4 */
     }
     MEM32(edi + 8) = MEM32(edi + 8) + 1;
+    scenemanager_ensure_entries(ebp);
     edx = MEM32(ebp + 0xDC);
     ebx = eax;
     eax = MEM32(ebp + 0xE0);
@@ -9558,7 +9879,12 @@ loc_00284600:
     MEM32(esi) = edi;
     MEM16(esi + 0x48) = 0;
     MEM32(esi + 0x44) = ebx;
-    if (TEST_Z(LO8(ebx), 4)) { sub_00284658(); return; } /* je: equal / zero */
+    if (TEST_Z(LO8(ebx), 4)) {
+        sub_00284658();
+        g_seh_ebp = ebp;
+        sub_00284671();
+        return;
+    } /* je: equal / zero */
 
 loc_0028463F:
     xmm0 = MEMF(0x561420); /* movss */
@@ -9599,10 +9925,23 @@ loc_00284658:
 void sub_00284671(void)
 {
     uint32_t ebp;
+    uint32_t saved_manager;
+    uint32_t saved_entry;
+    uint32_t saved_object;
+    uint32_t saved_flags;
+    uint32_t bound_object;
+    uint32_t added_entry;
+    uint32_t added_object;
+    uint32_t added_object_flags;
     int _flags = 0; /* fallback flag var */
     ebp = g_seh_ebp; /* fpo_leaf: inherit caller's frame */
 
 loc_00284671:
+    saved_manager = ebp;
+    saved_entry = esi;
+    saved_object = edi;
+    saved_flags = ebx;
+    added_object_flags = scenemanager_va_range_is_valid(saved_object + 0xC8, 4) ? MEM32(saved_object + 0xC8) : 0;
     eax = 0; /* xor self */
     if (TEST_Z(LO8(ebx), 2)) goto loc_0028468D; /* je: equal / zero */
 
@@ -9613,19 +9952,31 @@ loc_00284678:
     PUSH32(esp, 0); fn_00284240_CSceneManager_CreateBound(); /* call 0x00284240 */
 
 loc_00284681:
+    bound_object = eax;
+    ebp = saved_manager;
+    esi = saved_entry;
+    edi = saved_object;
+    ebx = saved_flags;
+    eax = bound_object;
     if (TEST_Z(LO8(ebx), 0x40)) goto loc_0028468D; /* je: equal / zero */
 
 loc_00284686:
     MEM32(eax + 0xC) = MEM32(eax + 0xC) & 0xFFFFFF7Fu;
 
 loc_0028468D:
+    bound_object = eax;
+    scenemanager_snapshot_entry(saved_manager, saved_entry, "add-scene-object-pre-shadow");
     PUSH32(esp, eax);
-    PUSH32(esp, edi);
-    PUSH32(esp, esi);
-    ecx = ebp;
+    PUSH32(esp, saved_object);
+    PUSH32(esp, saved_entry);
+    ecx = saved_manager;
     PUSH32(esp, 0); fn_002842E0_CSceneManager_ScanForShadowVolumes(); /* call 0x002842E0 */
 
 loc_00284697:
+    ebp = saved_manager;
+    esi = saved_entry;
+    edi = saved_object;
+    ebx = saved_flags;
     ecx = MEM32(0x5FA8E8);
     ecx = ecx + 0x11C;
     edx = MEM32(ecx);
@@ -9636,11 +9987,14 @@ loc_00284697:
     ecx = MEM32(ecx + 8);
     MEM32(esi + 8) = ecx;
     (void)0; /* test MEM32(edi + 0xC8), 0x80000 - flags set for next jcc */
+    added_entry = esi - 0x38;
+    added_object = edi;
+    scenemanager_snapshot_entry(ebp, added_entry, "add-scene-object");
     POP32(esp, edi);
     POP32(esp, esi);
     POP32(esp, ebp);
     POP32(esp, ebx);
-    if (TEST_Z(MEM32(edi + 0xC8), 0x80000)) goto loc_002846D1; /* je: equal / zero */
+    if (TEST_Z(added_object_flags, 0x80000)) goto loc_002846D1; /* je: equal / zero */
 
 loc_002846C6:
     PUSH32(esp, 0); fn_00146190_XBWaterManager_Get(); /* call 0x00146190 */
@@ -10380,6 +10734,23 @@ loc_00284E40:
     eax = 1;
     (void)0; /* test LO8(eax), LO8(ecx) - flags set for next jcc */
     MEM32(0) = esp;
+    if (TEST_Z(LO8(eax), LO8(ecx)) &&
+        scenemanager_va_range_is_valid(MEM32(0x643B60u + 0xDC), 0x4C) &&
+        MEM32(0x643B60u + 0xE0) > 0 &&
+        MEM32(0x643B60u + 0xE0) <= 0x2000u) {
+        static uint32_t repaired_scene_singleton_logs;
+        if (repaired_scene_singleton_logs < 8 || (repaired_scene_singleton_logs % 120) == 0) {
+            fprintf(stderr,
+                    "[FSW/Scene] preserving populated SceneManager singleton entries=%08X count=%u guard=%08X repair=%u\n",
+                    (unsigned)MEM32(0x643B60u + 0xDC),
+                    (unsigned)MEM32(0x643B60u + 0xE0),
+                    (unsigned)MEM32(0x643E20),
+                    (unsigned)(repaired_scene_singleton_logs + 1));
+        }
+        repaired_scene_singleton_logs++;
+        MEM32(0x643E20) = MEM32(0x643E20) | eax;
+        goto loc_00284E89;
+    }
     if (TEST_NZ(LO8(eax), LO8(ecx))) goto loc_00284E89; /* jne: not equal / not zero */
 
 loc_00284E64:
@@ -12653,6 +13024,25 @@ loc_002866AC:
 
 loc_002866BC:
     ebx = MEM32(0x5FA8E8);
+    fsw_xbvideo_ensure_default_render_surfaces(ebx, "render-xbox-surfaces");
+    if (!scenemanager_va_range_is_valid(esi, 0x20) || esi == ebx) {
+        if (scenemanager_va_range_is_valid(MEM32(ebx + 0x6C0C), 0x20)) {
+            esi = MEM32(ebx + 0x6C0C);
+        } else if (scenemanager_va_range_is_valid(MEM32(ebx + 0x70A4), 0x20)) {
+            esi = MEM32(ebx + 0x70A4);
+        } else if (scenemanager_va_range_is_valid(MEM32(ebx + 0xD0), 0x20)) {
+            esi = MEM32(ebx + 0xD0);
+        }
+        MEM32(esp + 0x30) = esi;
+    }
+    if (!scenemanager_va_range_is_valid(edi, 0x20) || edi == ebx) {
+        if (scenemanager_va_range_is_valid(MEM32(ebx + 0x6C10), 0x20)) {
+            edi = MEM32(ebx + 0x6C10);
+        } else if (scenemanager_va_range_is_valid(MEM32(ebx + 0x6C0C), 0x20)) {
+            edi = MEM32(ebx + 0x6C0C);
+        }
+        MEM32(esp + 0x20) = edi;
+    }
     if (!scenemanager_va_range_is_valid(ebx, 0xE0) ||
         !scenemanager_va_range_is_valid(esi, 0x20) ||
         !scenemanager_va_range_is_valid(edi, 0x20)) {
@@ -15309,6 +15699,7 @@ loc_00288498:
 
 loc_0028849D:
     esi = MEM32(ebp + 8);
+    scenemanager_ensure_submit_storage(esi);
     ecx = MEM32(esi + 0xE0);
     eax = 0; /* xor self */
     (void)0; /* cmp ecx, eax - flags set for next jcc */
@@ -15851,6 +16242,8 @@ void fn_00288C10_CSceneManager_RenderAll(void)
 {
     uint32_t ebp;
     uint32_t scene_manager = 0;
+    static uint32_t renderall_logs = 0;
+    uint32_t log_renderall = 0;
     int _flags = 0; /* fallback flag var */
     float xmm0;
     ebp = g_seh_ebp; /* fpo_leaf: inherit caller's frame */
@@ -15858,17 +16251,39 @@ void fn_00288C10_CSceneManager_RenderAll(void)
 loc_00288C10:
     esp = esp - 0x40;
     PUSH32(esp, ebx);
-    ebx = MEM32(esp + 0x48);
-    scene_manager = scenemanager_manager_is_valid(ebx) ? ebx : 0x643B60u;
-    PUSH32(esp, ebp);
-    ebp = scenemanager_restore_video("renderall-entry");
+	    ebx = MEM32(esp + 0x48);
+	    scene_manager = scenemanager_manager_is_valid(ebx) ? ebx : 0x643B60u;
+	    PUSH32(esp, ebp);
+	    ebp = scenemanager_restore_video("renderall-entry");
+	    scenemanager_restore_entries_from_snapshot(scene_manager, "renderall-entry");
+	    renderall_logs++;
+    log_renderall = (renderall_logs <= 8 || (renderall_logs % 120) == 0);
+    if (log_renderall) {
+        uint32_t first_entry = scenemanager_va_range_is_valid(scene_manager + 0xDC, 8) ? MEM32(scene_manager + 0xDC) : 0;
+        uint32_t first_object = scenemanager_va_range_is_valid(first_entry, 4) ? MEM32(first_entry) : 0;
+        fprintf(stderr,
+                "[FSW/Scene] RenderAll begin #%u scene=%08X entries=%08X entry_count=%u submit=%08X submit_count=%u first=%08X flags=%08X video=%08X esp=%08X\n",
+                (unsigned)renderall_logs,
+                (unsigned)scene_manager,
+                (unsigned)first_entry,
+                (unsigned)(scenemanager_va_range_is_valid(scene_manager + 0xE0, 4) ? MEM32(scene_manager + 0xE0) : 0),
+                (unsigned)(scenemanager_va_range_is_valid(scene_manager + 0xF0, 4) ? MEM32(scene_manager + 0xF0) : 0),
+                (unsigned)(scenemanager_va_range_is_valid(scene_manager + 0xF4, 4) ? MEM32(scene_manager + 0xF4) : 0),
+                (unsigned)first_object,
+                (unsigned)(scenemanager_va_range_is_valid(first_object + 0xC8, 4) ? MEM32(first_object + 0xC8) : 0),
+                (unsigned)ebp,
+                (unsigned)esp);
+    }
     PUSH32(esp, esi);
     PUSH32(esp, 1);
     PUSH32(esp, 0); fn_003AA8C0_CLODObject_UpdateAll(); /* call 0x003AA8C0 */
 
 loc_00288C27:
-    ebx = scene_manager;
-    ebp = scenemanager_restore_video("renderall-after-lod");
+	    ebx = scene_manager;
+	    ebp = scenemanager_restore_video("renderall-after-lod");
+	    scenemanager_restore_entries_from_snapshot(ebx, "renderall-after-lod");
+	    scenemanager_ensure_submit_storage(ebx);
+    MEM32(ebx + 0xF4) = 0;
     esi = MEM32(esp + 0x58);
     esp = esp + 4;
     PUSH32(esp, esi);
@@ -15878,6 +16293,14 @@ loc_00288C27:
 loc_00288C35:
     ebx = scene_manager;
     ebp = scenemanager_restore_video("renderall-after-update-objects");
+    if (log_renderall) {
+        fprintf(stderr,
+                "[FSW/Scene] RenderAll after UpdateObjects #%u entry_count=%u submit_count=%u esp=%08X\n",
+                (unsigned)renderall_logs,
+                (unsigned)(scenemanager_va_range_is_valid(ebx + 0xE0, 4) ? MEM32(ebx + 0xE0) : 0),
+                (unsigned)(scenemanager_va_range_is_valid(ebx + 0xF4, 4) ? MEM32(ebx + 0xF4) : 0),
+                (unsigned)esp);
+    }
     PUSH32(esp, esi);
     PUSH32(esp, ebx);
     PUSH32(esp, 0); fn_00285490_CSceneManager_UpdateLights(); /* call 0x00285490 */
@@ -15891,6 +16314,14 @@ loc_00288C3C:
 loc_00288C42:
     ebx = scene_manager;
     ebp = scenemanager_restore_video("renderall-after-submit-objects");
+    if (log_renderall) {
+        fprintf(stderr,
+                "[FSW/Scene] RenderAll after SubmitObjects #%u submit_count=%u video=%08X esp=%08X\n",
+                (unsigned)renderall_logs,
+                (unsigned)(scenemanager_va_range_is_valid(ebx + 0xF4, 4) ? MEM32(ebx + 0xF4) : 0),
+                (unsigned)ebp,
+                (unsigned)esp);
+    }
     PUSH32(esp, ebx);
     MEM8(ebp + 0x170) = 1;
     MEM32(ebp + 0x16C) = 0xF;
@@ -15962,6 +16393,13 @@ loc_00288CD6:
 loc_00288CE4:
     ebx = scene_manager;
     ebp = scenemanager_restore_video("renderall-post-render-xbox");
+    if (log_renderall) {
+        fprintf(stderr,
+                "[FSW/Scene] RenderAll after Render_Xbox #%u submit_count=%u esp=%08X\n",
+                (unsigned)renderall_logs,
+                (unsigned)(scenemanager_va_range_is_valid(ebx + 0xF4, 4) ? MEM32(ebx + 0xF4) : 0),
+                (unsigned)esp);
+    }
     edx = MEM32(ebp);
     { uint32_t _icall_esp = g_esp;
     PUSH32(esp, edi);

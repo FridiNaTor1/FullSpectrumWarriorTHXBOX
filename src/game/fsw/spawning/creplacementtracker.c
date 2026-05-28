@@ -671,6 +671,7 @@ loc_0037DD04:
 void sub_0037DD0A(void)
 {
     uint32_t ebp;
+    uint32_t saved_stream;
     int _flags = 0; /* fallback flag var */
     ebp = g_seh_ebp; /* fpo_leaf: inherit caller's frame */
 
@@ -678,11 +679,13 @@ loc_0037DD0A:
     MEM32(esp + 0x48) = 0xFFFFFFFFu;
     eax = MEM32(0x5FA358);
     fprintf(stderr, "[FSW/Replacement] LoadData before profile replacement save profile=%08X stream=%08X\n", eax, esi);
+    saved_stream = esi;
     PUSH32(esp, esi);
     PUSH32(esp, eax);
     PUSH32(esp, 0); fn_002B2780_CProfileManager_GetReplacementSave(); /* call 0x002B2780 */
 
 loc_0037DD1E:
+    esi = saved_stream;
     fprintf(stderr, "[FSW/Replacement] LoadData profile replacement save result=%08X stream=%08X\n", eax, esi);
     (void)0; /* cmp LO8(eax), LO8(ebx) - flags set for next jcc */
     MEM8(ebp + 0x30) = LO8(ebx);

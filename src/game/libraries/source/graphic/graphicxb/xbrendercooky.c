@@ -38,6 +38,10 @@ static int xbrendercooky_descriptor_is_valid(uint32_t descriptor)
 }
 
 static uint32_t xbrendercooky_ctor_this;
+static uint32_t xbrendercooky_lock_cookie;
+static uint32_t xbrendercooky_lock_descriptor;
+static uint32_t xbrendercooky_lock_record;
+static uint32_t xbrendercooky_lock_vertex_size;
 
 static int xbrendercooky_stack_va_is_valid(uint32_t va)
 {
@@ -119,6 +123,28 @@ static void xbrendercooky_lock_guarded_return(void)
     POP32(esp, ebx);
     esp = esp + 0xC;
     esp += 16; return; /* ret 12 */
+}
+
+static void xbrendercooky_lock_capture(uint32_t cookie, uint32_t descriptor, uint32_t record)
+{
+    xbrendercooky_lock_cookie = cookie;
+    xbrendercooky_lock_descriptor = descriptor;
+    xbrendercooky_lock_record = record;
+    xbrendercooky_lock_vertex_size = 0;
+}
+
+static uint32_t xbrendercooky_lock_restore_context(uint32_t current_ebp)
+{
+    if (xbrendercooky_va_range_is_valid(xbrendercooky_lock_cookie, 0x48)) {
+        current_ebp = xbrendercooky_lock_cookie;
+    }
+    if (xbrendercooky_descriptor_is_valid(xbrendercooky_lock_descriptor)) {
+        ebx = xbrendercooky_lock_descriptor;
+    }
+    if (xbrendercooky_lock_vertex_size != 0 && xbrendercooky_lock_vertex_size < 0x1000u) {
+        edi = xbrendercooky_lock_vertex_size;
+    }
+    return current_ebp;
 }
 
 /**
@@ -861,6 +887,7 @@ loc_00144147:
     ebp = _cf ? 0xFFFFFFFF : 0; /* sbb self (CF extend) */
     ebp = ebp & 0xFFFFFFFAu;
     ebp = ebp + 0xC;
+    g_seh_ebp = ebp; sub_00144159(); return; /* fallthrough 0x00144159 */
 
 }
 
@@ -1609,12 +1636,20 @@ loc_001446A0:
  */
 void sub_001446C3(void)
 {
+    uint32_t ebp;
     float xmm0;
+    ebp = g_seh_ebp; /* fpo_leaf: inherit caller's frame */
 
 loc_001446C3:
     xmm0 = MEMF(0x56149C); /* movss */
     MEM32(edx + 8) = 0xC;
     eax = eax + 0xC;
+    MEMF(edx + 0xCC) = xmm0; /* movss */
+    MEM32(edx + 0x18) = eax;
+    MEM32(edx + 0x1C) = esi;
+    MEM32(edx + 0x20) = 5;
+    eax = eax + 5;
+    g_seh_ebp = ebp; sub_0014474E(); return; /* fallthrough 0x001446D5 -> 0x0014474E */
 
 }
 
@@ -1689,6 +1724,7 @@ loc_00144731:
     MEM32(edx + 8) = 0xC;
     eax = eax + 0xC;
     MEMF(edx + 0xCC) = xmm0; /* movss */
+    sub_0014474B(); return; /* fallthrough 0x0014474B */
 
 }
 
@@ -1703,6 +1739,7 @@ void sub_0014474B(void)
 
 loc_0014474B:
     MEM32(edx + 4) = esi;
+    sub_0014474E(); return; /* fallthrough 0x0014474E */
 
 }
 
@@ -2013,10 +2050,13 @@ loc_00144990:
  */
 void sub_0014499A(void)
 {
+    uint32_t ebp;
+    ebp = g_seh_ebp; /* fpo_leaf: inherit caller's frame */
 
 loc_0014499A:
     MEM32(edx + 8) = ebx;
     eax = 0xC;
+    g_seh_ebp = ebp; sub_001449A2(); return; /* fallthrough 0x001449A2 */
 
 }
 
@@ -2079,10 +2119,13 @@ loc_001449E9:
  */
 void sub_001449F3(void)
 {
+    uint32_t ebp;
+    ebp = g_seh_ebp; /* fpo_leaf: inherit caller's frame */
 
 loc_001449F3:
     MEM32(edx + 8) = ebx;
     eax = 0xC;
+    g_seh_ebp = ebp; sub_001449FB(); return; /* fallthrough 0x001449FB */
 
 }
 
@@ -2099,6 +2142,7 @@ void sub_001449FB(void)
 
 loc_001449FB:
     MEM32(edx) = ebp;
+    g_seh_ebp = ebp; sub_001449FD(); return; /* fallthrough 0x001449FD */
 
 }
 
@@ -2950,10 +2994,9 @@ loc_00145263:
 
 loc_00145268:
     edx = eax + 0x18;
-    SET_LO8(eax, MEM8(esp + 0xB));
-    (void)0; /* test LO8(eax), LO8(eax) - flags set for next jcc */
+    (void)0; /* test byte [esp+0xB], byte [esp+0xB] - flags set for next jcc */
     eax = edx;
-    if (TEST_NZ(LO8(eax), LO8(eax))) goto loc_001453A3; /* jne: not equal / not zero */
+    if (TEST_NZ(MEM8(esp + 0xB), MEM8(esp + 0xB))) goto loc_001453A3; /* jne: not equal / not zero */
 
 loc_00145279:
     ecx = 0x10;
@@ -3033,10 +3076,9 @@ loc_0014531F:
 
 loc_00145324:
     edx = eax + 0x20;
-    SET_LO8(eax, MEM8(esp + 0xB));
-    (void)0; /* test LO8(eax), LO8(eax) - flags set for next jcc */
+    (void)0; /* test byte [esp+0xB], byte [esp+0xB] - flags set for next jcc */
     eax = edx;
-    if (TEST_NZ(LO8(eax), LO8(eax))) goto loc_001453A3; /* jne: not equal / not zero */
+    if (TEST_NZ(MEM8(esp + 0xB), MEM8(esp + 0xB))) goto loc_001453A3; /* jne: not equal / not zero */
 
 loc_00145331:
     ecx = 0x10;
@@ -3667,6 +3709,34 @@ void fn_00145730_XBRenderCookie_Lock(void)
     ebp = g_seh_ebp; /* fpo_leaf: inherit caller's frame */
 
 loc_00145730:
+    {
+        static uint32_t lock_entry_count;
+        uint32_t entry_descriptor = MEM32(esp + 4);
+        uint32_t entry_flags = MEM32(esp + 8);
+        uint32_t entry_record = MEM32(esp + 12);
+        if (lock_entry_count < 24 ||
+            !xbrendercooky_va_range_is_valid(ecx, 0x48) ||
+            !xbrendercooky_descriptor_is_valid(entry_descriptor) ||
+            !xbrendercooky_va_range_is_valid(entry_record, 0xD8)) {
+            fprintf(stderr,
+                    "[FSW/RenderCookie] Lock entry #%u this=%08X vtbl=%08X desc=%08X flags=%08X record=%08X desc_count=%08X desc_flags=%08X desc_prim=%08X cookie10=%08X cookie14=%08X cookie38=%08X cookie3C=%08X esp=%08X\n",
+                    (unsigned)(lock_entry_count + 1),
+                    (unsigned)ecx,
+                    (unsigned)(xbrendercooky_va_range_is_valid(ecx, 4) ? MEM32(ecx) : 0),
+                    (unsigned)entry_descriptor,
+                    (unsigned)entry_flags,
+                    (unsigned)entry_record,
+                    (unsigned)(xbrendercooky_va_range_is_valid(entry_descriptor + 0x18, 4) ? MEM32(entry_descriptor + 0x18) : 0),
+                    (unsigned)(xbrendercooky_va_range_is_valid(entry_descriptor + 0x0C, 4) ? MEM32(entry_descriptor + 0x0C) : 0),
+                    (unsigned)(xbrendercooky_va_range_is_valid(entry_descriptor + 0x14, 4) ? MEM32(entry_descriptor + 0x14) : 0),
+                    (unsigned)(xbrendercooky_va_range_is_valid(ecx + 0x10, 4) ? MEM32(ecx + 0x10) : 0),
+                    (unsigned)(xbrendercooky_va_range_is_valid(ecx + 0x14, 4) ? MEM32(ecx + 0x14) : 0),
+                    (unsigned)(xbrendercooky_va_range_is_valid(ecx + 0x38, 4) ? MEM32(ecx + 0x38) : 0),
+                    (unsigned)(xbrendercooky_va_range_is_valid(ecx + 0x3C, 4) ? MEM32(ecx + 0x3C) : 0),
+                    (unsigned)esp);
+        }
+        lock_entry_count++;
+    }
     esp = esp - 0xC;
     eax = MEM32(0x5FA8E8);
     PUSH32(esp, ebx);
@@ -3687,16 +3757,17 @@ loc_00145730:
         }
         xbrendercooky_lock_guarded_return(); return;
     }
+    xbrendercooky_lock_capture(ebp, ebx, edi);
     eax = 0; /* xor self */
     ecx = 0x36;
     { uint32_t _i; for (_i = 0; _i < ecx; _i++) MEM32(edi + _i*4) = eax; }
     edi += ecx * 4; ecx = 0; /* rep stosd */
     eax = MEM32(ebx + 0x18);
     eax = eax & 0x1FFFF;
-    if ((eax == 0)) { sub_001458B9(); return; } /* je: equal / zero */
+    if ((eax == 0)) { g_seh_ebp = ebp; sub_001458B9(); return; } /* je: equal / zero */
 
 loc_00145764:
-    if (CMP_EQ(esi, 0x10000)) { sub_001458B9(); return; } /* je: equal / zero */
+    if (CMP_EQ(esi, 0x10000)) { g_seh_ebp = ebp; sub_001458B9(); return; } /* je: equal / zero */
 
 loc_00145770:
     eax = MEM32(ebp + 0x10);
@@ -3784,6 +3855,7 @@ loc_00145812:
 loc_00145821:
     ecx = MEM32(esp + 0x18);
     edi = eax;
+    xbrendercooky_lock_vertex_size = edi;
     MEM32(ebp + 0x10) = 1;
     MEM32(ebp + 0x30) = esi;
     eax = MEM32(ebx + 0x18);
@@ -3800,7 +3872,7 @@ loc_0014584C:
     esi = eax;
     (void)0; /* test esi, esi - flags set for next jcc */
     MEM32(ebp + 0x38) = esi;
-    if (TEST_NZ(esi, esi)) { sub_00145861(); return; } /* jne: not equal / not zero */
+    if (TEST_NZ(esi, esi)) { g_seh_ebp = ebp; sub_00145861(); return; } /* jne: not equal / not zero */
 
 loc_00145855:
     POP32(esp, edi);
@@ -3823,6 +3895,7 @@ void sub_00145861(void)
 {
     uint32_t ebp;
     ebp = g_seh_ebp; /* fpo_leaf: inherit caller's frame */
+    ebp = xbrendercooky_lock_restore_context(ebp);
 
 loc_00145861:
     edx = esi + 0x1C;
@@ -3838,6 +3911,7 @@ loc_00145861:
     PUSH32(esp, 0); fn_001395C0_XBVertexBuffer_Lock(); /* call 0x001395C0 */
 
 loc_00145883:
+    ebp = xbrendercooky_lock_restore_context(ebp);
     eax = MEM32(esp + 0x14);
     MEM32(ebp + 0x20) = eax;
     eax = 0; /* xor self */
@@ -3850,9 +3924,35 @@ loc_00145883:
     edx = esp + 0x14;
     PUSH32(esp, edx);
     edx = MEM32(esp + 0x30);
+    if (!xbrendercooky_va_range_is_valid(edx, 0xD8) &&
+        xbrendercooky_va_range_is_valid(xbrendercooky_lock_record, 0xD8)) {
+        edx = xbrendercooky_lock_record;
+    }
     PUSH32(esp, eax);
     eax = MEM32(esp + 0x2C);
     esi = edi;
+    {
+        static uint32_t new_record_log_count;
+        if (new_record_log_count < 16 || edx == 0) {
+            fprintf(stderr,
+                    "[FSW/RenderCookie] new buffer SetupRecord args #%u cookie=%08X desc=%08X data=%08X flags_arg=%08X record=%08X count_a=%08X count_b=%08X sp20=%08X sp24=%08X sp28=%08X sp2c=%08X sp30=%08X esp=%08X\n",
+                    (unsigned)(new_record_log_count + 1),
+                    (unsigned)ebp,
+                    (unsigned)ebx,
+                    (unsigned)eax,
+                    (unsigned)MEM32(esp),
+                    (unsigned)edx,
+                    (unsigned)(esp + 0x14),
+                    (unsigned)MEM32(esp + 0x10),
+                    (unsigned)MEM32(esp + 0x20),
+                    (unsigned)MEM32(esp + 0x24),
+                    (unsigned)MEM32(esp + 0x28),
+                    (unsigned)MEM32(esp + 0x2C),
+                    (unsigned)MEM32(esp + 0x30),
+                    (unsigned)esp);
+        }
+        new_record_log_count++;
+    }
     PUSH32(esp, 0); fn_00144660_XBRenderCookie_SetupRecord(); /* call 0x00144660 */
 
 loc_001458B4:
@@ -3871,9 +3971,11 @@ void sub_001458B9(void)
 {
     uint32_t ebp;
     ebp = g_seh_ebp; /* fpo_leaf: inherit caller's frame */
+    ebp = xbrendercooky_lock_restore_context(ebp);
 
 loc_001458B9:
     MEM32(ebp + 0x10) = 0;
+    g_seh_ebp = ebp; sub_001458C0(); return; /* fallthrough 0x001458C0 */
 
 }
 
@@ -3888,11 +3990,16 @@ void sub_001458C0(void)
     uint32_t ebp;
     int _flags = 0; /* fallback flag var */
     ebp = g_seh_ebp; /* fpo_leaf: inherit caller's frame */
+    ebp = xbrendercooky_lock_restore_context(ebp);
 
 loc_001458C0:
     eax = MEM32(ebx + 0x1C);
     if (!xbrendercooky_descriptor_is_valid(ebx) || eax > 0x100000u) {
-        xbrendercooky_warn_bad_descriptor("IndexBuffer", ebp, ebx, MEM32(esp + 0x28));
+        uint32_t index_record = MEM32(esp + 0x28);
+        if (!xbrendercooky_va_range_is_valid(index_record, 0xD8)) {
+            index_record = xbrendercooky_lock_record;
+        }
+        xbrendercooky_warn_bad_descriptor("IndexBuffer", ebp, ebx, index_record);
         MEM32(ebp + 0x14) = 0;
         xbrendercooky_lock_guarded_return(); return;
     }
@@ -3934,6 +4041,10 @@ loc_00145906:
     edx = MEM32(ebp + 0x14);
     eax = MEM32(edx);
     ecx = MEM32(esp + 0x28);
+    if (!xbrendercooky_va_range_is_valid(ecx, 0xD8) &&
+        xbrendercooky_va_range_is_valid(xbrendercooky_lock_record, 0xD8)) {
+        ecx = xbrendercooky_lock_record;
+    }
     MEM32(ecx + 0xD4) = eax;
     g_seh_ebp = ebp; sub_0014591E(); return; /* tail jmp 0x0014591E */
 
@@ -3952,6 +4063,7 @@ void sub_00145917(void)
 
 loc_00145917:
     MEM32(ebp + 0x14) = 0;
+    g_seh_ebp = ebp; sub_0014591E(); return; /* fallthrough 0x0014591E */
 
 }
 

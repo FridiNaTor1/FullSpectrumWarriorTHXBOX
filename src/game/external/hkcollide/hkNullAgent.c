@@ -647,25 +647,44 @@ void fn_004848B3_XNetRandom_8(void)
 /* Fallback for unresolved generated target 0x004848BE. */
 void fn_004848BE_XNetCreateKey_8(void)
 {
-    recomp_missing_target(0x004848BEu);
+    uint32_t key_id = MEM32(esp + 4);
+    uint32_t key = MEM32(esp + 8);
+    if (xbox_va_is_valid(key_id)) {
+        MEM32(key_id + 0) = 0x46535754u;
+        MEM32(key_id + 4) = 0x48424F58u;
+    }
+    if (xbox_va_is_valid(key)) {
+        for (uint32_t i = 0; i < 16; i += 4) {
+            MEM32(key + i) = 0x54484E58u ^ i;
+        }
+    }
+    eax = 0;
+    esp += 12; return; /* ret 8 */
 }
 
 /* Fallback for unresolved generated target 0x004848C9. */
 void fn_004848C9_XNetRegisterKey_8(void)
 {
-    recomp_missing_target(0x004848C9u);
+    eax = 0;
+    esp += 12; return; /* ret 8 */
 }
 
 /* Fallback for unresolved generated target 0x004848D4. */
 void fn_004848D4_XNetUnregisterKey_4(void)
 {
-    recomp_missing_target(0x004848D4u);
+    eax = 0;
+    esp += 8; return; /* ret 4 */
 }
 
 /* Fallback for unresolved generated target 0x004848DF. */
 void fn_004848DF_XNetXnAddrToInAddr_12(void)
 {
-    recomp_missing_target(0x004848DFu);
+    uint32_t out_addr = MEM32(esp + 12);
+    if (xbox_va_is_valid(out_addr)) {
+        MEM32(out_addr) = 0x0100007Fu; /* 127.0.0.1 in network byte order. */
+    }
+    eax = 0;
+    esp += 16; return; /* ret 12 */
 }
 
 /* Fallback for unresolved generated target 0x00484918. */
@@ -689,7 +708,15 @@ void fn_00484943_XNetQosRelease_4(void)
 /* Fallback for unresolved generated target 0x0048494E. */
 void fn_0048494E_XNetGetTitleXnAddr_4(void)
 {
-    recomp_missing_target(0x0048494Eu);
+    uint32_t out_addr = MEM32(esp + 4);
+    if (xbox_va_is_valid(out_addr)) {
+        memset((void *)XBOX_PTR(out_addr), 0, 0x24);
+        MEM32(out_addr + 0x00) = 0x0100007Fu;
+        MEM32(out_addr + 0x04) = 0x46535754u;
+        MEM32(out_addr + 0x08) = 0x48424F58u;
+    }
+    eax = 2;
+    esp += 8; return; /* ret 4 */
 }
 
 /* Fallback for unresolved generated target 0x00484959. */
@@ -786,13 +813,15 @@ void fn_00484DB6_WSACleanup_0(void)
 /* Fallback for unresolved generated target 0x00495740. */
 void fn_00495740_XOnlineTaskContinue_4(void)
 {
-    recomp_missing_target(0x00495740u);
+    eax = 0;
+    esp += 8; return; /* ret 4 */
 }
 
 /* Fallback for unresolved generated target 0x0049574B. */
 void fn_0049574B_XOnlineTaskClose_4(void)
 {
-    recomp_missing_target(0x0049574Bu);
+    eax = 0;
+    esp += 8; return; /* ret 4 */
 }
 
 /* Fallback for unresolved generated target 0x00495756. */

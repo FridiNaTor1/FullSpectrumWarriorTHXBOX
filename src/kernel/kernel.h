@@ -458,6 +458,15 @@ ULONG_PTR xbox_resolve_ordinal(ULONG ordinal);
 /* Kernel bridge (kernel_bridge.c) - resolve kernel thunks in Xbox memory */
 void xbox_kernel_bridge_init(void);
 
+uint32_t xbox_kernel_bridge_create_file_handle(
+    const char* xbox_path,
+    DWORD desired_access,
+    DWORD share_mode,
+    DWORD creation_disposition,
+    DWORD flags_and_attributes,
+    DWORD* error_out);
+BOOL xbox_kernel_bridge_get_file_size32(uint32_t xbox_handle, uint32_t* size_out);
+
 /* ============================================================================
  * Path Translation (kernel_path.c)
  * ============================================================================ */

@@ -13,6 +13,9 @@
 #ifdef XBOXRECOMP_VULKAN_GRAPHICS
 extern int fsw_cuiimagecontrol_draw_texture_crc(uint32_t crc, float x, float y,
                                                 float w, float h, uint32_t color);
+extern int fsw_cuiimagecontrol_draw_texture_crc_uv(uint32_t crc, float x, float y,
+                                                   float w, float h, uint32_t color,
+                                                   float u0, float v0, float u1, float v1);
 extern uint32_t fsw_cuitexture_find_surface(uint32_t crc);
 static uint32_t g_fsw_bg_debug_log_count;
 static uint32_t g_fsw_bg_update_debug_log_count;
@@ -1646,30 +1649,42 @@ loc_001991B8:
 
 loc_001991C2:
 #ifdef XBOXRECOMP_VULKAN_GRAPHICS
-    {
+    if (getenv("FSW_TH_BG_HIERARCHY") == NULL) {
         uint32_t surface = fsw_cuitexture_find_surface(fsw_bg_crc);
         float band_top = MEMF(0x582D6C);
         float band_bottom = MEMF(0x582D70);
         float band_h = band_bottom - band_top;
         float alpha = MEMF(esp + 0x20);
+        float fade_alpha = MEMF(esp + 0x24);
+        float u0 = 0.0f;
+        float v0 = MEMF(esp + 0xC);
+        float u1 = 1.0f;
+        float v1 = MEMF(esp + 0x28);
         uint32_t color;
+        if ((!isfinite(alpha) || alpha <= 0.01f) &&
+            isfinite(fade_alpha) && fade_alpha > 0.01f) {
+            alpha = fade_alpha;
+        }
         if (!isfinite(alpha) || alpha < 0.0f) alpha = 0.0f;
         if (alpha > 1.0f) alpha = 1.0f;
         if (cbackgroundui_va_is_valid(surface + 0x1C) &&
             MEM32(surface + 0x18) >= 256 &&
             MEM32(surface + 0x1C) >= 128 &&
-            (alpha > 0.01f || !fsw_bg_any_visible)) {
-            if (!isfinite(band_top) || band_top < 0.0f || band_top > 480.0f) band_top = 80.0f;
-            if (!isfinite(band_h) || band_h < 1.0f || band_h > 480.0f) band_h = 221.0f;
-            if (alpha <= 0.01f && !fsw_bg_any_visible) alpha = 1.0f;
+            alpha > 0.01f) {
+            if (!isfinite(band_top) || band_top < 0.0f || band_top > 480.0f) band_top = 100.0f;
+            if (!isfinite(band_h) || band_h < 1.0f || band_h > 480.0f) band_h = 260.0f;
+            if (!isfinite(v0) || !isfinite(v1) || (fabsf(v0) < 0.0001f && fabsf(v1) < 0.0001f)) {
+                v0 = 0.0f;
+                v1 = 1.0f;
+            }
             color = ((uint32_t)(alpha * 255.0f) << 24) | 0x00FFFFFFu;
-            fsw_cuiimagecontrol_draw_texture_crc(
-                fsw_bg_crc, 0.0f, band_top, 640.0f, band_h, color);
+            fsw_cuiimagecontrol_draw_texture_crc_uv(
+                fsw_bg_crc, 0.0f, band_top, 640.0f, band_h, color, u0, v0, u1, v1);
             fsw_bg_drawn = 1;
             if (alpha > 0.01f) fsw_bg_any_visible = 1;
         }
+        goto loc_0019927E;
     }
-    goto loc_0019927E;
 #endif
     PUSH32(esp, ecx);
     ecx = MEM32(esi);

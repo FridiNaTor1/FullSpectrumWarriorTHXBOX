@@ -10,6 +10,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 
+extern void fsw_scenemanager_restore_entries_from_snapshot(uint32_t manager, const char *reason);
+
 static int fsw_inithandler_va_is_valid(uint32_t va)
 {
     return va >= 0x00010000u && va < 0x04000000u;
@@ -36,7 +38,47 @@ static void fsw_inithandler_progress(const char *stage)
             (unsigned)ecx,
             (unsigned)edx,
             (unsigned)esi,
-            (unsigned)edi);
+	            (unsigned)edi);
+}
+
+static void fsw_inithandler_scene_state(const char *stage)
+{
+    const uint32_t scene = 0x643B60u;
+    uint32_t entries = fsw_inithandler_va_range_is_valid(scene + 0xDC, 0x24) ? MEM32(scene + 0xDC) : 0;
+    uint32_t count = fsw_inithandler_va_range_is_valid(scene + 0xE0, 4) ? MEM32(scene + 0xE0) : 0xFFFFFFFFu;
+    uint32_t submit = fsw_inithandler_va_range_is_valid(scene + 0xF0, 8) ? MEM32(scene + 0xF0) : 0;
+    uint32_t submit_count = fsw_inithandler_va_range_is_valid(scene + 0xF4, 4) ? MEM32(scene + 0xF4) : 0xFFFFFFFFu;
+    uint32_t first = fsw_inithandler_va_range_is_valid(entries, 4) ? MEM32(entries) : 0;
+
+    fprintf(stderr,
+            "[FSW/Scene] init %s entries=%08X count=%u submit=%08X submit_count=%u first=%08X guard=%08X esp=%08X\n",
+            stage,
+            (unsigned)entries,
+            (unsigned)count,
+            (unsigned)submit,
+            (unsigned)submit_count,
+            (unsigned)first,
+            (unsigned)MEM32(0x643E20),
+            (unsigned)esp);
+}
+
+static int fsw_inithandler_stack_is_plausible(uint32_t value)
+{
+    return value >= 0x00800000u && value < 0x00A00000u;
+}
+
+static void fsw_inithandler_repair_stack(uint32_t expected, const char *stage)
+{
+    uint32_t delta;
+    if (!fsw_inithandler_stack_is_plausible(expected)) {
+        return;
+    }
+    delta = (esp > expected) ? (esp - expected) : (expected - esp);
+    if (!fsw_inithandler_stack_is_plausible(esp) || delta > 0x4000u) {
+        fprintf(stderr, "[FSW/Load] repaired mission stack before %s %08X -> %08X\n",
+                stage, esp, expected);
+        esp = expected;
+    }
 }
 
 /**
@@ -779,6 +821,7 @@ loc_002AECDD:
 void fn_002AECF0_PerMissionInit(void)
 {
     uint32_t ebp;
+    uint32_t saved_call_esp;
     int _flags = 0; /* fallback flag var */
     float xmm0;
 
@@ -1378,7 +1421,7 @@ loc_002AF28C:
     (void)0; /* cmp ecx, ebx - flags set for next jcc */
     MEM32(esp + 0x20) = esp;
     esi = esp;
-    if (CMP_NE(ecx, ebx)) { sub_002AF2A1(); return; } /* jne: not equal / not zero */
+    if (CMP_NE(ecx, ebx)) { g_seh_ebp = ebp; sub_002AF2A1(); return; } /* jne: not equal / not zero */
 
 loc_002AF29D:
     MEM32(esi) = ebx;
@@ -1401,6 +1444,7 @@ loc_002AF2A1:
 
 loc_002AF2A8:
     MEM32(esi) = eax;
+    sub_002AF2AA(); return; /* original falls through */
 
 }
 
@@ -1413,6 +1457,8 @@ loc_002AF2A8:
 void sub_002AF2AA(void)
 {
     uint32_t ebp;
+    uint32_t saved_call_esp;
+    uint32_t stable_mission_esp = 0;
     uint32_t fsw_spawn_force_update_iterations = 0;
     uint32_t replacement_tracker = 0;
     int _flags = 0; /* fallback flag var */
@@ -1420,11 +1466,12 @@ void sub_002AF2AA(void)
     ebp = g_seh_ebp; /* fpo_leaf: inherit caller's frame */
 
 loc_002AF2AA:
-    PUSH32(esp, 0); fn_002AE6F0_LoadWLD(); /* call 0x002AE6F0 */
+	    PUSH32(esp, 0); fn_002AE6F0_LoadWLD(); /* call 0x002AE6F0 */
 
 loc_002AF2AF:
-    xmm0 = MEMF(0x56149C); /* movss */
-    PUSH32(esp, 0x42860000);
+	    fsw_inithandler_scene_state("after LoadWLD");
+	    xmm0 = MEMF(0x56149C); /* movss */
+	    PUSH32(esp, 0x42860000);
     edi = eax;
     PUSH32(esp, 0); fn_002AC280_UpdateLoadingBar(); /* call 0x002AC280 */
 
@@ -1502,7 +1549,8 @@ loc_002AF353:
     PUSH32(esp, 0); fn_003ABBA0_CEffectsManager_Setup(); /* call 0x003ABBA0 */
 
 loc_002AF35A:
-    PUSH32(esp, 0); fn_002A5B00_CBulletManager_Get(); /* call 0x002A5B00 */
+	    fsw_inithandler_scene_state("after EffectsManager_Setup");
+	    PUSH32(esp, 0); fn_002A5B00_CBulletManager_Get(); /* call 0x002A5B00 */
 
 loc_002AF35F:
     MEM32(eax + 0xC) = 0x64;
@@ -1550,7 +1598,8 @@ loc_002AF3B8:
     PUSH32(esp, 0); fn_002FFA70_CameraManager_Setup(); /* call 0x002FFA70 */
 
 loc_002AF3C2:
-    PUSH32(esp, 0); fn_0028A440_CSubtitleManager_Get(); /* call 0x0028A440 */
+	    fsw_inithandler_scene_state("after CameraManager_Setup");
+	    PUSH32(esp, 0); fn_0028A440_CSubtitleManager_Get(); /* call 0x0028A440 */
 
 loc_002AF3C7:
     PUSH32(esp, 0); fn_001C9180_UIConfigSetup(); /* call 0x001C9180 */
@@ -1566,11 +1615,13 @@ loc_002AF3DE:
     PUSH32(esp, 0); fn_00284E40_CSceneManager_Get(); /* call 0x00284E40 */
 
 loc_002AF3EB:
-    ebx = eax;
-    PUSH32(esp, 0); fn_00281D50_CSceneManager_LoadLightTree(); /* call 0x00281D50 */
+	    ebx = eax;
+	    PUSH32(esp, 0); fn_00281D50_CSceneManager_LoadLightTree(); /* call 0x00281D50 */
 
 loc_002AF3F2:
-    PUSH32(esp, ecx);
+	    fsw_inithandler_scene_state("after LoadLightTree");
+	    stable_mission_esp = esp;
+	    PUSH32(esp, ecx);
     eax = 0; /* xor self */
     ecx = 0x5403E4;
     MEM32(esp + 0x20) = esp;
@@ -1621,27 +1672,44 @@ loc_002AF444:
 
 loc_002AF456:
     esp = esp + 4;
+    fsw_inithandler_repair_stack(stable_mission_esp, "CAIManager_Get");
     PUSH32(esp, 0); fn_00355430_CAIManager_Get(); /* call 0x00355430 */
 
 loc_002AF45E:
+    fsw_inithandler_repair_stack(stable_mission_esp, "CAIManager_Setup");
+    saved_call_esp = stable_mission_esp ? stable_mission_esp : esp;
     PUSH32(esp, eax);
     PUSH32(esp, 0); fn_00356DF0_CAIManager_Setup(); /* call 0x00356DF0 */
 
 loc_002AF464:
-    fprintf(stderr, "[FSW/Load] after CAIManager_Setup esp=%08X\n", esp);
-    xmm0 = MEMF(0x56149C); /* movss */
+        if (esp != saved_call_esp) {
+            fprintf(stderr, "[FSW/Load] repaired CAIManager_Setup esp %08X -> %08X\n",
+                    esp, saved_call_esp);
+            esp = saved_call_esp;
+        }
+	    fprintf(stderr, "[FSW/Load] after CAIManager_Setup esp=%08X\n", esp);
+	    fsw_inithandler_scene_state("after CAIManager_Setup");
+	    xmm0 = MEMF(0x56149C); /* movss */
     PUSH32(esp, 0x429A0000);
     PUSH32(esp, 0); fn_002AC280_UpdateLoadingBar(); /* call 0x002AC280 */
 
 loc_002AF476:
     esp = esp + 4;
+    fsw_inithandler_repair_stack(stable_mission_esp, "CRulesManager_Get");
     PUSH32(esp, 0); fn_00291240_CRulesManager_Get(); /* call 0x00291240 */
 
 loc_002AF47E:
+    fsw_inithandler_repair_stack(stable_mission_esp, "CRulesManager_Setup");
     fprintf(stderr, "[FSW/Load] before CRulesManager_Setup esp=%08X rules=%08X\n", esp, eax);
+    saved_call_esp = stable_mission_esp ? stable_mission_esp : esp;
     PUSH32(esp, 0); fn_00293D20_CRulesManager_Setup(); /* call 0x00293D20 */
 
 loc_002AF483:
+    if (esp != saved_call_esp) {
+        fprintf(stderr, "[FSW/Load] repaired CRulesManager_Setup esp %08X -> %08X\n",
+                esp, saved_call_esp);
+        esp = saved_call_esp;
+    }
     fprintf(stderr, "[FSW/Load] after CRulesManager_Setup esp=%08X\n", esp);
     xmm0 = MEMF(0x56149C); /* movss */
     PUSH32(esp, 0x429C0000);
@@ -1649,6 +1717,7 @@ loc_002AF483:
 
 loc_002AF495:
     esp = esp + 4;
+    fsw_inithandler_repair_stack(stable_mission_esp, "CCinematicManager_Get");
     PUSH32(esp, 0); fn_002A3EB0_CCinematicManager_Get(); /* call 0x002A3EB0 */
 
 loc_002AF49D:
@@ -1666,28 +1735,51 @@ loc_002AF4AB:
 
 loc_002AF4B0:
     fprintf(stderr, "[FSW/Load] after CVehicle_LoadWeaponTimes esp=%08X\n", esp);
+    fsw_inithandler_repair_stack(stable_mission_esp, "CHavokManager_Get");
     PUSH32(esp, 0); fn_0021DAA0_CHavokManager_Get(); /* call 0x0021DAA0 */
 
 loc_002AF4B5:
     ebx = eax;
+    fsw_inithandler_repair_stack(stable_mission_esp, "CHavokManager_InitLoaded");
     fprintf(stderr, "[FSW/Load] before CHavokManager_InitLoaded esp=%08X havok=%08X\n", esp, ebx);
     PUSH32(esp, 0); fn_00220690_CHavokManager_InitLoaded(); /* call 0x00220690 */
 
 loc_002AF4BC:
-    fprintf(stderr, "[FSW/Load] after CHavokManager_InitLoaded esp=%08X\n", esp);
-    xmm0 = MEMF(0x56149C); /* movss */
-    PUSH32(esp, 0x42A20000);
-    PUSH32(esp, 0); fn_002AC280_UpdateLoadingBar(); /* call 0x002AC280 */
+	    fprintf(stderr, "[FSW/Load] after CHavokManager_InitLoaded esp=%08X\n", esp);
+	    fsw_scenemanager_restore_entries_from_snapshot(0x643B60u, "after-havok-initloaded");
+	    fsw_inithandler_scene_state("after CHavokManager_InitLoaded");
+	    if (getenv("FSW_TH_LEVEL") != NULL) {
+	        fprintf(stderr, "[FSW/Load] direct level skipping post-Havok loading bar esp=%08X\n", esp);
+	        PUSH32(esp, 0); fn_002047A0_CScriptManager_Get(); /* call 0x002047A0 */
+	        fprintf(stderr, "[FSW/Load] direct level after CScriptManager_Get eax=%08X esp=%08X\n", eax, esp);
+	        goto loc_002AF4D6;
+	    }
+	    xmm0 = MEMF(0x56149C); /* movss */
+	    PUSH32(esp, 0x42A20000);
+	    PUSH32(esp, 0); fn_002AC280_UpdateLoadingBar(); /* call 0x002AC280 */
 
 loc_002AF4CE:
     esp = esp + 4;
     PUSH32(esp, 0); fn_002047A0_CScriptManager_Get(); /* call 0x002047A0 */
 
 loc_002AF4D6:
+    fprintf(stderr, "[FSW/Load] after CScriptManager_Get primary eax=%08X esp=%08X\n", eax, esp);
+    if (!fsw_inithandler_va_range_is_valid(eax + 0x5B8, 1)) {
+        fprintf(stderr, "[FSW/Load] skipping invalid CScriptManager primary manager=%08X\n", eax);
+        goto loc_002AF4E2;
+    }
     MEM8(eax + 0x5B8) = 0;
     PUSH32(esp, 0); fn_002047A0_CScriptManager_Get(); /* call 0x002047A0 */
 
 loc_002AF4E2:
+    fprintf(stderr, "[FSW/Load] after CScriptManager_Get secondary eax=%08X esp=%08X\n", eax, esp);
+    if (!fsw_inithandler_va_range_is_valid(eax + 0x5B4, 4) ||
+        !fsw_inithandler_va_range_is_valid(MEM32(eax + 0x5B4) + 0xA1, 1)) {
+        fprintf(stderr, "[FSW/Load] skipping invalid CScriptManager save flags manager=%08X target=%08X\n",
+                eax,
+                fsw_inithandler_va_range_is_valid(eax + 0x5B4, 4) ? MEM32(eax + 0x5B4) : 0);
+        goto loc_002AF4F4;
+    }
     eax = MEM32(eax + 0x5B4);
     MEM8(eax + 0xA1) = 0;
     PUSH32(esp, 0); fn_002B69C0_CLoadSave_MarkAllOwned(); /* call 0x002B69C0 */
@@ -1947,6 +2039,24 @@ loc_002AF6F8:
 
 loc_002AF717:
     eax = eax + 0x10B4;
+    if (getenv("FSW_TH_LEVEL") != NULL && MEM32(eax + 0x368) == 0) {
+        uint32_t direct_game = eax;
+        uint32_t init_session_esp = esp;
+        fprintf(stderr, "[FSW/Player] direct level boot initializing single-player net session game=%08X\n",
+                (unsigned)direct_game);
+        PUSH32(esp, 0);
+        ecx = direct_game;
+        PUSH32(esp, 0); fn_0027C740_CNetGame_InitSession(); /* call 0x0027C740 */
+        esp = init_session_esp;
+        fprintf(stderr,
+                "[FSW/Player] direct level net session ready game=%08X ret=%02X flags368=%08X p0flags=%02X p0uid=%08X\n",
+                (unsigned)direct_game,
+                (unsigned)LO8(eax),
+                (unsigned)MEM32(direct_game + 0x368),
+                (unsigned)MEM8(direct_game + 0x98),
+                (unsigned)MEM32(direct_game + 0x40));
+        eax = direct_game;
+    }
     PUSH32(esp, eax);
     PUSH32(esp, 0); fn_001C00D0_CPlayerManager_Get(); /* call 0x001C00D0 */
 
@@ -1955,7 +2065,8 @@ loc_002AF722:
     PUSH32(esp, 0); fn_001C0DD0_CPlayerManager_InitializePlayerData(); /* call 0x001C0DD0 */
 
 loc_002AF728:
-    PUSH32(esp, 0); fn_00298D40_CReplayManager_Get(); /* call 0x00298D40 */
+	    fsw_inithandler_scene_state("after player init");
+	    PUSH32(esp, 0); fn_00298D40_CReplayManager_Get(); /* call 0x00298D40 */
 
 loc_002AF72D:
     fprintf(stderr, "[FSW/Replay] skipping StartRecording during first-level bringup manager=%08X\n", eax);
@@ -2011,8 +2122,9 @@ loc_002AF78A:
     PUSH32(esp, 0); fn_00186C30_CSpawnManager_InitializeActiveCharacters(); /* call 0x00186C30 */
 
 loc_002AF791:
-    fprintf(stderr, "[FSW/Spawn] after InitializeActiveCharacters esp=%08X manager=%08X\n", esp, edi);
-    PUSH32(esp, 0); fn_00184970_CSpawnManager_Get(); /* call 0x00184970 */
+	    fprintf(stderr, "[FSW/Spawn] after InitializeActiveCharacters esp=%08X manager=%08X\n", esp, edi);
+	    fsw_inithandler_scene_state("after InitializeActiveCharacters");
+	    PUSH32(esp, 0); fn_00184970_CSpawnManager_Get(); /* call 0x00184970 */
 
 loc_002AF796:
     edi = eax;
@@ -2124,31 +2236,37 @@ loc_002AF805:
     PUSH32(esp, 0); fn_0037ED10_CReplacementTracker_InitializeCores(); /* call 0x0037ED10 */
 
 loc_002AF80C:
-    fprintf(stderr, "[FSW/HUD] before HUDManager_Setup esp=%08X\n", esp);
-    PUSH32(esp, 0); fn_003D4990_HUDManager_Setup(); /* call 0x003D4990 */
+	    fprintf(stderr, "[FSW/HUD] before HUDManager_Setup esp=%08X\n", esp);
+	    fsw_inithandler_scene_state("before HUDManager_Setup");
+	    PUSH32(esp, 0); fn_003D4990_HUDManager_Setup(); /* call 0x003D4990 */
 
 loc_002AF811:
-    fprintf(stderr, "[FSW/Load] before loading bar 85 esp=%08X\n", esp);
-    xmm0 = MEMF(0x56149C); /* movss */
+	    fsw_inithandler_scene_state("after HUDManager_Setup");
+	    fprintf(stderr, "[FSW/Load] before loading bar 85 esp=%08X\n", esp);
+	    xmm0 = MEMF(0x56149C); /* movss */
     PUSH32(esp, 0x42A40000);
     PUSH32(esp, 0); fn_002AC280_UpdateLoadingBar(); /* call 0x002AC280 */
 
 loc_002AF823:
-    esp = esp + 4;
-    fprintf(stderr, "[FSW/Load] after loading bar 85 esp=%08X\n", esp);
-    PUSH32(esp, 0); fn_00298D40_CReplayManager_Get(); /* call 0x00298D40 */
+	    esp = esp + 4;
+	    fprintf(stderr, "[FSW/Load] after loading bar 85 esp=%08X\n", esp);
+	    fsw_inithandler_scene_state("after loading bar 85");
+	    PUSH32(esp, 0); fn_00298D40_CReplayManager_Get(); /* call 0x00298D40 */
 
 loc_002AF82B:
     SET_LO8(ebx, MEM8(esp + 0x13));
     if (TEST_NZ(LO8(ebx), LO8(ebx))) goto loc_002AF838; /* jne: not equal / not zero */
 
 loc_002AF833:
-    fprintf(stderr, "[FSW/HUD] before HUDManager_SetupFinalize esp=%08X\n", esp);
-    PUSH32(esp, 0); fn_003D4220_HUDManager_SetupFinalize(); /* call 0x003D4220 */
+	    fprintf(stderr, "[FSW/HUD] before HUDManager_SetupFinalize esp=%08X\n", esp);
+	    fsw_inithandler_scene_state("before HUDManager_SetupFinalize");
+	    PUSH32(esp, 0); fn_003D4220_HUDManager_SetupFinalize(); /* call 0x003D4220 */
 
 loc_002AF838:
-    fprintf(stderr, "[FSW/Msg] before ZeroMsgManager flush esp=%08X\n", esp);
-    PUSH32(esp, 0); fn_00128B40_ZeroMsgManagerImp_Get(); /* call 0x00128B40 */
+	    fsw_inithandler_scene_state("after HUDManager_SetupFinalize");
+	    fprintf(stderr, "[FSW/Msg] before ZeroMsgManager flush esp=%08X\n", esp);
+	    fsw_inithandler_scene_state("before ZeroMsgManager flush");
+	    PUSH32(esp, 0); fn_00128B40_ZeroMsgManagerImp_Get(); /* call 0x00128B40 */
 
 loc_002AF83D:
     edx = MEM32(eax);
@@ -2162,13 +2280,14 @@ loc_002AF844:
     PUSH32(esp, 0); fn_0030A6A0_CAIVOManager_Get(); /* call 0x0030A6A0 */
 
 loc_002AF849:
-    fprintf(stderr, "[FSW/AIVO] before CAIVOManager_Setup manager=%08X\n", eax);
-    PUSH32(esp, eax);
-    PUSH32(esp, 0); fn_0030A780_CAIVOManager_Setup(); /* call 0x0030A780 */
+	    fprintf(stderr, "[FSW/AIVO] before CAIVOManager_Setup manager=%08X\n", eax);
+	    PUSH32(esp, eax);
+	    PUSH32(esp, 0); fn_0030A780_CAIVOManager_Setup(); /* call 0x0030A780 */
 
 loc_002AF84F:
-    fprintf(stderr, "[FSW/AIVO] after CAIVOManager_Setup esp=%08X\n", esp);
-    PUSH32(esp, 0); fn_00272490_CNetState_Get(); /* call 0x00272490 */
+	    fprintf(stderr, "[FSW/AIVO] after CAIVOManager_Setup esp=%08X\n", esp);
+	    fsw_inithandler_scene_state("after CAIVOManager_Setup");
+	    PUSH32(esp, 0); fn_00272490_CNetState_Get(); /* call 0x00272490 */
 
 loc_002AF854:
     PUSH32(esp, 0); fn_0027AE50_CNetManager_Get(); /* call 0x0027AE50 */
@@ -2183,11 +2302,13 @@ loc_002AF863:
     PUSH32(esp, 0); fn_0002C640_CReplayDisplay_Get(); /* call 0x0002C640 */
 
 loc_002AF868:
-    fprintf(stderr, "[FSW/Scene] before SceneManager_Get/PostLoad prep esp=%08X\n", esp);
-    PUSH32(esp, 0); fn_00284E40_CSceneManager_Get(); /* call 0x00284E40 */
+	    fprintf(stderr, "[FSW/Scene] before SceneManager_Get/PostLoad prep esp=%08X\n", esp);
+	    fsw_inithandler_scene_state("before SceneManager_Get/PostLoad prep");
+	    PUSH32(esp, 0); fn_00284E40_CSceneManager_Get(); /* call 0x00284E40 */
 
 loc_002AF86D:
-    xmm0 = MEMF(0x561EA0); /* movss */
+	    fsw_inithandler_scene_state("after SceneManager_Get/PostLoad prep");
+	    xmm0 = MEMF(0x561EA0); /* movss */
     PUSH32(esp, 0x42A80000);
     MEM8(eax + 4) = 1;
     PUSH32(esp, 0); fn_002AC280_UpdateLoadingBar(); /* call 0x002AC280 */
@@ -2230,12 +2351,13 @@ loc_002AF8C6:
     PUSH32(esp, 0); fn_00284E40_CSceneManager_Get(); /* call 0x00284E40 */
 
 loc_002AF8CE:
-    ebx = eax;
-    PUSH32(esp, 0); fn_00280890_CSceneManager_PostLoad(); /* call 0x00280890 */
+	    ebx = eax;
+	    PUSH32(esp, 0); fn_00280890_CSceneManager_PostLoad(); /* call 0x00280890 */
 
 loc_002AF8D5:
-    fprintf(stderr, "[FSW/Scene] after CSceneManager_PostLoad esp=%08X scene=%08X\n", esp, ebx);
-    PUSH32(esp, 0); fn_002FC8E0_Debug_Setup(); /* call 0x002FC8E0 */
+	    fprintf(stderr, "[FSW/Scene] after CSceneManager_PostLoad esp=%08X scene=%08X\n", esp, ebx);
+	    fsw_inithandler_scene_state("after CSceneManager_PostLoad");
+	    PUSH32(esp, 0); fn_002FC8E0_Debug_Setup(); /* call 0x002FC8E0 */
 
 loc_002AF8DA:
     fprintf(stderr, "[FSW/Debug] after Debug_Setup esp=%08X\n", esp);

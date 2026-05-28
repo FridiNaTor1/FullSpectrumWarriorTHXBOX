@@ -7,6 +7,456 @@
 #define RECOMP_GENERATED_CODE
 #include "recomp_funcs.h"
 #include <math.h>
+#include <stdio.h>
+#include <string.h>
+#include "kernel.h"
+
+static char g_fsw_last_save_dir[260];
+static char g_fsw_last_save_name[128];
+static char g_fsw_last_save_file[390];
+
+const char* fsw_xapi_last_save_file_path(void)
+{
+    if (!g_fsw_last_save_dir[0] || !g_fsw_last_save_name[0]) {
+        return NULL;
+    }
+    snprintf(g_fsw_last_save_file, sizeof(g_fsw_last_save_file), "%s%s",
+             g_fsw_last_save_dir, g_fsw_last_save_name);
+    return g_fsw_last_save_file;
+}
+
+static uint16_t fsw_read_u16_string_char(uint32_t va, size_t index)
+{
+    if (!va) return 0;
+    return MEM16(va + (uint32_t)(index * 2));
+}
+
+static void fsw_copy_xbox_wide_ascii(uint32_t src_va, char* dst, size_t dst_size)
+{
+    size_t i;
+    if (!dst || dst_size == 0) return;
+    dst[0] = '\0';
+    if (!src_va) return;
+
+    for (i = 0; i + 1 < dst_size; ++i) {
+        uint16_t ch = fsw_read_u16_string_char(src_va, i);
+        if (ch == 0) break;
+        dst[i] = (ch >= 0x20 && ch < 0x80) ? (char)ch : '?';
+    }
+    dst[i] = '\0';
+}
+
+static void fsw_xapi_save_hash_encode(uint32_t wide_va, char out[13])
+{
+    uint64_t hash = 0;
+    size_t i = 0;
+
+    while (1) {
+        uint16_t ch = fsw_read_u16_string_char(wide_va, i++);
+        if (ch == 0) break;
+        hash = ((hash * 0x10000ull) + ch) % 0xFFFFFFC5ull;
+    }
+
+    for (int nibble = 11; nibble >= 0; --nibble) {
+        unsigned value = (unsigned)((hash >> ((11 - nibble) * 4)) & 0xFu);
+        out[nibble] = (char)(value < 10 ? ('0' + value) : ('A' + value - 10));
+    }
+    out[12] = '\0';
+}
+
+static void fsw_copy_xbox_ansi(uint32_t src_va, char* dst, size_t dst_size)
+{
+    const char* src;
+    if (!dst || dst_size == 0) return;
+    dst[0] = '\0';
+    if (!src_va) return;
+
+    src = (const char*)XBOX_PTR(src_va);
+    for (size_t i = 0; i + 1 < dst_size; ++i) {
+        dst[i] = src[i];
+        if (src[i] == '\0') return;
+    }
+    dst[dst_size - 1] = '\0';
+}
+
+static void fsw_append_xbox_component(char* path, size_t path_size, const char* component)
+{
+    size_t len;
+    if (!path || !component || path_size == 0) return;
+    len = strlen(path);
+    if (len > 0 && path[len - 1] != '\\' && path[len - 1] != '/') {
+        strncat(path, "\\", path_size - strlen(path) - 1);
+    }
+    strncat(path, component, path_size - strlen(path) - 1);
+}
+
+static DWORD fsw_write_save_meta(const WCHAR* save_dir, uint32_t save_name_va)
+{
+    WCHAR meta_path[MAX_PATH];
+    HANDLE file;
+    DWORD written = 0;
+    uint16_t bom = 0xFEFF;
+    const char* prefix = "Name=";
+    const char* suffix = "\r\nTitleName=";
+    const char* eol = "\r\nNoCopy=1\r\n";
+
+    swprintf_s(meta_path, MAX_PATH, L"%ls\\SaveMeta.xbx", save_dir);
+    file = CreateFileW(meta_path, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+    if (file == INVALID_HANDLE_VALUE) {
+        return GetLastError();
+    }
+
+    WriteFile(file, &bom, sizeof(bom), &written, NULL);
+    for (size_t i = 0; prefix[i]; ++i) {
+        uint16_t ch = (uint16_t)(unsigned char)prefix[i];
+        WriteFile(file, &ch, sizeof(ch), &written, NULL);
+    }
+    for (size_t i = 0;; ++i) {
+        uint16_t ch = fsw_read_u16_string_char(save_name_va, i);
+        if (ch == 0) break;
+        WriteFile(file, &ch, sizeof(ch), &written, NULL);
+    }
+    for (size_t i = 0; suffix[i]; ++i) {
+        uint16_t ch = (uint16_t)(unsigned char)suffix[i];
+        WriteFile(file, &ch, sizeof(ch), &written, NULL);
+    }
+    for (size_t i = 0;; ++i) {
+        uint16_t ch = fsw_read_u16_string_char(save_name_va, i);
+        if (ch == 0) break;
+        WriteFile(file, &ch, sizeof(ch), &written, NULL);
+    }
+    for (size_t i = 0; eol[i]; ++i) {
+        uint16_t ch = (uint16_t)(unsigned char)eol[i];
+        WriteFile(file, &ch, sizeof(ch), &written, NULL);
+    }
+    CloseHandle(file);
+    return ERROR_SUCCESS;
+}
+
+static int fsw_host_XCreateSaveGame(uint32_t ebp)
+{
+    uint32_t root_va = MEM32(ebp + 0x08);
+    uint32_t save_name_va = MEM32(ebp + 0x0C);
+    uint32_t creation_disposition = MEM32(ebp + 0x10);
+    uint32_t out_path_va = MEM32(ebp + 0x18);
+    uint32_t out_path_len = MEM32(ebp + 0x1C);
+    char root[128];
+    char hash[13];
+    char xbox_path[260];
+    char xbox_path_with_slash[260];
+    WCHAR host_path[MAX_PATH];
+    WIN32_FILE_ATTRIBUTE_DATA attrs;
+    BOOL exists;
+
+    fsw_copy_xbox_ansi(root_va, root, sizeof(root));
+    if (!root[0] || !save_name_va || fsw_read_u16_string_char(save_name_va, 0) == 0) {
+        eax = ERROR_INVALID_PARAMETER;
+        return 1;
+    }
+
+    fsw_xapi_save_hash_encode(save_name_va, hash);
+    snprintf(xbox_path, sizeof(xbox_path), "%s", root);
+    fsw_append_xbox_component(xbox_path, sizeof(xbox_path), hash);
+
+    if (!xbox_translate_path(xbox_path, host_path, MAX_PATH)) {
+        eax = ERROR_PATH_NOT_FOUND;
+        return 1;
+    }
+
+    exists = GetFileAttributesExW(host_path, GetFileExInfoStandard, &attrs);
+    if (!exists) {
+        if (creation_disposition == 3) {
+            eax = ERROR_FILE_NOT_FOUND;
+            return 1;
+        }
+        if (!CreateDirectoryW(host_path, NULL)) {
+            eax = GetLastError();
+            return 1;
+        }
+    } else if ((attrs.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) == 0) {
+        eax = ERROR_ACCESS_DENIED;
+        return 1;
+    } else if (creation_disposition == 1) {
+        eax = ERROR_ALREADY_EXISTS;
+        return 1;
+    }
+
+    eax = fsw_write_save_meta(host_path, save_name_va);
+    if (eax != ERROR_SUCCESS) {
+        return 1;
+    }
+
+    if (out_path_va && out_path_len > 0) {
+        snprintf(xbox_path_with_slash, sizeof(xbox_path_with_slash), "%s\\", xbox_path);
+        strncpy((char*)XBOX_PTR(out_path_va), xbox_path_with_slash, out_path_len - 1);
+        MEM8(out_path_va + out_path_len - 1) = 0;
+        strncpy(g_fsw_last_save_dir, xbox_path_with_slash, sizeof(g_fsw_last_save_dir) - 1);
+        g_fsw_last_save_dir[sizeof(g_fsw_last_save_dir) - 1] = '\0';
+        fsw_copy_xbox_wide_ascii(save_name_va, g_fsw_last_save_name, sizeof(g_fsw_last_save_name));
+    }
+
+    fprintf(stderr, "[FSW/Save] XCreateSaveGame root=%s hash=%s path=%s disposition=%u\n",
+            root, hash, xbox_path, creation_disposition);
+    eax = ERROR_SUCCESS;
+    return 1;
+}
+
+#define FSW_SAVE_FIND_MAGIC 0x46535753u
+#define FSW_SAVE_FIND_MAX   64u
+
+static int fsw_is_save_hash_name(const char* name)
+{
+    if (!name || strlen(name) != 12) return 0;
+    for (int i = 0; i < 12; ++i) {
+        char c = name[i];
+        if (!((c >= '0' && c <= '9') || (c >= 'A' && c <= 'F') || (c >= 'a' && c <= 'f'))) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
+static void fsw_copy_ascii_to_xbox_wide(uint32_t out_va, uint32_t max_chars, const char* text)
+{
+    uint32_t i;
+    if (!out_va || max_chars == 0) return;
+    for (i = 0; i + 1 < max_chars && text && text[i]; ++i) {
+        MEM16(out_va + i * 2) = (uint16_t)(unsigned char)text[i];
+    }
+    MEM16(out_va + i * 2) = 0;
+}
+
+static void fsw_copy_xbox_wide_to_xbox_wide(uint32_t out_va, uint32_t max_chars,
+                                             const uint16_t* text, uint32_t text_len)
+{
+    uint32_t i;
+    if (!out_va || max_chars == 0) return;
+    for (i = 0; i + 1 < max_chars && i < text_len; ++i) {
+        MEM16(out_va + i * 2) = text[i];
+    }
+    MEM16(out_va + i * 2) = 0;
+}
+
+static int fsw_read_save_meta_name(const WCHAR* save_dir, uint32_t out_va, uint32_t max_chars)
+{
+    WCHAR meta_path[MAX_PATH];
+    HANDLE file;
+    uint8_t bytes[1024];
+    DWORD read = 0;
+    uint16_t* words = (uint16_t*)bytes;
+    uint32_t word_count;
+
+    swprintf_s(meta_path, MAX_PATH, L"%ls\\SaveMeta.xbx", save_dir);
+    file = CreateFileW(meta_path, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+    if (file == INVALID_HANDLE_VALUE) return 0;
+    if (!ReadFile(file, bytes, sizeof(bytes), &read, NULL)) {
+        CloseHandle(file);
+        return 0;
+    }
+    CloseHandle(file);
+
+    word_count = read / 2;
+    for (uint32_t i = 0; i + 5 < word_count; ++i) {
+        if (words[i + 0] == 'N' && words[i + 1] == 'a' && words[i + 2] == 'm' &&
+            words[i + 3] == 'e' && words[i + 4] == '=') {
+            uint32_t start = i + 5;
+            uint32_t len = 0;
+            while (start + len < word_count && words[start + len] != '\r' &&
+                   words[start + len] != '\n' && words[start + len] != 0) {
+                len++;
+            }
+            fsw_copy_xbox_wide_to_xbox_wide(out_va, max_chars, &words[start], len);
+            return 1;
+        }
+    }
+    return 0;
+}
+
+static int fsw_read_save_meta_name_ascii(const WCHAR* save_dir, char* out, size_t out_size)
+{
+    WCHAR meta_path[MAX_PATH];
+    HANDLE file;
+    uint8_t bytes[1024];
+    DWORD read = 0;
+    uint16_t* words = (uint16_t*)bytes;
+    uint32_t word_count;
+
+    if (!out || out_size == 0) return 0;
+    out[0] = '\0';
+
+    swprintf_s(meta_path, MAX_PATH, L"%ls\\SaveMeta.xbx", save_dir);
+    file = CreateFileW(meta_path, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+    if (file == INVALID_HANDLE_VALUE) return 0;
+    if (!ReadFile(file, bytes, sizeof(bytes), &read, NULL)) {
+        CloseHandle(file);
+        return 0;
+    }
+    CloseHandle(file);
+
+    word_count = read / 2;
+    for (uint32_t i = 0; i + 5 < word_count; ++i) {
+        if (words[i + 0] == 'N' && words[i + 1] == 'a' && words[i + 2] == 'm' &&
+            words[i + 3] == 'e' && words[i + 4] == '=') {
+            uint32_t start = i + 5;
+            uint32_t len = 0;
+            while (start + len < word_count && words[start + len] != '\r' &&
+                   words[start + len] != '\n' && words[start + len] != 0 &&
+                   len + 1 < out_size) {
+                uint16_t ch = words[start + len];
+                out[len] = (ch >= 0x20 && ch < 0x80) ? (char)ch : '?';
+                len++;
+            }
+            out[len] = '\0';
+            return 1;
+        }
+    }
+    return 0;
+}
+
+static void fsw_fill_save_find_data(uint32_t find_data_va, const char* root, const char* hash)
+{
+    char xbox_path[260];
+    WCHAR host_path[MAX_PATH];
+
+    if (!find_data_va || !hash) return;
+    memset((void*)XBOX_PTR(find_data_va), 0, 0x360);
+    MEM32(find_data_va + 0x00) = FILE_ATTRIBUTE_DIRECTORY;
+    strncpy((char*)XBOX_PTR(find_data_va + 0x2C), hash, 0x103);
+
+    snprintf(xbox_path, sizeof(xbox_path), "%s", root && root[0] ? root : "U:\\");
+    fsw_append_xbox_component(xbox_path, sizeof(xbox_path), hash);
+    snprintf((char*)XBOX_PTR(find_data_va + 0x140), 0x104, "%s\\", xbox_path);
+
+    if (xbox_translate_path(xbox_path, host_path, MAX_PATH) &&
+        fsw_read_save_meta_name(host_path, find_data_va + 0x244, 0x80)) {
+        return;
+    }
+    fsw_copy_ascii_to_xbox_wide(find_data_va + 0x244, 0x80, hash);
+}
+
+static uint32_t fsw_host_collect_save_games(uint32_t root_va, char hashes[FSW_SAVE_FIND_MAX][13])
+{
+    char root[128];
+    WCHAR host_root[MAX_PATH];
+    WCHAR search[MAX_PATH];
+    WIN32_FIND_DATAW fd;
+    HANDLE find;
+    uint32_t count = 0;
+
+    fsw_copy_xbox_ansi(root_va, root, sizeof(root));
+    if (!root[0]) strcpy(root, "U:\\");
+    if (!xbox_translate_path(root, host_root, MAX_PATH)) {
+        return 0;
+    }
+    swprintf_s(search, MAX_PATH, L"%ls\\*", host_root);
+
+    find = FindFirstFileW(search, &fd);
+    if (find == INVALID_HANDLE_VALUE) {
+        return 0;
+    }
+
+    do {
+        char name[64];
+        size_t i;
+        for (i = 0; i + 1 < sizeof(name) && fd.cFileName[i]; ++i) {
+            name[i] = (char)(fd.cFileName[i] & 0x7F);
+        }
+        name[i] = '\0';
+        if ((fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) &&
+            fsw_is_save_hash_name(name) &&
+            strcmp(name, "000000000000") != 0) {
+            WCHAR meta_path[MAX_PATH];
+            WIN32_FILE_ATTRIBUTE_DATA meta_attrs;
+            swprintf_s(meta_path, MAX_PATH, L"%ls\\%ls\\SaveMeta.xbx", host_root, fd.cFileName);
+            if (GetFileAttributesExW(meta_path, GetFileExInfoStandard, &meta_attrs) &&
+                meta_attrs.nFileSizeLow > 2) {
+                WCHAR save_dir[MAX_PATH];
+                char save_title[128];
+                swprintf_s(save_dir, MAX_PATH, L"%ls\\%ls", host_root, fd.cFileName);
+                if (!fsw_read_save_meta_name_ascii(save_dir, save_title, sizeof(save_title))) {
+                    continue;
+                }
+                if (strcmp(save_title, "Profile-Settings") == 0 ||
+                    strcmp(save_title, "?") == 0) {
+                    continue;
+                }
+                strncpy(hashes[count], name, 13);
+                count++;
+                if (count >= FSW_SAVE_FIND_MAX) break;
+            }
+        }
+    } while (FindNextFileW(find, &fd));
+
+    FindClose(find);
+    return count;
+}
+
+static int fsw_host_XFindFirstSaveGame(uint32_t ebp)
+{
+    uint32_t root_va = MEM32(ebp + 0x08);
+    uint32_t find_data_va = MEM32(ebp + 0x0C);
+    char root[128];
+    char hashes[FSW_SAVE_FIND_MAX][13];
+    uint32_t count;
+    uint32_t handle_va;
+
+    count = fsw_host_collect_save_games(root_va, hashes);
+    if (count == 0) {
+        eax = 0xFFFFFFFFu;
+        return 1;
+    }
+
+    handle_va = xbox_HeapAlloc(0x400, 16);
+    if (!handle_va) {
+        eax = 0xFFFFFFFFu;
+        return 1;
+    }
+
+    memset((void*)XBOX_PTR(handle_va), 0, 0x400);
+    MEM32(handle_va + 0x00) = FSW_SAVE_FIND_MAGIC;
+    MEM32(handle_va + 0x04) = 0;
+    MEM32(handle_va + 0x08) = count;
+    memcpy((void*)XBOX_PTR(handle_va + 0x20), hashes, count * 13);
+
+    fsw_copy_xbox_ansi(root_va, root, sizeof(root));
+    fsw_fill_save_find_data(find_data_va, root, hashes[0]);
+
+    fprintf(stderr, "[FSW/Save] XFindFirstSaveGame root=%s count=%u first=%s handle=%08X\n",
+            root[0] ? root : "U:\\", count, hashes[0], handle_va);
+    eax = handle_va;
+    return 1;
+}
+
+static int fsw_host_XFindNextSaveGame(uint32_t handle_va, uint32_t find_data_va)
+{
+    uint32_t index;
+    uint32_t count;
+    char root[] = "U:\\";
+    char hash[13];
+
+    if (!handle_va || MEM32(handle_va) != FSW_SAVE_FIND_MAGIC) return 0;
+    index = MEM32(handle_va + 0x04) + 1;
+    count = MEM32(handle_va + 0x08);
+    if (index >= count) {
+        eax = 0;
+        return 1;
+    }
+
+    memcpy(hash, (void*)XBOX_PTR(handle_va + 0x20 + index * 13), 13);
+    hash[12] = '\0';
+    MEM32(handle_va + 0x04) = index;
+    fsw_fill_save_find_data(find_data_va, root, hash);
+    eax = 1;
+    return 1;
+}
+
+static int fsw_host_XFindClose(uint32_t handle_va)
+{
+    if (!handle_va || MEM32(handle_va) != FSW_SAVE_FIND_MAGIC) return 0;
+    MEM32(handle_va) = 0;
+    eax = 1;
+    return 1;
+}
 
 /**
  * fn_000591E5_HexDigitToChar_4
@@ -811,6 +1261,11 @@ loc_00059633:
     PUSH32(esp, ebp);
     ebp = esp;
     esp = esp - 0x258;
+    if (fsw_host_XCreateSaveGame(ebp)) {
+        esp = ebp;
+        POP32(esp, ebp);
+        esp += 28; return;
+    }
     eax = MEM32(ebp + 8);
     edx = ebp + -296;
     edx = edx - eax;
@@ -1295,6 +1750,11 @@ loc_00059966:
     PUSH32(esp, ebp);
     ebp = esp;
     esp = esp - 0x104;
+    if (fsw_host_XFindFirstSaveGame(ebp)) {
+        esp = ebp;
+        POP32(esp, ebp);
+        esp += 12; return;
+    }
     eax = MEM32(ebp + 8);
     edx = ebp + -260;
     edx = edx - eax;
@@ -1449,6 +1909,9 @@ void fn_00059A70_XFindNextSaveGame_8(void)
     int _flags = 0; /* fallback flag var */
 
 loc_00059A70:
+    if (fsw_host_XFindNextSaveGame(MEM32(esp + 4), MEM32(esp + 8))) {
+        esp += 12; return;
+    }
     PUSH32(esp, esi);
     esi = MEM32(esp + 8);
     PUSH32(esp, edi);
@@ -1506,6 +1969,9 @@ void fn_00059AB7_XFindClose_4(void)
     int _flags = 0; /* fallback flag var */
 
 loc_00059AB7:
+    if (fsw_host_XFindClose(MEM32(esp + 4))) {
+        esp += 8; return;
+    }
     ecx = MEM32(esp + 4);
     edx = MEM32(ecx);
     eax = 0; /* xor self */

@@ -6,7 +6,79 @@
 
 #define RECOMP_GENERATED_CODE
 #include "recomp_funcs.h"
+#include "kernel.h"
 #include <math.h>
+#include <string.h>
+
+static void fsw_hmac_key_block(uint32_t key_va, uint32_t key_len, uint8_t block[64], uint8_t xor_value)
+{
+    uint32_t copy_len = key_len > 64 ? 64 : key_len;
+    memset(block, 0, 64);
+    if (key_va && copy_len > 0) {
+        memcpy(block, (const void*)XBOX_PTR(key_va), copy_len);
+    }
+    for (uint32_t i = 0; i < 64; ++i) {
+        block[i] ^= xor_value;
+    }
+}
+
+static int fsw_host_XShaHmacInitialize(uint32_t ebp)
+{
+    uint32_t key_va = MEM32(ebp + 0x08);
+    uint32_t key_len = MEM32(ebp + 0x0C);
+    uint32_t ctx_va = MEM32(ebp + 0x10);
+    uint8_t ipad[64];
+
+    if (!ctx_va) {
+        return 0;
+    }
+
+    fsw_hmac_key_block(key_va, key_len, ipad, 0x36);
+    xbox_XcSHAInit((PXBOX_SHA_CONTEXT)XBOX_PTR(ctx_va));
+    xbox_XcSHAUpdate((PXBOX_SHA_CONTEXT)XBOX_PTR(ctx_va), ipad, 64);
+    eax = 0;
+    return 1;
+}
+
+static int fsw_host_XShaHmacUpdate(uint32_t esp_va)
+{
+    uint32_t ctx_va = MEM32(esp_va + 0x04);
+    uint32_t input_va = MEM32(esp_va + 0x08);
+    uint32_t input_len = MEM32(esp_va + 0x0C);
+
+    if (!ctx_va) {
+        return 0;
+    }
+
+    xbox_XcSHAUpdate((PXBOX_SHA_CONTEXT)XBOX_PTR(ctx_va),
+                     input_va ? (const UCHAR*)XBOX_PTR(input_va) : NULL,
+                     input_len);
+    eax = 0;
+    return 1;
+}
+
+static int fsw_host_XShaHmacComputeFinal(uint32_t ebp)
+{
+    uint32_t ctx_va = MEM32(ebp + 0x08);
+    uint32_t key_va = MEM32(ebp + 0x0C);
+    uint32_t key_len = MEM32(ebp + 0x10);
+    uint32_t digest_va = MEM32(ebp + 0x14);
+    uint8_t inner_digest[20];
+    uint8_t opad[64];
+
+    if (!ctx_va || !digest_va) {
+        return 0;
+    }
+
+    xbox_XcSHAFinal((PXBOX_SHA_CONTEXT)XBOX_PTR(ctx_va), inner_digest);
+    fsw_hmac_key_block(key_va, key_len, opad, 0x5C);
+    xbox_XcSHAInit((PXBOX_SHA_CONTEXT)XBOX_PTR(ctx_va));
+    xbox_XcSHAUpdate((PXBOX_SHA_CONTEXT)XBOX_PTR(ctx_va), opad, 64);
+    xbox_XcSHAUpdate((PXBOX_SHA_CONTEXT)XBOX_PTR(ctx_va), inner_digest, sizeof(inner_digest));
+    xbox_XcSHAFinal((PXBOX_SHA_CONTEXT)XBOX_PTR(ctx_va), (UCHAR*)XBOX_PTR(digest_va));
+    eax = 0;
+    return 1;
+}
 
 /**
  * fn_0005AAD7_XShaHmacInitialize_12
@@ -24,6 +96,11 @@ loc_0005AAD7:
     PUSH32(esp, ebp);
     ebp = esp;
     esp = esp - 0x40;
+    if (fsw_host_XShaHmacInitialize(ebp)) {
+        esp = ebp;
+        POP32(esp, ebp);
+        esp += 16; return;
+    }
     if (CMP_BE(MEM32(ebp + 0xC), 0x40)) goto loc_0005AAEA; /* jbe: below or equal (unsigned <=) */
 
 loc_0005AAE3:
@@ -89,6 +166,9 @@ void fn_0005AB39_XShaHmacUpdate_12(void)
     ebp = g_seh_ebp; /* fpo_leaf: inherit caller's frame */
 
 loc_0005AB39:
+    if (fsw_host_XShaHmacUpdate(esp)) {
+        esp += 16; return;
+    }
     g_seh_ebp = ebp; fn_00060A5C_XcSHAUpdate_12(); return; /* tail jmp 0x00060A5C */
 
 }
@@ -109,6 +189,11 @@ loc_0005AB3E:
     PUSH32(esp, ebp);
     ebp = esp;
     esp = esp - 0x54;
+    if (fsw_host_XShaHmacComputeFinal(ebp)) {
+        esp = ebp;
+        POP32(esp, ebp);
+        esp += 20; return;
+    }
     PUSH32(esp, 0x40);
     POP32(esp, eax);
     if (CMP_BE(MEM32(ebp + 0x10), eax)) goto loc_0005AB4F; /* jbe: below or equal (unsigned <=) */

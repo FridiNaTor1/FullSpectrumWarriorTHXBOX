@@ -10,6 +10,7 @@
 #include "d3d8_vulkan_host.h"
 #endif
 #include <math.h>
+#include <stdio.h>
 #include <string.h>
 
 extern uint32_t xbox_HeapAlloc(uint32_t size, uint32_t alignment);
@@ -397,6 +398,8 @@ loc_001B8CD3:
 void fn_001B8CE0_CShellHandler_InitShell(void)
 {
     uint32_t ebp;
+    uint32_t fsw_saved_esp;
+    uint32_t fsw_saved_eax;
     int _flags = 0; /* fallback flag var */
     ebp = g_seh_ebp; /* fpo_leaf: inherit caller's frame */
 
@@ -408,9 +411,15 @@ loc_001B8CE0:
     MEM32(esp + 0x30) = eax;
     eax = MEM32(0x5FA358);
     edi = 0; /* xor self */
+    fsw_saved_esp = esp;
+    fprintf(stderr, "[FSW/Profile] InitShell profile setup scratch saved_esp=%08X\n", fsw_saved_esp);
+    esp = 0x0097C000u;
     PUSH32(esp, edi);
     PUSH32(esp, eax);
     PUSH32(esp, 0); fn_002B5AE0_CProfileManager_SetUp(); /* call 0x002B5AE0 */
+    fsw_saved_eax = eax;
+    esp = fsw_saved_esp;
+    eax = fsw_saved_eax;
 
 loc_001B8CFC:
     if (TEST_Z(LO8(eax), LO8(eax))) { sub_001B8D8B(); return; } /* je: equal / zero */

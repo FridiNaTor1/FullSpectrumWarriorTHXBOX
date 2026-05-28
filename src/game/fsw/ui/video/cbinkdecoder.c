@@ -27,6 +27,7 @@ typedef struct FswHostBinkMovie {
     uint32_t width;
     uint32_t height;
     uint32_t frame_count;
+    uint32_t current_frame;
     uint32_t *bgra;
     uint8_t attempted;
 } FswHostBinkMovie;
@@ -306,23 +307,27 @@ static FswHostBinkMovie *fsw_bink_get_movie(uint32_t bink_va)
     }
     fclose(f);
     if (slot->frame_count != 0) {
+        slot->current_frame = 0;
         MEM32(bink_va + 0x00) = slot->width;
         MEM32(bink_va + 0x04) = slot->height;
         MEM32(bink_va + 0x08) = slot->frame_count;
+        MEM32(bink_va + 0x0C) = 0;
         fprintf(stderr, "[FSW/Bink] decoded real movie %s frames=%u\n", host_path, slot->frame_count);
     }
     return slot;
 }
 
-static void fsw_bink_draw_host(uint32_t bink_va)
+static FswHostBinkMovie *fsw_bink_draw_host(uint32_t bink_va)
 {
     FswHostBinkMovie *movie = fsw_bink_get_movie(bink_va);
-    uint32_t frame = MEM32(bink_va + 0x0C);
+    uint32_t frame;
     const uint32_t *bgra;
 
     if (!movie || !movie->bgra || movie->frame_count == 0) {
-        return;
+        return movie;
     }
+    frame = movie->current_frame;
+    MEM32(bink_va + 0x0C) = frame;
     bgra = movie->bgra + ((frame % movie->frame_count) * movie->width * movie->height);
     D3D8VulkanRhwVertex rect[6] = {
         {   0,   0, 0.09f, 1.0f, 1, 1, 1, 1, 0, 0 },
@@ -333,6 +338,7 @@ static void fsw_bink_draw_host(uint32_t bink_va)
         {   0, 480, 0.09f, 1.0f, 1, 1, 1, 1, 0, 1 },
     };
     d3d8_vulkan_host_draw_rhw(rect, 6, bgra, movie->width, movie->height, 0, 0);
+    return movie;
 }
 #endif
 
@@ -1760,11 +1766,20 @@ loc_001BC1DD:
 
 loc_001BC22A:
     esi = cbink_self;
-    if (g_fsw_last_bink_handle != 0 && g_fsw_last_bink_path == esi + 6) {
+    if (g_fsw_last_bink_handle != 0 &&
+        (g_fsw_last_bink_path == esi + 6 ||
+         (fsw_bink_va_is_valid(g_fsw_last_bink_path) &&
+          fsw_bink_va_is_valid(esi + 6) &&
+          strcmp((const char *)XBOX_PTR(g_fsw_last_bink_path), (const char *)XBOX_PTR(esi + 6)) == 0))) {
         MEM32(esi) = 0x55A340;
         MEM32(esi + 0x64) = MEM32(g_fsw_last_bink_handle + 0x00);
         MEM32(esi + 0x68) = MEM32(g_fsw_last_bink_handle + 0x04);
         MEM32(esi + 0x7C) = g_fsw_last_bink_handle;
+        if (getenv("FSW_TH_BINK_DEBUG") != NULL) {
+            fprintf(stderr, "[FSW/Bink] attached host handle decoder=%08X bink=%08X path=%s\n",
+                    (unsigned)esi, (unsigned)g_fsw_last_bink_handle,
+                    fsw_bink_va_is_valid(esi + 6) ? (const char *)XBOX_PTR(esi + 6) : "");
+        }
     }
     ecx = MEM32(esp + 0xC);
     SET_LO8(eax, MEM32(esi + 0x7C) == 0 ? 1 : 0);
@@ -1804,13 +1819,38 @@ loc_001BC250:
     edi = ecx;
     eax = MEM32(edi + 0x7C);
 #ifdef XBOXRECOMP_VULKAN_GRAPHICS
+    if (getenv("FSW_TH_BINK_DEBUG") != NULL) {
+        static uint32_t bink_render_log_count;
+        if (bink_render_log_count < 64) {
+            fprintf(stderr,
+                    "[FSW/Bink] CBinkDecoder_Render self=%08X bink=%08X magic=%08X frame=%u/%u done=%u\n",
+                    (unsigned)edi,
+                    (unsigned)eax,
+                    (unsigned)((eax >= 0x00010000u && eax < 0x04000000u) ? MEM32(eax + 0x20) : 0),
+                    (unsigned)((eax >= 0x00010000u && eax < 0x04000000u) ? MEM32(eax + 0x0C) : 0),
+                    (unsigned)((eax >= 0x00010000u && eax < 0x04000000u) ? MEM32(eax + 0x08) : 0),
+                    (unsigned)MEM8(edi + 0x4C));
+            bink_render_log_count++;
+        }
+    }
     if (eax >= 0x00010000u && eax < 0x04000000u && MEM32(eax + 0x20) == FSW_BINK_MAGIC) {
-        uint32_t frame = MEM32(eax + 0x0C);
-        uint32_t total = MEM32(eax + 0x08);
-        fsw_bink_draw_host(eax);
-        if (frame < total) {
-            MEM32(eax + 0x0C) = frame + 1;
+        FswHostBinkMovie *movie = fsw_bink_draw_host(eax);
+        uint32_t frame = movie ? movie->current_frame : MEM32(eax + 0x0C);
+        uint32_t total = (movie && movie->frame_count != 0) ? movie->frame_count : MEM32(eax + 0x08);
+        if (movie && movie->bgra && movie->frame_count != 0 && frame + 1 < total) {
+            movie->current_frame = frame + 1;
+            MEM32(eax + 0x0C) = movie->current_frame;
+        } else if (!movie || !movie->bgra || movie->frame_count == 0) {
+            if (frame < total) {
+                MEM32(eax + 0x0C) = frame + 1;
+            } else {
+                MEM8(edi + 0x4C) = 1;
+            }
         } else {
+            if (MEM8(edi + 0x4C) == 0 && getenv("FSW_TH_BINK_DEBUG") != NULL) {
+                fprintf(stderr, "[FSW/Bink] host movie complete self=%08X bink=%08X frames=%u\n",
+                        (unsigned)edi, (unsigned)eax, (unsigned)total);
+            }
             MEM8(edi + 0x4C) = 1;
         }
         POP32(esp, edi);

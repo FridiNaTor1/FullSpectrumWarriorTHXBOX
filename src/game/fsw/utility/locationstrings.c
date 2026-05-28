@@ -366,6 +366,88 @@ static uint32_t fsw_location_lookup_fallback(uint32_t crc)
     return 0;
 }
 
+static void fsw_location_open_file(uint32_t file)
+{
+    static uint32_t repair_count;
+    uint32_t saved_esp = esp;
+
+    PUSH32(esp, 0);
+    fn_00123A20_ZeroFile_OpenFile();
+    if (esp != saved_esp) {
+        if (repair_count < 16 || (repair_count % 120) == 0) {
+            fprintf(stderr,
+                    "[FSW/Location] repaired OpenFile esp %08X -> %08X file=%08X stream=%08X count=%u\n",
+                    (unsigned)esp, (unsigned)saved_esp, (unsigned)file,
+                    (unsigned)(fsw_location_va_range_is_valid(file, 0x28) ? MEM32(file + 0x24) : 0),
+                    (unsigned)(repair_count + 1));
+        }
+        repair_count++;
+        esp = saved_esp;
+    }
+}
+
+static void fsw_location_close_file(uint32_t file)
+{
+    static uint32_t repair_count;
+    uint32_t saved_esp = esp;
+
+    esi = file;
+    PUSH32(esp, 0);
+    fn_00123830_ZeroFile_CloseFile();
+    if (esp != saved_esp) {
+        if (repair_count < 16 || (repair_count % 120) == 0) {
+            fprintf(stderr,
+                    "[FSW/Location] repaired CloseFile esp %08X -> %08X file=%08X count=%u\n",
+                    (unsigned)esp, (unsigned)saved_esp, (unsigned)file,
+                    (unsigned)(repair_count + 1));
+        }
+        repair_count++;
+        esp = saved_esp;
+    }
+}
+
+static void fsw_location_size_file(uint32_t file)
+{
+    static uint32_t repair_count;
+    uint32_t saved_esp = esp;
+
+    esi = file;
+    PUSH32(esp, 0);
+    fn_00122260_ZeroFile_Size();
+    if (esp != saved_esp) {
+        if (repair_count < 16 || (repair_count % 120) == 0) {
+            fprintf(stderr,
+                    "[FSW/Location] repaired Size esp %08X -> %08X file=%08X count=%u\n",
+                    (unsigned)esp, (unsigned)saved_esp, (unsigned)file,
+                    (unsigned)(repair_count + 1));
+        }
+        repair_count++;
+        esp = saved_esp;
+    }
+}
+
+static void fsw_location_init_table(uint32_t table, uint32_t data, uint32_t size)
+{
+    static uint32_t repair_count;
+    uint32_t saved_esp = esp;
+
+    ebx = table;
+    eax = size;
+    PUSH32(esp, data);
+    PUSH32(esp, 0);
+    fn_00192790_CUITable_Init();
+    if (esp != saved_esp) {
+        if (repair_count < 16 || (repair_count % 120) == 0) {
+            fprintf(stderr,
+                    "[FSW/Location] repaired CUITable_Init esp %08X -> %08X table=%08X data=%08X size=%u count=%u\n",
+                    (unsigned)esp, (unsigned)saved_esp, (unsigned)table,
+                    (unsigned)data, (unsigned)size, (unsigned)(repair_count + 1));
+        }
+        repair_count++;
+        esp = saved_esp;
+    }
+}
+
 /**
  * fn_001925F0_LocationFormatStringArray
  * Symbol: ?LocationFormatStringArray@@YA_NPAGIPBGQAPBGI@Z
@@ -1080,25 +1162,24 @@ loc_00192983:
     MEM32(esp + 0x20) = ebx;
     MEM8(esp + 0x24) = LO8(ebx);
     MEM32(esp + 0x30) = ebx;
-    PUSH32(esp, 0); fn_00123A20_ZeroFile_OpenFile(); /* call 0x00123A20 */
+    fsw_location_open_file(edx); /* call 0x00123A20 */
 
 loc_001929BD:
     edx = MEM32(esp + 0xCC);
     MEM32(esp + 0xC4) = ebx;
     esi = esp + 0xC;
     MEM32(0x5F344C) = edx;
-    PUSH32(esp, 0); fn_00122260_ZeroFile_Size(); /* call 0x00122260 */
+    fsw_location_size_file(esi); /* call 0x00122260 */
 
 loc_001929DA:
     ecx = MEM32(esp + 0x14);
     ebx = MEM32(0x5F344C);
-    PUSH32(esp, ecx);
-    PUSH32(esp, 0); fn_00192790_CUITable_Init(); /* call 0x00192790 */
+    fsw_location_init_table(ebx, ecx, eax); /* call 0x00192790 */
 
 loc_001929EA:
     MEM32(esp + 0xC4) = 0xFFFFFFFFu;
     MEM32(esp + 0xC) = 0x560D0C;
-    PUSH32(esp, 0); fn_00123830_ZeroFile_CloseFile(); /* call 0x00123830 */
+    fsw_location_close_file(esi); /* call 0x00123830 */
 
 loc_00192A02:
     ecx = MEM32(esp + 0xBC);
@@ -1151,7 +1232,7 @@ loc_00192A3C:
     MEM32(esp + 0x28) = ebx;
     MEM8(esp + 0x2C) = LO8(ebx);
     MEM32(esp + 0x38) = ebx;
-    PUSH32(esp, 0); fn_00123A20_ZeroFile_OpenFile(); /* call 0x00123A20 */
+    fsw_location_open_file(edx); /* call 0x00123A20 */
 
 loc_00192A7E:
     if (CMP_GE(MEM32(esp + 0x18), ebx)) { sub_00192A8E(); return; } /* jge: greater or equal (signed >=) */
@@ -1194,7 +1275,7 @@ void sub_00192A93(void)
 loc_00192A93:
     esi = esp + 0x14;
     MEM32(esp + 0x14) = ebp;
-    PUSH32(esp, 0); fn_00123830_ZeroFile_CloseFile(); /* call 0x00123830 */
+    fsw_location_close_file(esi); /* call 0x00123830 */
 
 loc_00192AA0:
     if (CMP_NE(edi, ebx)) goto loc_00192B20; /* jne: not equal / not zero */
@@ -1211,7 +1292,7 @@ loc_00192AA4:
     MEM32(esp + 0x28) = ebx;
     MEM8(esp + 0x2C) = LO8(ebx);
     MEM32(esp + 0x38) = ebx;
-    PUSH32(esp, 0); fn_00123A20_ZeroFile_OpenFile(); /* call 0x00123A20 */
+    fsw_location_open_file(edx); /* call 0x00123A20 */
 
 loc_00192ADB:
     if (CMP_GE(MEM32(esp + 0x18), ebx)) goto loc_00192AEB; /* jge: greater or equal (signed >=) */
@@ -1229,7 +1310,7 @@ loc_00192AEB:
 loc_00192AF0:
     esi = esp + 0x14;
     MEM32(esp + 0x14) = ebp;
-    PUSH32(esp, 0); fn_00123830_ZeroFile_CloseFile(); /* call 0x00123830 */
+    fsw_location_close_file(esi); /* call 0x00123830 */
 
 loc_00192AFD:
     if (CMP_EQ(edi, ebx)) goto loc_00192B32; /* je: equal / zero */
@@ -1266,7 +1347,7 @@ loc_00192B32:
     MEM32(esp + 0x28) = ebx;
     MEM8(esp + 0x2C) = LO8(ebx);
     MEM32(esp + 0x38) = ebx;
-    PUSH32(esp, 0); fn_00123A20_ZeroFile_OpenFile(); /* call 0x00123A20 */
+    fsw_location_open_file(edx); /* call 0x00123A20 */
 
 loc_00192B69:
     if (CMP_GE(MEM32(esp + 0x18), ebx)) goto loc_00192B79; /* jge: greater or equal (signed >=) */
@@ -1284,7 +1365,7 @@ loc_00192B79:
 loc_00192B7E:
     esi = esp + 0x14;
     MEM32(esp + 0x14) = ebp;
-    PUSH32(esp, 0); fn_00123830_ZeroFile_CloseFile(); /* call 0x00123830 */
+    fsw_location_close_file(esi); /* call 0x00123830 */
 
 loc_00192B8B:
     if (CMP_EQ(edi, ebx)) goto loc_00192BBB; /* je: equal / zero */

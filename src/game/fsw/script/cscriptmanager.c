@@ -7,6 +7,7 @@
 #define RECOMP_GENERATED_CODE
 #include "recomp_funcs.h"
 #include <math.h>
+#include <stdio.h>
 
 static int cscriptmanager_va_range_is_valid(uint32_t va, uint32_t size)
 {
@@ -7605,6 +7606,11 @@ loc_002048ED:
 void fn_00204910_CScriptManager_Update(void)
 {
     uint32_t ebp;
+    uint32_t update_log = 0;
+    uint32_t expression_steps = 0;
+    uint32_t action_steps = 0;
+    uint32_t trigger_steps = 0;
+    static uint32_t update_logs = 0;
     int _flags = 0; /* fallback flag var */
     float xmm0;
 
@@ -7616,6 +7622,19 @@ loc_00204910:
     PUSH32(esp, ebx);
     PUSH32(esp, esi);
     esi = MEM32(ebp + 8);
+    update_logs++;
+    update_log = (update_logs <= 8 || (update_logs % 120) == 0);
+    if (update_log) {
+        fprintf(stderr,
+                "[FSW/Script] Update begin #%u manager=%08X dt=%08X expr_count=%u actions=%08X triggers=%08X esp=%08X\n",
+                (unsigned)update_logs,
+                (unsigned)esi,
+                (unsigned)MEM32(ebp + 0xC),
+                (unsigned)(cscriptmanager_va_range_is_valid(esi + 0x144, 2) ? ZX16(MEM16(esi + 0x144)) : 0),
+                (unsigned)(cscriptmanager_va_range_is_valid(esi + 0x15C, 4) ? MEM32(esi + 0x15C) : 0),
+                (unsigned)(cscriptmanager_va_range_is_valid(esi + 0x12C, 4) ? MEM32(esi + 0x12C) : 0),
+                (unsigned)esp);
+    }
     PUSH32(esp, edi);
     eax = esi + 0x1AC;
     PUSH32(esp, 0x80);
@@ -7638,6 +7657,15 @@ loc_00204947:
 
 loc_00204952:
     MEM32(esi + 0x5B0) = eax;
+    if (update_log) {
+        fprintf(stderr,
+                "[FSW/Script] target lists #%u humans=%u vehicles=%u manager=%08X esp=%08X\n",
+                (unsigned)update_logs,
+                (unsigned)MEM32(esi + 0x3AC),
+                (unsigned)eax,
+                (unsigned)esi,
+                (unsigned)esp);
+    }
     SET_LO16(eax, MEM16(esi + 0x144));
     if (CMP_LE(LO16(eax) & LO16(eax), 0)) goto loc_002049CE; /* jle: less or equal (signed <=) */
 
@@ -7647,6 +7675,22 @@ loc_00204964:
     /* nop */
 
 loc_00204970:
+    expression_steps++;
+    if (expression_steps > 4096 ||
+        !cscriptmanager_va_range_is_valid(MEM32(esi + 0x140), 4) ||
+        !cscriptmanager_va_range_is_valid(MEM32(MEM32(esi + 0x140) + ebx), 0x14)) {
+        fprintf(stderr,
+                "[FSW/Script] stopping expression loop manager=%08X steps=%u table=%08X index=%u expr=%08X count=%u\n",
+                (unsigned)esi,
+                (unsigned)expression_steps,
+                (unsigned)(cscriptmanager_va_range_is_valid(esi + 0x140, 4) ? MEM32(esi + 0x140) : 0),
+                (unsigned)(ebx / 4),
+                (unsigned)(cscriptmanager_va_range_is_valid(esi + 0x140, 4) &&
+                           cscriptmanager_va_range_is_valid(MEM32(esi + 0x140) + ebx, 4)
+                               ? MEM32(MEM32(esi + 0x140) + ebx) : 0),
+                (unsigned)ZX16(MEM16(esi + 0x144)));
+        goto loc_002049CE;
+    }
     edx = MEM32(esi + 0x140);
     esi = MEM32(ebx + edx);
     if (TEST_Z(MEM32(esi + 0x10), 0x3FFF000)) goto loc_002049C5; /* je: equal / zero */
@@ -7695,6 +7739,15 @@ loc_002049C5:
     if ((edi != 0)) goto loc_00204970; /* jne: not equal / not zero */
 
 loc_002049CE:
+    if (update_log) {
+        fprintf(stderr,
+                "[FSW/Script] before action loop #%u manager=%08X actions=%08X count=%u esp=%08X\n",
+                (unsigned)update_logs,
+                (unsigned)esi,
+                (unsigned)MEM32(esi + 0x15C),
+                (unsigned)MEM32(esi + 0x154),
+                (unsigned)esp);
+    }
     ebx = MEM32(esi + 0x15C);
     (void)0; /* test ebx, ebx - flags set for next jcc */
     eax = esi + 0x154;
@@ -7706,6 +7759,20 @@ loc_002049EA:
     /* nop */
 
 loc_002049F0:
+    action_steps++;
+    if (action_steps > 8192 ||
+        !cscriptmanager_va_range_is_valid(ebx, 0xC)) {
+        fprintf(stderr,
+                "[FSW/Script] stopping action loop manager=%08X steps=%u node=%08X count=%u head=%08X tail=%08X esp=%08X\n",
+                (unsigned)MEM32(ebp + 8),
+                (unsigned)action_steps,
+                (unsigned)ebx,
+                (unsigned)(cscriptmanager_va_range_is_valid(MEM32(ebp + 8) + 0x154, 4) ? MEM32(MEM32(ebp + 8) + 0x154) : 0),
+                (unsigned)(cscriptmanager_va_range_is_valid(MEM32(ebp + 8) + 0x15C, 4) ? MEM32(MEM32(ebp + 8) + 0x15C) : 0),
+                (unsigned)(cscriptmanager_va_range_is_valid(MEM32(ebp + 8) + 0x158, 4) ? MEM32(MEM32(ebp + 8) + 0x158) : 0),
+                (unsigned)esp);
+        goto loc_00204B09;
+    }
     eax = esp + 0x18;
     ecx = esp + 0x10;
     PUSH32(esp, 0); fn_0004E360_EIterator_ZeroList_K_QAE_AV01_H_Z(); /* call 0x0004E360 */
@@ -7850,6 +7917,15 @@ loc_00204B09:
     esi = MEM32(ebp + 8);
 
 loc_00204B0C:
+    if (update_log) {
+        fprintf(stderr,
+                "[FSW/Script] before explosion/trigger loop #%u manager=%08X triggers=%08X count=%u esp=%08X\n",
+                (unsigned)update_logs,
+                (unsigned)esi,
+                (unsigned)MEM32(esi + 0x12C),
+                (unsigned)MEM32(esi + 0x124),
+                (unsigned)esp);
+    }
     edi = MEM32(ebp + 0xC);
     PUSH32(esp, edi);
     PUSH32(esp, 0); fn_001F0D50_CExplosionTrigger_UpdateExplosions(); /* call 0x001F0D50 */
@@ -7867,6 +7943,22 @@ loc_00204B2D:
     /* nop */
 
 loc_00204B30:
+    trigger_steps++;
+    if (trigger_steps > 8192 ||
+        !cscriptmanager_va_range_is_valid(eax, 0xC) ||
+        !cscriptmanager_va_range_is_valid(MEM32(eax), 8)) {
+        fprintf(stderr,
+                "[FSW/Script] stopping trigger loop manager=%08X steps=%u node=%08X item=%08X count=%u head=%08X tail=%08X esp=%08X\n",
+                (unsigned)MEM32(ebp + 8),
+                (unsigned)trigger_steps,
+                (unsigned)eax,
+                (unsigned)(cscriptmanager_va_range_is_valid(eax, 4) ? MEM32(eax) : 0),
+                (unsigned)(cscriptmanager_va_range_is_valid(MEM32(ebp + 8) + 0x124, 4) ? MEM32(MEM32(ebp + 8) + 0x124) : 0),
+                (unsigned)(cscriptmanager_va_range_is_valid(MEM32(ebp + 8) + 0x12C, 4) ? MEM32(MEM32(ebp + 8) + 0x12C) : 0),
+                (unsigned)(cscriptmanager_va_range_is_valid(MEM32(ebp + 8) + 0x128, 4) ? MEM32(MEM32(ebp + 8) + 0x128) : 0),
+                (unsigned)esp);
+        goto loc_00204B82;
+    }
     esi = MEM32(eax);
     eax = MEM32(esi);
     ecx = esi;
@@ -7926,9 +8018,17 @@ loc_00204B82:
 
 loc_00204B85:
     ebx = esi;
+    if (update_log) {
+        fprintf(stderr, "[FSW/Script] before pending remove #%u manager=%08X esp=%08X\n",
+                (unsigned)update_logs, (unsigned)esi, (unsigned)esp);
+    }
     PUSH32(esp, 0); fn_002022A0_CScriptManager_Update_PendingRemove(); /* call 0x002022A0 */
 
 loc_00204B8C:
+    if (update_log) {
+        fprintf(stderr, "[FSW/Script] after pending remove #%u manager=%08X esp=%08X\n",
+                (unsigned)update_logs, (unsigned)esi, (unsigned)esp);
+    }
     ebx = MEM32(esi + 0x5B4);
     if (TEST_Z(ebx, ebx)) goto loc_00204B9C; /* je: equal / zero */
 
@@ -7937,6 +8037,10 @@ loc_00204B96:
     PUSH32(esp, 0); fn_002082E0_CMultiplayerGameManager_Update(); /* call 0x002082E0 */
 
 loc_00204B9C:
+    if (update_log) {
+        fprintf(stderr, "[FSW/Script] Update complete #%u manager=%08X esp=%08X\n",
+                (unsigned)update_logs, (unsigned)esi, (unsigned)esp);
+    }
     POP32(esp, edi);
     POP32(esp, esi);
     POP32(esp, ebx);

@@ -8,11 +8,14 @@
 #include "recomp_funcs.h"
 #include <math.h>
 #include <stdio.h>
+#include <stdlib.h>
 
 static int hudradar_va_range_is_valid(uint32_t va, uint32_t size)
 {
     return va > 0x00010000u && va < 0x04000000u && size <= 0x04000000u - va;
 }
+
+static uint32_t hudradar_update_logs;
 
 /**
  * fn_0002B310_0HUDRadar_QAE_XZ
@@ -3002,6 +3005,15 @@ void fn_002D95D0_HUDRadar_SquadsRemaining(void)
     ebp = g_seh_ebp; /* fpo_leaf: inherit caller's frame */
 
 loc_002D95D0:
+    if (getenv("FSW_TH_LEVEL") != NULL) {
+        static uint32_t direct_squads_remaining_logs;
+        if (direct_squads_remaining_logs < 4) {
+            fprintf(stderr, "[FSW/HUD] SquadsRemaining direct-level fallback returning false\n");
+            direct_squads_remaining_logs++;
+        }
+        eax = 0;
+        esp += 4; return; /* ret */
+    }
     PUSH32(esp, ecx);
     PUSH32(esp, ebx);
     PUSH32(esp, ebp);
@@ -3070,6 +3082,8 @@ loc_002D961C:
 void sub_002D961F(void)
 {
     uint32_t ebp;
+    uint32_t squads_remaining_steps = 0;
+    uint32_t squads_remaining_prev = 0;
     int _flags = 0; /* fallback flag var */
     ebp = g_seh_ebp; /* fpo_leaf: inherit caller's frame */
 
@@ -3078,9 +3092,28 @@ loc_002D961F:
     if (TEST_Z(esi, esi)) goto loc_002D966B; /* je: equal / zero */
 
 loc_002D9626:
+    if (++squads_remaining_steps > 1024 ||
+        !hudradar_va_range_is_valid(esi, 8) ||
+        esi == squads_remaining_prev ||
+        !hudradar_va_range_is_valid(MEM32(esi), 0xF4)) {
+        fprintf(stderr,
+                "[FSW/HUD] SquadsRemaining stopped invalid/cyclic node=%08X object=%08X steps=%u prev=%08X\n",
+                (unsigned)esi,
+                (unsigned)(hudradar_va_range_is_valid(esi, 4) ? MEM32(esi) : 0),
+                (unsigned)squads_remaining_steps,
+                (unsigned)squads_remaining_prev);
+        goto loc_002D966B;
+    }
+    squads_remaining_prev = esi;
     eax = MEM32(esi);
     ecx = MEM32(eax + 0xF0);
     if (TEST_Z(ecx, ecx)) goto loc_002D9664; /* je: equal / zero */
+    if (!hudradar_va_range_is_valid(ecx, 4) ||
+        !hudradar_va_range_is_valid(MEM32(ecx), 0x8C)) {
+        fprintf(stderr, "[FSW/HUD] SquadsRemaining skipped invalid vehicle interface object=%08X iface=%08X\n",
+                (unsigned)eax, (unsigned)ecx);
+        goto loc_002D9664;
+    }
 
 loc_002D9632:
     edx = MEM32(ecx);
@@ -3095,6 +3128,11 @@ loc_002D963E:
     eax = MEM32(esi);
     ecx = MEM32(eax + 0xF0);
     if (TEST_Z(ecx, ecx)) goto loc_002D9654; /* je: equal / zero */
+    if (!hudradar_va_range_is_valid(ecx, 4) ||
+        !hudradar_va_range_is_valid(MEM32(ecx), 0x8C)) {
+        eax = 0;
+        goto loc_002D9654;
+    }
 
 loc_002D964A:
     eax = MEM32(ecx);
@@ -6311,6 +6349,11 @@ void fn_002DB760_HUDRadar_Update(void)
     ebp = g_seh_ebp; /* fpo_leaf: inherit caller's frame */
 
 loc_002DB760:
+    hudradar_update_logs++;
+    if (hudradar_update_logs <= 4) {
+        fprintf(stderr, "[FSW/HUD] HUDRadar_Update begin #%u radar=%08X esp=%08X\n",
+                (unsigned)hudradar_update_logs, (unsigned)MEM32(esp + 8), (unsigned)esp);
+    }
     esp = esp - 0xB0;
     eax = MEM32(0x57ED94);
     PUSH32(esp, ebx);
@@ -6331,6 +6374,10 @@ loc_002DB79F:
     PUSH32(esp, 0); fn_002D95D0_HUDRadar_SquadsRemaining(); /* call 0x002D95D0 */
 
 loc_002DB7A4:
+    if (hudradar_update_logs <= 4) {
+        fprintf(stderr, "[FSW/HUD] HUDRadar after SquadsRemaining #%u ret=%08X radar=%08X esp=%08X\n",
+                (unsigned)hudradar_update_logs, (unsigned)eax, (unsigned)ebp, (unsigned)esp);
+    }
     SET_LO8(ebx, LO8(eax));
     SET_LO8(eax, MEM8(ebp + 0x10));
     edi = 0; /* xor self */
@@ -6426,6 +6473,14 @@ loc_002DB86E:
     MEM8(ebp + 0x11) = 1;
 
 loc_002DB872:
+    if (hudradar_update_logs <= 4) {
+        fprintf(stderr, "[FSW/HUD] HUDRadar before AI handle check #%u handle=%08X mode=%08X target=%08X esp=%08X\n",
+                (unsigned)hudradar_update_logs,
+                (unsigned)(hudradar_va_range_is_valid(ebp + 4, 4) ? MEM32(ebp + 4) : 0),
+                (unsigned)(hudradar_va_range_is_valid(ebp + 0x14, 4) ? MEM32(ebp + 0x14) : 0),
+                (unsigned)(hudradar_va_range_is_valid(ebp + 8, 4) ? MEM32(ebp + 8) : 0),
+                (unsigned)esp);
+    }
     esi = MEM32(ebp + 4);
     ebx = ebp + 4;
     PUSH32(esp, 0); fn_00355430_CAIManager_Get(); /* call 0x00355430 */
@@ -6507,6 +6562,12 @@ loc_002DB910:
     MEM32(ebx) = ecx;
 
 loc_002DB914:
+    if (hudradar_update_logs <= 4) {
+        fprintf(stderr, "[FSW/HUD] HUDRadar after AI handle check #%u handle=%08X esp=%08X\n",
+                (unsigned)hudradar_update_logs,
+                (unsigned)(hudradar_va_range_is_valid(ebp + 4, 4) ? MEM32(ebp + 4) : 0),
+                (unsigned)esp);
+    }
     PUSH32(esp, ebp);
     PUSH32(esp, 0); fn_002DB580_HUDRadar_HandleAxes(); /* call 0x002DB580 */
 
@@ -6864,6 +6925,10 @@ loc_002DBBE3:
     PUSH32(esp, 0); fn_002D9280_HUDRadar_UpdateCachedValues(); /* call 0x002D9280 */
 
 loc_002DBBEA:
+    if (hudradar_update_logs <= 4) {
+        fprintf(stderr, "[FSW/HUD] HUDRadar after cached values #%u esp=%08X\n",
+                (unsigned)hudradar_update_logs, (unsigned)esp);
+    }
     PUSH32(esp, 0); fn_002E2320_CHUDGPSManager_Get(); /* call 0x002E2320 */
 
 loc_002DBBEF:
@@ -7121,6 +7186,10 @@ loc_002DC07D:
     goto loc_002DC0E8;
 
 loc_002DC082:
+    if (hudradar_update_logs <= 4) {
+        fprintf(stderr, "[FSW/HUD] HUDRadar before ticket heading #%u radar=%08X esp=%08X\n",
+                (unsigned)hudradar_update_logs, (unsigned)ebp, (unsigned)esp);
+    }
     PUSH32(esp, 0); fn_001C00D0_CPlayerManager_Get(); /* call 0x001C00D0 */
 
 loc_002DC087:
@@ -7191,9 +7260,20 @@ loc_002DC0F7:
 
 loc_002DC101:
     ecx = eax;
+    if (hudradar_update_logs <= 4) {
+        fprintf(stderr, "[FSW/HUD] HUDRadar before faction heading #%u faction_manager=%08X crc_arg=%08X esp=%08X\n",
+                (unsigned)hudradar_update_logs,
+                (unsigned)eax,
+                (unsigned)(hudradar_va_range_is_valid(esp, 4) ? MEM32(esp) : 0),
+                (unsigned)esp);
+    }
     PUSH32(esp, 0); fn_0029F210_CFactionManager_GetFaction(); /* call 0x0029F210 */
 
 loc_002DC108:
+    if (hudradar_update_logs <= 4) {
+        fprintf(stderr, "[FSW/HUD] HUDRadar after faction heading #%u faction=%08X esp=%08X\n",
+                (unsigned)hudradar_update_logs, (unsigned)eax, (unsigned)esp);
+    }
     if (TEST_Z(eax, eax)) goto loc_002DC137; /* je: equal / zero */
 
 loc_002DC10C:
@@ -7224,6 +7304,12 @@ loc_002DC137:
     PUSH32(esp, 0); fn_001AC0C0_CUIGlobals_SetRadarMenuHeading(); /* call 0x001AC0C0 */
 
 loc_002DC141:
+    if (hudradar_update_logs <= 4) {
+        fprintf(stderr, "[FSW/HUD] HUDRadar after SetRadarMenuHeading #%u mode=%08X esp=%08X\n",
+                (unsigned)hudradar_update_logs,
+                (unsigned)(hudradar_va_range_is_valid(ebp + 0x14, 4) ? MEM32(ebp + 0x14) : 0),
+                (unsigned)esp);
+    }
     eax = MEM32(ebp + 0x14);
     if (CMP_NE(eax, 1)) goto loc_002DC29A; /* jne: not equal / not zero */
 
@@ -7954,6 +8040,13 @@ loc_002DC6F4:
     MEM8(eax + 0x30) = 0;
 
 loc_002DC6F8:
+    if (hudradar_update_logs <= 4) {
+        fprintf(stderr, "[FSW/HUD] HUDRadar before icon updates #%u count=%08X selected=%08X esp=%08X\n",
+                (unsigned)hudradar_update_logs,
+                (unsigned)(hudradar_va_range_is_valid(ebp + 0x100, 4) ? MEM32(ebp + 0x100) : 0),
+                (unsigned)(hudradar_va_range_is_valid(ebp + 0x10C, 4) ? MEM32(ebp + 0x10C) : 0),
+                (unsigned)esp);
+    }
     MEM32(ebp + 0x528) = esi;
     esi = MEM32(esp + 0xC8);
     PUSH32(esp, esi);
@@ -7961,11 +8054,19 @@ loc_002DC6F8:
     PUSH32(esp, 0); fn_002D9690_HUDRadar_UpdateUnitIcons(); /* call 0x002D9690 */
 
 loc_002DC70C:
+    if (hudradar_update_logs <= 4) {
+        fprintf(stderr, "[FSW/HUD] HUDRadar after UpdateUnitIcons #%u esp=%08X\n",
+                (unsigned)hudradar_update_logs, (unsigned)esp);
+    }
     PUSH32(esp, esi);
     PUSH32(esp, ebp);
     PUSH32(esp, 0); fn_002D8A40_HUDRadar_UpdateSpawnIcons(); /* call 0x002D8A40 */
 
 loc_002DC713:
+    if (hudradar_update_logs <= 4) {
+        fprintf(stderr, "[FSW/HUD] HUDRadar after UpdateSpawnIcons #%u esp=%08X\n",
+                (unsigned)hudradar_update_logs, (unsigned)esp);
+    }
     PUSH32(esp, 0); fn_00291240_CRulesManager_Get(); /* call 0x00291240 */
 
 loc_002DC718:
@@ -7976,6 +8077,10 @@ loc_002DC71E:
     PUSH32(esp, 0); fn_002DB050_HUDRadar_UpdateEnemyIcons(); /* call 0x002DB050 */
 
 loc_002DC725:
+    if (hudradar_update_logs <= 4) {
+        fprintf(stderr, "[FSW/HUD] HUDRadar complete body #%u esp=%08X\n",
+                (unsigned)hudradar_update_logs, (unsigned)esp);
+    }
     ecx = MEM32(esp + 0xBC);
     PUSH32(esp, 0); fn_00401B62_security_check_cookie_4(); /* call 0x00401B62 */
 

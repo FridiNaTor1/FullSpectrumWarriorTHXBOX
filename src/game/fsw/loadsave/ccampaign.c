@@ -7,8 +7,15 @@
 #define RECOMP_GENERATED_CODE
 #include "recomp_funcs.h"
 #include <math.h>
+#include <stdio.h>
+#include <stdlib.h>
 
 extern uint32_t xbox_HeapAlloc(uint32_t size, uint32_t alignment);
+
+static int fsw_campaign_debug_enabled(void)
+{
+    return getenv("FSW_TH_CAMPAIGN_DEBUG") != NULL;
+}
 
 /**
  * fn_0002D3D0_1_ZeroArray_UCinDescriptor_QAE_XZ
@@ -1643,6 +1650,8 @@ void fn_002B8F30_CamData_Load(void)
 {
     uint32_t ebp;
     int _flags = 0; /* fallback flag var */
+    uint32_t fsw_file_arg = 0;
+    uint32_t fsw_locale_desc = 0;
     ebp = g_seh_ebp; /* fpo_leaf: inherit caller's frame */
 
 loc_002B8F30:
@@ -1671,12 +1680,21 @@ loc_002B8F60:
 
 loc_002B8F6A:
     edx = MEM32(esp + 0x2C);
+    fsw_file_arg = edx;
     eax = 0; /* xor self */
     ecx = 0x28;
     edi = ebp;
     { uint32_t _i; for (_i = 0; _i < ecx; _i++) MEM32(edi + _i*4) = eax; }
     edi += ecx * 4; ecx = 0; /* rep stosd */
     eax = MEM32(edx);
+    if (fsw_campaign_debug_enabled()) {
+        fprintf(stderr,
+                "[FSW/Campaign] CamData_Load start this=%08X file=%08X handle=%08X path='%s'\n",
+                (unsigned)ebp,
+                (unsigned)edx,
+                (unsigned)eax,
+                (const char *)XBOX_PTR(ebp + 0xC8));
+    }
     if (CMP_EQ(eax, 0xFFFFFFFFu)) goto loc_002B8F96; /* je: equal / zero */
 
 loc_002B8F80:
@@ -1690,6 +1708,19 @@ loc_002B8F80:
     PUSH32(esp, 0); fn_0005E772_ReadFile_20(); /* call 0x0005E772 */
 
 loc_002B8F96:
+    if (fsw_campaign_debug_enabled()) {
+        fprintf(stderr,
+                "[FSW/Campaign] CamData_Load header read bytes=%u magic=%08X size=%u header_crc=%08X data_crc=%08X levels=%u chapters=%u strings=%u blocks=%u\n",
+                (unsigned)MEM32(esp + 0x34),
+                (unsigned)MEM32(ebp + 0x10),
+                (unsigned)MEM32(ebp + 4),
+                (unsigned)MEM32(ebp + 8),
+                (unsigned)MEM32(ebp + 0x0C),
+                (unsigned)MEM32(ebp + 0x74),
+                (unsigned)MEM32(ebp + 0x78),
+                (unsigned)MEM32(ebp + 0x64),
+                (unsigned)MEM32(ebp + 0x68));
+    }
     esi = MEM32(ebp + 8);
     MEM32(ebp + 8) = ebx;
     eax = eax | 0xFFFFFFFFu;
@@ -1710,6 +1741,12 @@ loc_002B8FA6:
 
 loc_002B8FC0:
     eax = ~eax;
+    if (fsw_campaign_debug_enabled()) {
+        fprintf(stderr,
+                "[FSW/Campaign] CamData_Load header crc calc=%08X expected=%08X\n",
+                (unsigned)eax,
+                (unsigned)esi);
+    }
     if (CMP_NE(eax, esi)) goto loc_002B952E; /* jne: not equal / not zero */
 
 loc_002B8FCA:
@@ -1773,6 +1810,14 @@ loc_002B9001:
     PUSH32(esp, 0); fn_00128DD0_CalcCRC(); /* call 0x00128DD0 */
 
 loc_002B908B:
+    if (fsw_campaign_debug_enabled()) {
+        fprintf(stderr,
+                "[FSW/Campaign] CamData_Load payload crc1 calc=%08X expected=%08X payload=%08X span=%u\n",
+                (unsigned)eax,
+                (unsigned)MEM32(ebp + 0xC),
+                (unsigned)MEM32(ebp + 0xA0),
+                (unsigned)(MEM32(ebp + 0xBC) - MEM32(ebp + 0xA0)));
+    }
     if (CMP_NE(eax, MEM32(ebp + 0xC))) goto loc_002B952E; /* jne: not equal / not zero */
 
 loc_002B9094:
@@ -1784,6 +1829,13 @@ loc_002B9094:
     PUSH32(esp, 0); fn_00128DD0_CalcCRC(); /* call 0x00128DD0 */
 
 loc_002B90A4:
+    if (fsw_campaign_debug_enabled()) {
+        fprintf(stderr,
+                "[FSW/Campaign] CamData_Load payload crc2 calc=%08X expected=%08X extra_span=%u\n",
+                (unsigned)eax,
+                (unsigned)MEM32(ebp + 0x70),
+                (unsigned)(MEM32(ebp + 0x6C) + ebx + edi));
+    }
     if (CMP_NE(eax, MEM32(ebp + 0x70))) goto loc_002B952E; /* jne: not equal / not zero */
 
 loc_002B90AD:
@@ -1867,11 +1919,22 @@ loc_002B9179:
     if (CMP_EQ(eax, 0xFFFFFFFFu)) goto loc_002B9190; /* je: equal / zero */
 
 loc_002B9187:
+    if (fsw_campaign_debug_enabled()) {
+        fprintf(stderr,
+                "[FSW/Campaign] CamData_Load seek string desc handle=%08X offset=%u\n",
+                (unsigned)eax,
+                (unsigned)ecx);
+    }
     PUSH32(esp, edi);
     PUSH32(esp, edi);
     PUSH32(esp, ecx);
     PUSH32(esp, eax);
     PUSH32(esp, 0); fn_0005E9B9_SetFilePointer_16(); /* call 0x0005E9B9 */
+    if (fsw_campaign_debug_enabled()) {
+        fprintf(stderr,
+                "[FSW/Campaign] CamData_Load seek string desc result=%08X\n",
+                (unsigned)eax);
+    }
 
 loc_002B9190:
     ecx = MEM32(ebp + 0x64);
@@ -1914,6 +1977,7 @@ loc_002B91D5:
 
 loc_002B91E9:
     MEM32(esp + 0x20) = edi;
+    ebx = fsw_file_arg;
     eax = MEM32(ebx);
     (void)0; /* cmp eax, 0xFFFFFFFFu - flags set for next jcc */
     ebx = MEM32(esp + 0x14);
@@ -1921,6 +1985,14 @@ loc_002B91E9:
     if (CMP_EQ(eax, 0xFFFFFFFFu)) goto loc_002B9213; /* je: equal / zero */
 
 loc_002B91FC:
+    if (fsw_campaign_debug_enabled()) {
+        fprintf(stderr,
+                "[FSW/Campaign] CamData_Load read string desc handle=%08X ptr=%08X bytes=%u count=%u\n",
+                (unsigned)eax,
+                (unsigned)esi,
+                (unsigned)(ebx << 4),
+                (unsigned)ebx);
+    }
     PUSH32(esp, edi);
     ecx = esp + 0x34;
     PUSH32(esp, ecx);
@@ -1931,6 +2003,16 @@ loc_002B91FC:
     PUSH32(esp, eax);
     MEM32(esp + 0x44) = edi;
     PUSH32(esp, 0); fn_0005E772_ReadFile_20(); /* call 0x0005E772 */
+    if (fsw_campaign_debug_enabled()) {
+        fprintf(stderr,
+                "[FSW/Campaign] CamData_Load read string desc result=%08X read=%u dwords=%08X/%08X/%08X/%08X\n",
+                (unsigned)eax,
+                (unsigned)MEM32(esp + 0x34),
+                (unsigned)MEM32(esi),
+                (unsigned)MEM32(esi + 4),
+                (unsigned)MEM32(esi + 8),
+                (unsigned)MEM32(esi + 12));
+    }
 
 loc_002B9213:
     ecx = ebx;
@@ -1970,6 +2052,14 @@ loc_002B9250:
     eax = ~eax;
 
 loc_002B9252:
+    if (fsw_campaign_debug_enabled()) {
+        fprintf(stderr,
+                "[FSW/Campaign] CamData_Load string table crc calc=%08X expected=%08X ptr=%08X count=%u\n",
+                (unsigned)eax,
+                (unsigned)MEM32(ebp + 0x60),
+                (unsigned)MEM32(esp + 0x10),
+                (unsigned)ebx);
+    }
     if (CMP_EQ(eax, MEM32(ebp + 0x60))) goto loc_002B9302; /* je: equal / zero */
 
 loc_002B925B:
@@ -2170,35 +2260,59 @@ loc_002B93E9:
     edi = edi << 4;
     eax = MEM32(edi + edx + 8);
     edi = edi + edx;
+    fsw_locale_desc = edi;
     if (CMP_LE(eax & eax, 0)) goto loc_002B95B8; /* jle: less or equal (signed <=) */
 
 loc_002B93FE:
-    esi = MEM32(esp + 0x2C);
+    esi = fsw_file_arg;
     eax = MEM32(esi);
     (void)0; /* cmp eax, 0xFFFFFFFFu - flags set for next jcc */
     ecx = MEM32(edi + 4);
     if (CMP_EQ(eax, 0xFFFFFFFFu)) goto loc_002B9417; /* je: equal / zero */
 
 loc_002B940C:
+    if (fsw_campaign_debug_enabled()) {
+        fprintf(stderr,
+                "[FSW/Campaign] CamData_Load seek localized handle=%08X offset=%u size=%u crc=%08X\n",
+                (unsigned)eax,
+                (unsigned)ecx,
+                (unsigned)MEM32(edi + 8),
+                (unsigned)MEM32(edi + 0xC));
+    }
     PUSH32(esp, 0);
     PUSH32(esp, 0);
     PUSH32(esp, ecx);
     PUSH32(esp, eax);
     PUSH32(esp, 0); fn_0005E9B9_SetFilePointer_16(); /* call 0x0005E9B9 */
+    if (fsw_campaign_debug_enabled()) {
+        fprintf(stderr,
+                "[FSW/Campaign] CamData_Load seek localized result=%08X\n",
+                (unsigned)eax);
+    }
 
 loc_002B9417:
+    edi = fsw_locale_desc;
     eax = MEM32(edi + 8);
     PUSH32(esp, eax);
     PUSH32(esp, 0); fn_00129450_2_YAPAXI_Z(); /* call 0x00129450 */
 
 loc_002B9420:
+    edi = fsw_locale_desc;
     MEM32(ebp + 0xC4) = eax;
+    esi = fsw_file_arg;
     ecx = MEM32(esi);
     edx = MEM32(edi + 8);
     esp = esp + 4;
     if (CMP_EQ(ecx, 0xFFFFFFFFu)) goto loc_002B944A; /* je: equal / zero */
 
 loc_002B9433:
+    if (fsw_campaign_debug_enabled()) {
+        fprintf(stderr,
+                "[FSW/Campaign] CamData_Load read localized handle=%08X ptr=%08X bytes=%u\n",
+                (unsigned)ecx,
+                (unsigned)eax,
+                (unsigned)edx);
+    }
     PUSH32(esp, 0);
     esi = esp + 0x34;
     PUSH32(esp, esi);
@@ -2207,8 +2321,20 @@ loc_002B9433:
     PUSH32(esp, ecx);
     MEM32(esp + 0x44) = 0;
     PUSH32(esp, 0); fn_0005E772_ReadFile_20(); /* call 0x0005E772 */
+    if (fsw_campaign_debug_enabled()) {
+        uint32_t data = MEM32(ebp + 0xC4);
+        fprintf(stderr,
+                "[FSW/Campaign] CamData_Load read localized result=%08X read=%u dwords=%08X/%08X/%08X/%08X\n",
+                (unsigned)eax,
+                (unsigned)MEM32(esp + 0x34),
+                (unsigned)MEM32(data),
+                (unsigned)MEM32(data + 4),
+                (unsigned)MEM32(data + 8),
+                (unsigned)MEM32(data + 12));
+    }
 
 loc_002B944A:
+    edi = fsw_locale_desc;
     esi = MEM32(ebp + 0xC4);
     (void)0; /* test esi, esi - flags set for next jcc */
     edx = MEM32(edi + 8);
@@ -2245,6 +2371,15 @@ loc_002B948A:
     eax = ~eax;
 
 loc_002B948C:
+    edi = fsw_locale_desc;
+    if (fsw_campaign_debug_enabled()) {
+        fprintf(stderr,
+                "[FSW/Campaign] CamData_Load localized block crc calc=%08X expected=%08X ptr=%08X size=%u\n",
+                (unsigned)eax,
+                (unsigned)MEM32(edi + 0xC),
+                (unsigned)MEM32(ebp + 0xC4),
+                (unsigned)MEM32(edi + 8));
+    }
     if (CMP_EQ(eax, MEM32(edi + 0xC))) goto loc_002B9545; /* je: equal / zero */
 
 loc_002B9495:
@@ -2316,6 +2451,13 @@ loc_002B9520:
     }
 
 loc_002B952E:
+    if (fsw_campaign_debug_enabled()) {
+        fprintf(stderr,
+                "[FSW/Campaign] CamData_Load fail this=%08X file=%08X handle=%08X\n",
+                (unsigned)ebp,
+                (unsigned)fsw_file_arg,
+                (unsigned)MEM32(fsw_file_arg));
+    }
     POP32(esp, edi);
     POP32(esp, esi);
     POP32(esp, ebp);
@@ -2427,6 +2569,16 @@ loc_002B960F:
     }
 
 loc_002B961D:
+    if (fsw_campaign_debug_enabled()) {
+        fprintf(stderr,
+                "[FSW/Campaign] CamData_Load ok this=%08X levels=%u chapters=%u first_level=%08X strings=%08X/%u\n",
+                (unsigned)ebp,
+                (unsigned)MEM32(ebp + 0x74),
+                (unsigned)MEM32(ebp + 0x78),
+                (unsigned)MEM32(ebp + 0xA0),
+                (unsigned)MEM32(ebp + 0xBC),
+                (unsigned)MEM32(ebp + 0x64));
+    }
     ecx = MEM32(esp + 0x18);
     POP32(esp, edi);
     POP32(esp, esi);
@@ -3178,6 +3330,15 @@ void fn_002B9A60_CCampaign_ReadCampaign(void)
     ebp = g_seh_ebp; /* fpo_leaf: inherit caller's frame */
 
 loc_002B9A60:
+    if (fsw_campaign_debug_enabled()) {
+        fprintf(stderr,
+                "[FSW/Campaign] ReadCampaign entry file=%08X path=%08X out=%08X max=%u arg5=%08X\n",
+                (unsigned)MEM32(esp + 4),
+                (unsigned)MEM32(esp + 8),
+                (unsigned)MEM32(esp + 0x0C),
+                (unsigned)MEM32(esp + 0x10),
+                (unsigned)MEM32(esp + 0x14));
+    }
     eax = MEM32(esp + 0x10);
     esp = esp - 0x10;
     PUSH32(esp, ebp);
@@ -3187,6 +3348,9 @@ loc_002B9A60:
     if (CMP_NE(eax, edi)) { sub_002B9A7B(); return; } /* jne: not equal / not zero */
 
 loc_002B9A73:
+    if (fsw_campaign_debug_enabled()) {
+        fprintf(stderr, "[FSW/Campaign] ReadCampaign rejected zero max/output guard\n");
+    }
     POP32(esp, edi);
     eax = 0; /* xor self */
     POP32(esp, ebp);
@@ -3249,11 +3413,23 @@ void sub_002B9AA9(void)
 {
     uint32_t ebp;
     int _flags = 0; /* fallback flag var */
+    uint32_t fsw_campaign_obj;
+    uint32_t fsw_campaign_out;
     ebp = g_seh_ebp; /* fpo_leaf: inherit caller's frame */
 
 loc_002B9AA9:
+    fsw_campaign_obj = ebx;
+    fsw_campaign_out = MEM32(esp + 0x28);
     eax = MEM32(esp + 0x24);
     ecx = MEM32(esp + 0x20);
+    if (fsw_campaign_debug_enabled()) {
+        fprintf(stderr,
+                "[FSW/Campaign] ReadCampaign loading data cam=%08X file=%08X path=%08X path='%s'\n",
+                (unsigned)ebx,
+                (unsigned)ecx,
+                (unsigned)eax,
+                (const char *)XBOX_PTR(eax));
+    }
     PUSH32(esp, esi);
     PUSH32(esp, eax);
     PUSH32(esp, ecx);
@@ -3261,6 +3437,16 @@ loc_002B9AA9:
     PUSH32(esp, 0); fn_002B8F30_CamData_Load(); /* call 0x002B8F30 */
 
 loc_002B9ABA:
+    ebx = fsw_campaign_obj;
+    g_seh_ebp = fsw_campaign_out;
+    if (fsw_campaign_debug_enabled()) {
+        fprintf(stderr,
+                "[FSW/Campaign] ReadCampaign CamData_Load result=%u cam=%08X levels=%u chapters=%u\n",
+                (unsigned)(eax & 0xFF),
+                (unsigned)ebx,
+                (unsigned)MEM32(ebx + 0x74),
+                (unsigned)MEM32(ebx + 0x78));
+    }
     if (TEST_NZ(LO8(eax), LO8(eax))) { sub_002B9ACF(); return; } /* jne: not equal / not zero */
 
 loc_002B9ABE:
@@ -3291,6 +3477,15 @@ void sub_002B9ACF(void)
     ebp = g_seh_ebp; /* fpo_leaf: inherit caller's frame */
 
 loc_002B9ACF:
+    if (fsw_campaign_debug_enabled()) {
+        fprintf(stderr,
+                "[FSW/Campaign] ReadCampaign finalize out=%08X cam=%08X max=%u levels=%u old=%08X\n",
+                (unsigned)ebp,
+                (unsigned)ebx,
+                (unsigned)MEM32(esp + 0x10),
+                (unsigned)MEM32(ebx + 0x74),
+                (unsigned)MEM32(ebx + 0x8C));
+    }
     edx = MEM32(ebx + 0x74);
     eax = MEM32(ebx + 0x8C);
     esi = 0; /* xor self */
@@ -3305,6 +3500,13 @@ loc_002B9AE6:
 loc_002B9AED:
     esi = MEM32(esp + 0x34);
     MEM32(ebp) = ebx;
+    if (fsw_campaign_debug_enabled()) {
+        fprintf(stderr,
+                "[FSW/Campaign] ReadCampaign wrote slot out=%08X cam=%08X levels=%u\n",
+                (unsigned)ebp,
+                (unsigned)MEM32(ebp),
+                (unsigned)MEM32(MEM32(ebp) + 0x74));
+    }
     edx = MEM32(ebx + 0xA8);
     eax = MEM32(ebx + 0x10);
     edx++;

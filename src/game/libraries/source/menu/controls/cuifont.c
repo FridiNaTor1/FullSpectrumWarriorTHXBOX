@@ -446,7 +446,7 @@ static int fsw_cuifont_draw_vulkan(uint32_t font, uint32_t text, float x, float 
         packed = MEM16(glyph + 2);
         glyph_x = packed >> 6;
         glyph_row = packed & 0x3F;
-        glyph_channel = (ch >= 'A' && ch <= 'Z') ? 2u : 3u;
+        glyph_channel = ((uint32_t)MEM8(glyph + 4) + 1u) & 3u;
         glyph_w = (uint32_t)MEM8(glyph + 4) >> 2;
         if (glyph_w == 0 || glyph_w > 256) {
             glyph_w = (uint32_t)(char_h * 0.5f);
@@ -825,6 +825,14 @@ loc_0013327E:
     if (TEST_Z(eax, eax)) { sub_001332A3(); return; } /* je: equal / zero */
 
 loc_00133282:
+    if (!fsw_cuifont_va_is_valid(eax)) {
+        if (fsw_cuifont_get_log_count < 96) {
+            fprintf(stderr, "[FSW/Font] GetFont invalid root crc=%08X root=%08X\n", edx, eax);
+            fsw_cuifont_get_log_count++;
+        }
+        eax = 0;
+        esp += 4; return; /* ret */
+    }
     if (fsw_cuifont_get_log_count < 64) {
         fprintf(stderr, "[FSW/Font] GetFont request crc=%08X root=%08X\n", edx, eax);
         fsw_cuifont_get_log_count++;

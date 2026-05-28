@@ -7,6 +7,18 @@
 #define RECOMP_GENERATED_CODE
 #include "recomp_funcs.h"
 #include <math.h>
+#include <stdio.h>
+
+static int cexplosiontrigger_va_range_is_valid(uint32_t va, uint32_t size)
+{
+    if (size == 0) {
+        return va >= 0x00010000u && va < 0x04000000u;
+    }
+    if (va < 0x00010000u || va >= 0x04000000u || va + size < va) {
+        return 0;
+    }
+    return va + size <= 0x04000000u;
+}
 
 /**
  * fn_00046D60_CExplosionTrigger_CreateInstance
@@ -272,6 +284,8 @@ loc_001F0D40:
 void fn_001F0D50_CExplosionTrigger_UpdateExplosions(void)
 {
     uint32_t ebp;
+    uint32_t steps = 0;
+    static uint32_t update_logs = 0;
     int _flags = 0; /* fallback flag var */
     float xmm0;
 
@@ -289,6 +303,31 @@ loc_001F0D50:
     PUSH32(esp, edi);
     MEM32(esp + 0x14) = 0x60DF28;
     MEM32(esp + 0x10) = eax;
+    update_logs++;
+    if (update_logs <= 8 || (update_logs % 120) == 0) {
+        fprintf(stderr,
+                "[FSW/Explosion] UpdateExplosions #%u count=%u tail=%08X head=%08X dt=%08X esp=%08X\n",
+                (unsigned)update_logs,
+                (unsigned)MEM32(0x60DF28),
+                (unsigned)MEM32(0x60DF2C),
+                (unsigned)MEM32(0x60DF30),
+                (unsigned)MEM32(ebp + 8),
+                (unsigned)esp);
+    }
+    if (MEM32(0x60DF28) == 0 || MEM32(0x60DF28) > 1024 ||
+        esi == 0 || !cexplosiontrigger_va_range_is_valid(esi, 0xC)) {
+        if (MEM32(0x60DF28) > 1024 || (esi != 0 && !cexplosiontrigger_va_range_is_valid(esi, 0xC))) {
+            fprintf(stderr,
+                    "[FSW/Explosion] clearing invalid explosion list count=%u tail=%08X head=%08X\n",
+                    (unsigned)MEM32(0x60DF28),
+                    (unsigned)MEM32(0x60DF2C),
+                    (unsigned)MEM32(0x60DF30));
+            MEM32(0x60DF28) = 0;
+            MEM32(0x60DF2C) = 0;
+            MEM32(0x60DF30) = 0;
+        }
+        goto loc_001F0E3A;
+    }
     if (CMP_EQ(eax, ebx)) goto loc_001F0E3A; /* je: equal / zero */
 
 loc_001F0D7A:
@@ -298,6 +337,20 @@ loc_001F0D7C:
     esi = MEM32(0x60DF30);
 
 loc_001F0D82:
+    steps++;
+    if (steps > 2048 || !cexplosiontrigger_va_range_is_valid(MEM32(esp + 0x10), 0xC)) {
+        fprintf(stderr,
+                "[FSW/Explosion] stopping explosion update loop steps=%u node=%08X count=%u head=%08X tail=%08X\n",
+                (unsigned)steps,
+                (unsigned)MEM32(esp + 0x10),
+                (unsigned)MEM32(0x60DF28),
+                (unsigned)MEM32(0x60DF30),
+                (unsigned)MEM32(0x60DF2C));
+        MEM32(0x60DF28) = 0;
+        MEM32(0x60DF2C) = 0;
+        MEM32(0x60DF30) = 0;
+        goto loc_001F0E3A;
+    }
     eax = esp + 0x18;
     ecx = esp + 0x10;
     PUSH32(esp, 0); fn_0004E360_EIterator_ZeroList_K_QAE_AV01_H_Z(); /* call 0x0004E360 */

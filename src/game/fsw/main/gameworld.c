@@ -31,8 +31,12 @@ static const char *fsw_gameworld_tag_name(uint32_t tag)
     switch (tag) {
     case 0x41505250u: return "PRPA";
     case 0x42454856u: return "VHEB";
+    case 0x424C434Bu: return "BLCK";
     case 0x42545247u: return "GRTB";
     case 0x4349564Cu: return "LVIC";
+    case 0x4443454Cu: return "LECD";
+    case 0x454D5432u: return "2TME";
+    case 0x46494C4Cu: return "FILL";
     case 0x46414354u: return "TCAF";
     case 0x464C4147u: return "GALF";
     case 0x47525044u: return "DPRG";
@@ -42,8 +46,19 @@ static const char *fsw_gameworld_tag_name(uint32_t tag)
     case 0x4F434343u: return "CCCO";
     case 0x50524F50u: return "PORP";
     case 0x50525443u: return "CTRP";
+    case 0x534C4452u: return "RDLS";
+    case 0x534C4F54u: return "TOLS";
+    case 0x534E4432u: return "2DNS";
+    case 0x534E4433u: return "3DNS";
     case 0x534F4343u: return "CCOS";
+    case 0x53505250u: return "PRPS";
+    case 0x5350574Eu: return "NWPS";
+    case 0x53544441u: return "ADTS";
     case 0x5357504Eu: return "NPWS";
+    case 0x54524947u: return "GIRT";
+    case 0x5648434Cu: return "LCHV";
+    case 0x5745504Eu: return "NPEW";
+    case 0x57494E44u: return "WIND";
     case 0x57524C44u: return "DLRW";
     default: return "?";
     }
@@ -54,8 +69,12 @@ static int fsw_gameworld_wld_tag_is_known(uint32_t tag)
     switch (tag) {
     case 0x41505250u:
     case 0x42454856u:
+    case 0x424C434Bu:
     case 0x42545247u:
     case 0x4349564Cu:
+    case 0x4443454Cu:
+    case 0x454D5432u:
+    case 0x46494C4Cu:
     case 0x46414354u:
     case 0x464C4147u:
     case 0x47525044u:
@@ -65,8 +84,19 @@ static int fsw_gameworld_wld_tag_is_known(uint32_t tag)
     case 0x4F434343u:
     case 0x50524F50u:
     case 0x50525443u:
+    case 0x534C4452u:
+    case 0x534C4F54u:
+    case 0x534E4432u:
+    case 0x534E4433u:
     case 0x534F4343u:
+    case 0x53505250u:
+    case 0x5350574Eu:
+    case 0x53544441u:
     case 0x5357504Eu:
+    case 0x54524947u:
+    case 0x5648434Cu:
+    case 0x5745504Eu:
+    case 0x57494E44u:
     case 0x57524C44u:
         return 1;
     default:
@@ -1154,6 +1184,14 @@ loc_002AFC40:
     edi = MEM32(ebp + 8);
     fprintf(stderr, "[FSW/GameWorld] LoadWLD begin data=%08X size=%d esp=%08X\n",
             (unsigned)edi, (int32_t)esi, (unsigned)esp);
+    if (fsw_gameworld_va_range_is_valid(edi, 0x20)) {
+        fprintf(stderr,
+                "[FSW/GameWorld] WLD header dwords=%08X/%08X/%08X/%08X bytes=%02X %02X %02X %02X\n",
+                (unsigned)MEM32(edi), (unsigned)MEM32(edi + 4),
+                (unsigned)MEM32(edi + 8), (unsigned)MEM32(edi + 0xC),
+                (unsigned)MEM8(edi + 8), (unsigned)MEM8(edi + 9),
+                (unsigned)MEM8(edi + 10), (unsigned)MEM8(edi + 11));
+    }
     eax = MEM32(edi + 4);
     edi = edi + 4;
     edi = edi + 4;
@@ -1813,9 +1851,13 @@ void sub_002B01A2(void)
         g_seh_ebp = ebp; sub_002B00F2(); return;
     }
 	    fprintf(stderr,
-	            "[FSW/GameWorld] PORP create begin object=%08X desc=%08X mesh=%08X id=%08X esp=%08X\n",
+	            "[FSW/GameWorld] PORP create begin object=%08X desc=%08X mesh=%08X id=%08X esp=%08X d=%08X/%08X/%08X/%08X/%08X/%08X/%08X/%08X\n",
 	            (unsigned)eax, (unsigned)edi, (unsigned)MEM32(edi + 0x44),
-	            (unsigned)MEM32(edi + 0x40), (unsigned)esp);
+	            (unsigned)MEM32(edi + 0x40), (unsigned)esp,
+	            (unsigned)MEM32(edi + 0x00), (unsigned)MEM32(edi + 0x04),
+	            (unsigned)MEM32(edi + 0x08), (unsigned)MEM32(edi + 0x0C),
+	            (unsigned)MEM32(edi + 0x10), (unsigned)MEM32(edi + 0x14),
+	            (unsigned)MEM32(edi + 0x18), (unsigned)MEM32(edi + 0x1C));
 	    prop_object = eax;
 	    prop_desc = edi;
 	    ecx = MEM32(esp + 0x20);
@@ -2847,6 +2889,23 @@ loc_002B0AF9:
     if (CMP_NE(eax, 0x57524C44)) { sub_002B00F2(); return; } /* jne: not equal / not zero */
 
 loc_002B0B04:
+    if (fsw_gameworld_va_range_is_valid(edi, 0x40)) {
+        static uint32_t dlrw_log_count;
+        if (dlrw_log_count < 8) {
+            fprintf(stderr,
+                    "[FSW/GameWorld] DLRW payload=%08X words=%08X/%08X/%08X/%08X/%08X/%08X/%08X/%08X/%08X/%08X/%08X/%08X/%08X/%08X/%08X/%08X\n",
+                    (unsigned)edi,
+                    (unsigned)MEM32(edi + 0x00), (unsigned)MEM32(edi + 0x04),
+                    (unsigned)MEM32(edi + 0x08), (unsigned)MEM32(edi + 0x0C),
+                    (unsigned)MEM32(edi + 0x10), (unsigned)MEM32(edi + 0x14),
+                    (unsigned)MEM32(edi + 0x18), (unsigned)MEM32(edi + 0x1C),
+                    (unsigned)MEM32(edi + 0x20), (unsigned)MEM32(edi + 0x24),
+                    (unsigned)MEM32(edi + 0x28), (unsigned)MEM32(edi + 0x2C),
+                    (unsigned)MEM32(edi + 0x30), (unsigned)MEM32(edi + 0x34),
+                    (unsigned)MEM32(edi + 0x38), (unsigned)MEM32(edi + 0x3C));
+            dlrw_log_count++;
+        }
+    }
     edx = MEM32(0x6135C8);
     eax = esp + 0x1C;
     { uint32_t _icall_esp = g_esp;

@@ -7,8 +7,19 @@
 #define RECOMP_GENERATED_CODE
 #include "recomp_funcs.h"
 #include <math.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 
 extern uint32_t xbox_HeapAlloc(uint32_t size, uint32_t alignment);
+
+static int fsw_campaign_va_range_is_valid(uint32_t va, uint32_t size)
+{
+    if (size == 0) {
+        return va >= 0x00010000u && va < 0x04000000u;
+    }
+    return va >= 0x00010000u && va + size >= va && va + size <= 0x04000000u;
+}
 
 /**
  * fn_0002D480_0_ZeroWideStrT_0EAA_QAE_ABV0_Z
@@ -1490,6 +1501,17 @@ loc_002B7C1C:
     PUSH32(esp, 0); fn_00122260_ZeroFile_Size(); /* call 0x00122260 */
 
 loc_002B7C30:
+    if (getenv("FSW_TH_CAMPAIGN_DEBUG") != NULL) {
+        uint32_t zf = esp + 0x18;
+        fprintf(stderr,
+                "[FSW/Campaign] ReadCampaigns ini size=%d zf=%08X handle=%08X memfile=%08X manager=%08X filter=%08X\n",
+                (int32_t)eax,
+                (unsigned)zf,
+                (unsigned)MEM32(zf + 4),
+                (unsigned)MEM32(zf + 0x24),
+                (unsigned)ebp,
+                (unsigned)MEM32(esp + 0x258));
+    }
     if (TEST_S(eax, eax)) goto loc_002B7DCA; /* jl: less (signed <) */
 
 loc_002B7C38:
@@ -1536,6 +1558,30 @@ loc_002B7C74:
     esp = esp + 4;
 
 loc_002B7C77:
+    if (fsw_campaign_va_range_is_valid(esi, 0x10) &&
+        (MEM32(esi) == 0x00560CE8u || MEM32(esi) == 0x00560CC4u)) {
+        uint32_t base = MEM32(esi + 4);
+        uint32_t size = MEM32(esi + 8);
+        uint32_t cur = MEM32(esi + 0xC);
+        if (cur < base) {
+            cur = base;
+            MEM32(esi + 0xC) = cur;
+        }
+        eax = (cur >= base + size) ? 1 : 0;
+    }
+    if (getenv("FSW_TH_CAMPAIGN_DEBUG") != NULL) {
+        static uint32_t campaign_loop_log_count = 0;
+        if (campaign_loop_log_count < 16) {
+            fprintf(stderr,
+                    "[FSW/Campaign] ReadCampaigns loop eof=%u stream=%08X fd=%08X memfile=%08X tell_cmp_base=%08X\n",
+                    (unsigned)eax,
+                    (unsigned)esi,
+                    (unsigned)edi,
+                    (unsigned)MEM32((esp + 0x18) + 0x24),
+                    (unsigned)ebp);
+            campaign_loop_log_count++;
+        }
+    }
     if (CMP_NE(eax, ebx)) goto loc_002B7D99; /* jne: not equal / not zero */
 
 loc_002B7C7F:
@@ -1565,6 +1611,13 @@ loc_002B7CA7:
     PUSH32(esp, 0); fn_001233C0_ZeroFile_Gets(); /* call 0x001233C0 */
 
 loc_002B7CBB:
+    if (getenv("FSW_TH_CAMPAIGN_DEBUG") != NULL) {
+        const char *line = (const char *)XBOX_PTR(esp + 0x40);
+        fprintf(stderr,
+                "[FSW/Campaign] ReadCampaigns line result=%08X text='%s'\n",
+                (unsigned)eax,
+                line != NULL ? line : "<bad>");
+    }
     ecx = esp + 0x40;
     PUSH32(esp, 0xA);
     PUSH32(esp, ecx);
@@ -1578,6 +1631,19 @@ loc_002B7CCE:
     MEM8(eax) = 0;
 
 loc_002B7CD1:
+    {
+        char *line = (char *)XBOX_PTR(esp + 0x40);
+        char *cr = line != NULL ? strchr(line, '\r') : NULL;
+        if (cr != NULL) {
+            *cr = 0;
+        }
+    }
+    if (getenv("FSW_TH_CAMPAIGN_DEBUG") != NULL) {
+        const char *path = (const char *)XBOX_PTR(esp + 0x40);
+        fprintf(stderr,
+                "[FSW/Campaign] ReadCampaigns opening cam path='%s'\n",
+                path != NULL ? path : "<bad>");
+    }
     PUSH32(esp, 0);
     PUSH32(esp, 0x80);
     PUSH32(esp, 3);
@@ -1590,6 +1656,12 @@ loc_002B7CD1:
 
 loc_002B7CED:
     esi = eax;
+    if (getenv("FSW_TH_CAMPAIGN_DEBUG") != NULL) {
+        fprintf(stderr,
+                "[FSW/Campaign] ReadCampaigns cam handle=%08X path='%s'\n",
+                (unsigned)esi,
+                (const char *)XBOX_PTR(esp + 0x40));
+    }
     (void)0; /* cmp esi, 0xFFFFFFFFu - flags set for next jcc */
     MEM32(esp + 0x14) = esi;
     if (CMP_NE(esi, 0xFFFFFFFFu)) goto loc_002B7D1B; /* jne: not equal / not zero */
@@ -1649,6 +1721,15 @@ loc_002B7D42:
 
 loc_002B7D6C:
     ecx = MEM32(ebp + 0x304);
+    if (getenv("FSW_TH_CAMPAIGN_DEBUG") != NULL) {
+        fprintf(stderr,
+                "[FSW/Campaign] ReadCampaigns read result=%u old_count=%u first=%08X levels=%08X/%u\n",
+                (unsigned)eax,
+                (unsigned)ecx,
+                (unsigned)MEM32(ebp + 4),
+                (unsigned)MEM32(ebp + 0x18),
+                (unsigned)MEM32(ebp + 0x0C));
+    }
     esp = esp + 0x14;
     ecx = ecx + eax;
     MEM32(ebp + 0x304) = ecx;
@@ -2515,6 +2596,43 @@ loc_002B84E0:
             }
 
             esi = saved_esi;
+        }
+        manager = MEM32(0x5FA338);
+        if (manager != 0 && manager < 0xD0000000u &&
+            (MEM8(0x5FA33C) == 0 || MEM32(manager + 0x304) == 0 ||
+             (MEM32(manager + 0x304) == 1 && MEM32(manager + 4) == 0))) {
+            uint32_t saved_eax = eax;
+            uint32_t saved_ecx = ecx;
+            uint32_t saved_edx = edx;
+            uint32_t saved_ebx = ebx;
+            uint32_t saved_esi2 = esi;
+            uint32_t saved_edi = edi;
+            uint32_t filter_crc = MEM32(0x602F88);
+
+            if (MEM32(manager + 0x304) == 1 && MEM32(manager + 4) == 0) {
+                MEM32(manager + 0x304) = 0;
+            }
+
+            PUSH32(esp, filter_crc);
+            PUSH32(esp, manager);
+            PUSH32(esp, 0); fn_002B7B90_CCampaignManager_ReadCampaigns();
+            esp += 4;
+            MEM8(0x5FA33C) = 1;
+            fprintf(stderr,
+                    "[FSW/Campaign] Init loaded campaigns manager=%08X count=%u filter=%08X first=%08X levels=%08X/%u\n",
+                    (unsigned)manager,
+                    (unsigned)MEM32(manager + 0x304),
+                    (unsigned)filter_crc,
+                    (unsigned)MEM32(manager + 4),
+                    (unsigned)MEM32(manager + 0x18),
+                    (unsigned)MEM32(manager + 0x0C));
+
+            eax = saved_eax;
+            ecx = saved_ecx;
+            edx = saved_edx;
+            ebx = saved_ebx;
+            esi = saved_esi2;
+            edi = saved_edi;
         }
         esp += 4; return; /* ret */
     }

@@ -8,6 +8,14 @@
 #include "recomp_funcs.h"
 #include <math.h>
 #include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+extern uint32_t xbox_HeapAlloc(uint32_t size, uint32_t alignment);
+
+static uint32_t g_cplayermanager_direct_manager;
+static uint32_t g_cplayermanager_direct_player;
+static uint32_t g_cplayermanager_direct_node;
 
 static int cplayermanager_va_range_is_valid(uint32_t va, uint32_t size)
 {
@@ -40,6 +48,250 @@ static int cplayermanager_list_node_is_valid(const char *where, uint32_t node)
         return 0;
     }
     return 1;
+}
+
+static void cplayermanager_log_netgame(const char *where, uint32_t game)
+{
+    static uint32_t log_count;
+    if (log_count >= 24 && (log_count % 128) != 0) {
+        log_count++;
+        return;
+    }
+
+    if (!cplayermanager_va_range_is_valid(game, 0x370)) {
+        fprintf(stderr, "[FSW/Player] %s invalid netgame=%08X count=%u\n",
+                where, (unsigned)game, (unsigned)(log_count + 1));
+        log_count++;
+        return;
+    }
+
+    fprintf(stderr,
+            "[FSW/Player] %s netgame=%08X flags368=%08X flags36c=%02X serial=%08X p0=%08X p0flags=%02X p0uid=%08X p1=%08X p1flags=%02X count=%u\n",
+            where,
+            (unsigned)game,
+            (unsigned)MEM32(game + 0x368),
+            (unsigned)MEM8(game + 0x36C),
+            (unsigned)MEM32(game + 0x360),
+            (unsigned)(game + 0x40),
+            (unsigned)MEM8(game + 0x98),
+            (unsigned)MEM32(game + 0x40),
+            (unsigned)(game + 0x9C),
+            (unsigned)MEM8(game + 0xF4),
+            (unsigned)(log_count + 1));
+    log_count++;
+}
+
+static void cplayermanager_log_list(const char *where, uint32_t manager)
+{
+    static uint32_t log_count;
+    if (log_count >= 24 && (log_count % 128) != 0) {
+        log_count++;
+        return;
+    }
+
+    if (!cplayermanager_va_range_is_valid(manager, 0x20)) {
+        fprintf(stderr, "[FSW/Player] %s invalid manager=%08X count=%u\n",
+                where, (unsigned)manager, (unsigned)(log_count + 1));
+        log_count++;
+        return;
+    }
+
+    uint32_t head = MEM32(manager + 8);
+    uint32_t first_player = cplayermanager_va_range_is_valid(head, 8) ? MEM32(head) : 0;
+    fprintf(stderr,
+            "[FSW/Player] %s manager=%08X head=%08X first_player=%08X next=%08X count=%u\n",
+            where,
+            (unsigned)manager,
+            (unsigned)head,
+            (unsigned)first_player,
+            (unsigned)(cplayermanager_va_range_is_valid(head, 8) ? MEM32(head + 4) : 0),
+            (unsigned)(log_count + 1));
+    log_count++;
+}
+
+static int cplayermanager_netplayer_is_active_local(uint32_t player)
+{
+    if (!cplayermanager_va_range_is_valid(player, 0x5C)) {
+        return 0;
+    }
+    return (MEM8(player + 0x58) & 0x18u) == 0x08u;
+}
+
+static uint32_t cplayermanager_zerolist_append_value(uint32_t list, uint32_t value)
+{
+    uint32_t tail;
+    uint32_t node;
+
+    if (!cplayermanager_va_range_is_valid(list, 0xC)) {
+        return 0;
+    }
+
+    node = xbox_HeapAlloc(0xC, 16);
+    if (!cplayermanager_va_range_is_valid(node, 0xC)) {
+        return 0;
+    }
+
+    tail = MEM32(list + 4);
+    MEM32(list) = MEM32(list) + 1;
+    MEM32(node) = value;
+    MEM32(node + 4) = 0;
+    MEM32(node + 8) = cplayermanager_va_range_is_valid(tail, 0xC) ? tail : 0;
+    if (cplayermanager_va_range_is_valid(tail, 0xC)) {
+        MEM32(tail + 4) = node;
+    } else {
+        MEM32(list + 8) = node;
+    }
+    MEM32(list + 4) = node;
+    return node;
+}
+
+static uint32_t cplayermanager_construct_player(uint32_t netplayer)
+{
+    uint32_t player = xbox_HeapAlloc(0x54, 16);
+    uint32_t saved_esp;
+
+    if (!cplayermanager_va_range_is_valid(player, 0x54)) {
+        return 0;
+    }
+    memset((void *)XBOX_PTR(player), 0, 0x54);
+
+    saved_esp = esp;
+    if (cplayermanager_va_range_is_valid(netplayer, 0x5C)) {
+        PUSH32(esp, netplayer);
+        PUSH32(esp, player);
+        PUSH32(esp, 0);
+        fn_001BF7E0_0CPlayer_QAE_PBVCNetPlayer_Z();
+    } else {
+        PUSH32(esp, player);
+        PUSH32(esp, 0);
+        fn_001BF9E0_0CPlayer_QAE_XZ();
+    }
+    esp = saved_esp;
+    return player;
+}
+
+static void cplayermanager_clear_player_lists(uint32_t manager)
+{
+    if (!cplayermanager_va_range_is_valid(manager, 0x20)) {
+        return;
+    }
+
+    MEM32(manager + 0x00) = 0;
+    MEM32(manager + 0x04) = 0;
+    MEM32(manager + 0x08) = 0;
+    if (MEM32(manager + 0x0C) == 0) {
+        MEM32(manager + 0x0C) = MEM32(0x5CFAEC);
+    }
+    MEM32(manager + 0x10) = 0;
+    MEM32(manager + 0x14) = 0;
+    MEM32(manager + 0x18) = 0;
+}
+
+static void cplayermanager_restore_direct_player_if_needed(uint32_t manager)
+{
+    if (getenv("FSW_TH_LEVEL") == NULL) {
+        return;
+    }
+    if (manager == 0 || manager != g_cplayermanager_direct_manager) {
+        manager = g_cplayermanager_direct_manager;
+    }
+    if (!cplayermanager_va_range_is_valid(manager, 0x20) ||
+        !cplayermanager_va_range_is_valid(g_cplayermanager_direct_node, 0xC) ||
+        !cplayermanager_va_range_is_valid(g_cplayermanager_direct_player, 0x54)) {
+        return;
+    }
+    if (MEM32(manager) > 0 && cplayermanager_va_range_is_valid(MEM32(manager + 8), 0xC)) {
+        return;
+    }
+
+    MEM32(g_cplayermanager_direct_node) = g_cplayermanager_direct_player;
+    MEM32(g_cplayermanager_direct_node + 4) = 0;
+    MEM32(g_cplayermanager_direct_node + 8) = 0;
+    MEM32(manager + 0) = 1;
+    MEM32(manager + 4) = g_cplayermanager_direct_node;
+    MEM32(manager + 8) = g_cplayermanager_direct_node;
+    fprintf(stderr,
+            "[FSW/Player] restored direct player list manager=%08X node=%08X player=%08X\n",
+            (unsigned)manager,
+            (unsigned)g_cplayermanager_direct_node,
+            (unsigned)g_cplayermanager_direct_player);
+}
+
+static void cplayermanager_initialize_player_data_stable(uint32_t manager, uint32_t netgame)
+{
+    uint32_t count;
+    uint32_t added = 0;
+
+    if (!cplayermanager_va_range_is_valid(manager, 0x20)) {
+        fprintf(stderr, "[FSW/Player] stable InitializePlayerData invalid manager=%08X netgame=%08X\n",
+                (unsigned)manager, (unsigned)netgame);
+        return;
+    }
+
+    cplayermanager_clear_player_lists(manager);
+    if (!cplayermanager_va_range_is_valid(netgame, 0x370)) {
+        uint32_t player = cplayermanager_construct_player(0);
+        if (player != 0) {
+            cplayermanager_zerolist_append_value(manager, player);
+        }
+        cplayermanager_log_list("InitializePlayerData-stable-post", manager);
+        return;
+    }
+
+    cplayermanager_log_netgame("InitializePlayerData-stable-input", netgame);
+    MEM8(manager + 0x1C) = (uint8_t)((~(MEM8(netgame + 0x36C) >> 1)) & 1u);
+    count = (MEM32(netgame + 0x368) >> 4) & 0xFu;
+    for (uint32_t ordinal = 0; ordinal < count; ordinal++) {
+        uint32_t active_seen = 0;
+        uint32_t selected = 0;
+
+        for (uint32_t slot = 0; slot < 8; slot++) {
+            uint32_t netplayer = netgame + 0x40 + slot * 0x5C;
+            if ((MEM8(netplayer + 0x58) & 0x10u) != 0) {
+                continue;
+            }
+            if (active_seen == ordinal) {
+                selected = netplayer;
+                break;
+            }
+            active_seen++;
+        }
+
+        if (selected != 0) {
+            MEM8(selected + 0x58) = MEM8(selected + 0x58) | 8u;
+            uint32_t player = cplayermanager_construct_player(selected);
+            if (player != 0) {
+                uint32_t node = cplayermanager_zerolist_append_value(manager, player);
+                g_cplayermanager_direct_manager = manager;
+                g_cplayermanager_direct_player = player;
+                g_cplayermanager_direct_node = node;
+                added++;
+                fprintf(stderr,
+                        "[FSW/Player] stable add ordinal=%u netplayer=%08X flags=%02X uid=%08X player=%08X\n",
+                        (unsigned)ordinal,
+                        (unsigned)selected,
+                        (unsigned)MEM8(selected + 0x58),
+                        (unsigned)MEM32(selected),
+                        (unsigned)player);
+            }
+        }
+    }
+
+    if (added == 0) {
+        uint32_t player = cplayermanager_construct_player(0);
+        if (player != 0) {
+            cplayermanager_zerolist_append_value(manager, player);
+        }
+    }
+
+    cplayermanager_log_list("InitializePlayerData-stable-post", manager);
+    {
+        uint32_t saved_esp = esp;
+        eax = manager;
+        PUSH32(esp, 0);
+        fn_001C05D0_CPlayerManager_UpdateSpectatorControlList();
+        esp = saved_esp;
+    }
 }
 
 /**
@@ -1305,6 +1557,7 @@ loc_001BF1EA:
 
 loc_001BF1EF:
     esi = eax + 0x180;
+    cplayermanager_log_netgame("GetLocalPlayer-manager", esi);
     PUSH32(esp, 0); fn_0027C000_CNetGame_GetLocalPlayer(); /* call 0x0027C000 */
 
 loc_001BF1FA:
@@ -1323,6 +1576,7 @@ loc_001BF20E:
     PUSH32(esp, 0); fn_001BEFD0_CPlayerManager_GetPlayer(); /* call 0x001BEFD0 */
 
 loc_001BF216:
+    cplayermanager_log_list("GetLocalPlayer-result", 0x627A68);
     POP32(esp, esi);
     POP32(esp, ebx);
     esp += 4; return; /* ret */
@@ -1340,6 +1594,20 @@ void sub_001BF219(void)
     int _flags = 0; /* fallback flag var */
 
 loc_001BF219:
+    {
+        uint32_t manager = cplayermanager_va_range_is_valid(edi, 0x20) ? edi : 0x627A68u;
+        cplayermanager_restore_direct_player_if_needed(manager);
+        cplayermanager_log_list("GetLocalPlayer-fallback", manager);
+        if (cplayermanager_va_range_is_valid(manager, 0x20) &&
+            MEM32(manager) > 0 &&
+            cplayermanager_va_range_is_valid(MEM32(manager + 8), 0xC) &&
+            cplayermanager_va_range_is_valid(MEM32(MEM32(manager + 8)), 0x54)) {
+            eax = MEM32(MEM32(manager + 8));
+            POP32(esp, esi);
+            POP32(esp, ebx);
+            esp += 4; return; /* ret */
+        }
+    }
     if (CMP_LE(MEM32(edi), 0)) { sub_001BF226(); return; } /* jle: less or equal (signed <=) */
 
 loc_001BF21E:
@@ -2988,10 +3256,32 @@ loc_001BFD87:
 
 }
 
-/* Fallback for unresolved generated target 0x001BFD66. */
 void sub_001BFD66(void)
 {
-    recomp_missing_target(0x001BFD66u);
+    uint32_t ebp;
+    int _flags = 0; /* fallback flag var */
+    ebp = g_seh_ebp; /* fpo_leaf: inherit caller's frame */
+
+loc_001BFD66:
+    edx = MEM32(esi + 8);
+    eax = 0; /* xor self */
+    if (CMP_LE(edx & edx, 0)) goto loc_001BFD87; /* jle: less or equal (signed <=) */
+
+loc_001BFD6F:
+    edi = MEM32(esi + 0x14);
+    ecx = edi;
+
+loc_001BFD74:
+    if (CMP_EQ(MEM32(ecx), ebp)) { sub_001BFE6A(); return; } /* je: equal / zero */
+
+loc_001BFD7C:
+    eax++;
+    ecx = ecx + 0xD4;
+    if (CMP_L(eax, edx)) goto loc_001BFD74; /* jl: less (signed <) */
+
+loc_001BFD87:
+    eax = MEM32(esi + 0x14);
+    g_seh_ebp = ebp; sub_001BFD8A(); return; /* fall-through */
 }
 
 /**
@@ -3329,6 +3619,36 @@ void fn_001BFF80_CPlayerManager_AddPlayer(void)
     ebp = g_seh_ebp; /* fpo_leaf: inherit caller's frame */
 
 loc_001BFF80:
+    {
+        uint32_t manager = esi;
+        uint32_t netplayer = cplayermanager_va_range_is_valid(esp + 4, 4) ? MEM32(esp + 4) : 0;
+        uint32_t player = cplayermanager_construct_player(netplayer);
+        if (player != 0) {
+            cplayermanager_zerolist_append_value(manager, player);
+            fprintf(stderr,
+                    "[FSW/Player] AddPlayer stable manager=%08X netplayer=%08X flags=%02X player=%08X\n",
+                    (unsigned)manager,
+                    (unsigned)netplayer,
+                    (unsigned)(cplayermanager_va_range_is_valid(netplayer, 0x5C) ? MEM8(netplayer + 0x58) : 0),
+                    (unsigned)player);
+        }
+        eax = player;
+        esp += 8; return; /* ret 4 */
+    }
+    {
+        uint32_t arg_player = cplayermanager_va_range_is_valid(esp + 8, 4) ? MEM32(esp + 8) : 0;
+        static uint32_t add_log_count;
+        if (add_log_count < 16 || (add_log_count % 128) == 0) {
+            fprintf(stderr,
+                    "[FSW/Player] AddPlayer entry manager=%08X arg=%08X active=%u flags=%02X count=%u\n",
+                    (unsigned)MEM32(esp + 4),
+                    (unsigned)arg_player,
+                    (unsigned)cplayermanager_netplayer_is_active_local(arg_player),
+                    (unsigned)(cplayermanager_va_range_is_valid(arg_player, 0x5C) ? MEM8(arg_player + 0x58) : 0),
+                    (unsigned)(add_log_count + 1));
+        }
+        add_log_count++;
+    }
     eax = MEM32(0);
     PUSH32(esp, 0xFFFFFFFFu);
     PUSH32(esp, 0x40459E);
@@ -3446,6 +3766,18 @@ loc_001C0014:
     MEM32(esp + 0x14) = 0xFFFFFFFFu;
     ebx = esp + 0x1C;
     MEM32(esp + 0x1C) = eax;
+    {
+        static uint32_t append_log_count;
+        if (append_log_count < 16 || (append_log_count % 128) == 0) {
+            fprintf(stderr,
+                    "[FSW/Player] AddPlayer append manager=%08X player=%08X source=%08X count=%u\n",
+                    (unsigned)MEM32(esp + 0x18),
+                    (unsigned)eax,
+                    (unsigned)(cplayermanager_va_range_is_valid(eax, 0x54) ? MEM32(eax + 4) : 0),
+                    (unsigned)(append_log_count + 1));
+        }
+        append_log_count++;
+    }
     PUSH32(esp, 0); fn_0004F4A0_PAVCUIMenu_ZeroList_Append(); /* call 0x0004F4A0 */
 
 loc_001C002A:
@@ -5657,6 +5989,12 @@ void fn_001C0DD0_CPlayerManager_InitializePlayerData(void)
     ebp = g_seh_ebp; /* fpo_leaf: inherit caller's frame */
 
 loc_001C0DD0:
+    if (getenv("FSW_TH_LEVEL") != NULL) {
+        uint32_t manager = cplayermanager_va_range_is_valid(esp + 4, 4) ? MEM32(esp + 4) : 0;
+        uint32_t netgame = cplayermanager_va_range_is_valid(esp + 8, 4) ? MEM32(esp + 8) : 0;
+        cplayermanager_initialize_player_data_stable(manager, netgame);
+        esp += 12; return; /* ret 8 */
+    }
     eax = MEM32(0);
     PUSH32(esp, 0xFFFFFFFFu);
     PUSH32(esp, 0x40A758);
@@ -5671,6 +6009,7 @@ loc_001C0DD0:
 
 loc_001C0DF2:
     esi = MEM32(esp + 0x24);
+    cplayermanager_log_netgame("InitializePlayerData-input", esi);
     SET_LO8(eax, MEM8(esi + 0x36C));
     ebp = MEM32(esi + 0x368);
     SET_LO8(eax, LO8(eax) >> 1);
@@ -5737,6 +6076,20 @@ loc_001C0E66:
 
 loc_001C0E6D:
     esi = MEM32(esp + 0x20);
+    {
+        static uint32_t init_add_log_count;
+        if (init_add_log_count < 16 || (init_add_log_count % 128) == 0) {
+            fprintf(stderr,
+                    "[FSW/Player] InitializePlayerData add idx=%u netplayer=%08X flags=%02X active=%u manager=%08X count=%u\n",
+                    (unsigned)ebx,
+                    (unsigned)edi,
+                    (unsigned)(cplayermanager_va_range_is_valid(edi, 0x5C) ? MEM8(edi + 0x58) : 0),
+                    (unsigned)cplayermanager_netplayer_is_active_local(edi),
+                    (unsigned)esi,
+                    (unsigned)(init_add_log_count + 1));
+        }
+        init_add_log_count++;
+    }
     PUSH32(esp, edi);
     PUSH32(esp, 0); fn_001BFF80_CPlayerManager_AddPlayer(); /* call 0x001BFF80 */
 
@@ -5795,6 +6148,7 @@ void sub_001C0E99(void)
 
 loc_001C0E99:
 	    esi = MEM32(esp + 0x20);
+	    cplayermanager_log_list("InitializePlayerData-post", esi);
 	    ebx = MEM32(esi + 8);
 	    if (!cplayermanager_list_node_is_valid("InitializePlayerData", ebx)) goto loc_001C0EBA;
 

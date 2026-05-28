@@ -27,6 +27,22 @@ static BOOL g_input_debug = FALSE;
 static BOOL g_input_debug_checked = FALSE;
 static BOOL g_keyboard_controller = TRUE;
 
+typedef struct ScriptInputEvent {
+    Uint32 start_ms;
+    Uint32 duration_ms;
+    WORD buttons;
+    BYTE analog[8];
+    SHORT lx;
+    SHORT ly;
+} ScriptInputEvent;
+
+#define MAX_SCRIPT_INPUT_EVENTS 128
+
+static ScriptInputEvent g_script_events[MAX_SCRIPT_INPUT_EVENTS];
+static int g_script_event_count = 0;
+static BOOL g_script_checked = FALSE;
+static Uint32 g_script_start_ticks = 0;
+
 static BYTE axis_trigger_to_byte(Sint16 value)
 {
     if (value <= 0) return 0;
@@ -40,6 +56,127 @@ static SHORT axis_stick_to_short(Sint16 value, BOOL invert)
     if (v < -32768) v = -32768;
     if (v > 32767) v = 32767;
     return (SHORT)v;
+}
+
+static void script_add_button(ScriptInputEvent *event, const char *name)
+{
+    if (strcmp(name, "start") == 0) {
+        event->buttons |= XBOX_GAMEPAD_START;
+        event->analog[XBOX_BUTTON_A] = 255;
+    } else if (strcmp(name, "back") == 0) {
+        event->buttons |= XBOX_GAMEPAD_BACK;
+    } else if (strcmp(name, "up") == 0) {
+        event->buttons |= XBOX_GAMEPAD_DPAD_UP;
+        event->ly = 32767;
+    } else if (strcmp(name, "down") == 0) {
+        event->buttons |= XBOX_GAMEPAD_DPAD_DOWN;
+        event->ly = -32768;
+    } else if (strcmp(name, "left") == 0) {
+        event->buttons |= XBOX_GAMEPAD_DPAD_LEFT;
+        event->lx = -32768;
+    } else if (strcmp(name, "right") == 0) {
+        event->buttons |= XBOX_GAMEPAD_DPAD_RIGHT;
+        event->lx = 32767;
+    } else if (strcmp(name, "a") == 0 || strcmp(name, "accept") == 0) {
+        event->analog[XBOX_BUTTON_A] = 255;
+    } else if (strcmp(name, "b") == 0 || strcmp(name, "cancel") == 0) {
+        event->analog[XBOX_BUTTON_B] = 255;
+    } else if (strcmp(name, "x") == 0) {
+        event->analog[XBOX_BUTTON_X] = 255;
+    } else if (strcmp(name, "y") == 0) {
+        event->analog[XBOX_BUTTON_Y] = 255;
+    } else if (strcmp(name, "white") == 0 || strcmp(name, "lb") == 0) {
+        event->analog[XBOX_BUTTON_WHITE] = 255;
+    } else if (strcmp(name, "black") == 0 || strcmp(name, "rb") == 0) {
+        event->analog[XBOX_BUTTON_BLACK] = 255;
+    } else if (strcmp(name, "lt") == 0) {
+        event->analog[XBOX_BUTTON_LTRIGGER] = 255;
+    } else if (strcmp(name, "rt") == 0) {
+        event->analog[XBOX_BUTTON_RTRIGGER] = 255;
+    }
+}
+
+static void script_parse_events(void)
+{
+    const char *script = getenv("FSW_TH_INPUT_SCRIPT");
+    char *copy;
+    char *save_outer = NULL;
+    char *token;
+
+    if (g_script_checked) {
+        return;
+    }
+    g_script_checked = TRUE;
+    if (!script || !script[0]) {
+        return;
+    }
+
+    copy = (char *)malloc(strlen(script) + 1);
+    if (!copy) {
+        return;
+    }
+    strcpy(copy, script);
+
+    token = strtok_r(copy, ",;", &save_outer);
+    while (token && g_script_event_count < MAX_SCRIPT_INPUT_EVENTS) {
+        char *at = strchr(token, '@');
+        char *colon = at ? strchr(at + 1, ':') : NULL;
+        if (at && colon) {
+            ScriptInputEvent event;
+            char *save_buttons = NULL;
+            char *button;
+            memset(&event, 0, sizeof(event));
+            *at = 0;
+            *colon = 0;
+            event.start_ms = (Uint32)strtoul(at + 1, NULL, 0);
+            event.duration_ms = (Uint32)strtoul(colon + 1, NULL, 0);
+            if (event.duration_ms == 0) {
+                event.duration_ms = 180;
+            }
+            button = strtok_r(token, "+|", &save_buttons);
+            while (button) {
+                script_add_button(&event, button);
+                button = strtok_r(NULL, "+|", &save_buttons);
+            }
+            g_script_events[g_script_event_count++] = event;
+        }
+        token = strtok_r(NULL, ",;", &save_outer);
+    }
+
+    free(copy);
+    fprintf(stderr, "[INPUT] loaded %d scripted input events\n", g_script_event_count);
+}
+
+static void apply_script_input(XBOX_INPUT_STATE *state)
+{
+    Uint32 now;
+
+    script_parse_events();
+    if (g_script_event_count == 0) {
+        return;
+    }
+    if (g_script_start_ticks == 0) {
+        g_script_start_ticks = SDL_GetTicks();
+    }
+    now = SDL_GetTicks() - g_script_start_ticks;
+
+    for (int i = 0; i < g_script_event_count; i++) {
+        const ScriptInputEvent *event = &g_script_events[i];
+        if (now >= event->start_ms && now < event->start_ms + event->duration_ms) {
+            state->Gamepad.wButtons |= event->buttons;
+            for (int b = 0; b < 8; b++) {
+                if (event->analog[b] > state->Gamepad.bAnalogButtons[b]) {
+                    state->Gamepad.bAnalogButtons[b] = event->analog[b];
+                }
+            }
+            if (event->lx != 0) {
+                state->Gamepad.sThumbLX = event->lx;
+            }
+            if (event->ly != 0) {
+                state->Gamepad.sThumbLY = event->ly;
+            }
+        }
+    }
 }
 
 static int find_free_slot(void)
@@ -195,6 +332,7 @@ DWORD xbox_InputGetState(DWORD dwPort, XBOX_INPUT_STATE *pState)
             XBOX_INPUT_STATE state;
             memset(&state, 0, sizeof(state));
             fill_keyboard_state(&state);
+            apply_script_input(&state);
             if (memcmp(&state.Gamepad, &slot->last_state.Gamepad, sizeof(state.Gamepad)) != 0) {
                 slot->packet++;
                 if (g_input_debug) {
@@ -253,6 +391,8 @@ DWORD xbox_InputGetState(DWORD dwPort, XBOX_INPUT_STATE *pState)
     state.Gamepad.sThumbLY = axis_stick_to_short(SDL_GameControllerGetAxis(c, SDL_CONTROLLER_AXIS_LEFTY), TRUE);
     state.Gamepad.sThumbRX = axis_stick_to_short(SDL_GameControllerGetAxis(c, SDL_CONTROLLER_AXIS_RIGHTX), FALSE);
     state.Gamepad.sThumbRY = axis_stick_to_short(SDL_GameControllerGetAxis(c, SDL_CONTROLLER_AXIS_RIGHTY), TRUE);
+
+    apply_script_input(&state);
 
     if (memcmp(&state.Gamepad, &slot->last_state.Gamepad, sizeof(state.Gamepad)) != 0) {
         slot->packet++;

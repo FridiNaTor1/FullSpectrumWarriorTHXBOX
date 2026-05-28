@@ -307,11 +307,18 @@ loc_0002A711:
 void fn_0004E360_EIterator_ZeroList_K_QAE_AV01_H_Z(void)
 {
     uint32_t next;
+    static uint32_t invalid_state_log_count;
+    static uint32_t invalid_node_log_count;
+    static uint32_t invalid_next_log_count;
 
 loc_0004E360:
     if (!chudgps_va_range_is_valid(ecx, 8) || !chudgps_va_range_is_valid(eax, 8)) {
-        fprintf(stderr, "[FSW/ZeroList] iterator skipped invalid state out=%08X iter=%08X\n",
-                (unsigned)eax, (unsigned)ecx);
+        if (invalid_state_log_count++ < 16) {
+            fprintf(stderr,
+                    "[FSW/ZeroList] iterator skipped invalid state out=%08X iter=%08X esp=%08X ebx=%08X esi=%08X edi=%08X edx=%08X\n",
+                    (unsigned)eax, (unsigned)ecx, (unsigned)esp,
+                    (unsigned)ebx, (unsigned)esi, (unsigned)edi, (unsigned)edx);
+        }
         if (chudgps_va_range_is_valid(eax, 8)) {
             MEM32(eax) = 0;
             MEM32(eax + 4) = 0;
@@ -320,8 +327,10 @@ loc_0004E360:
     }
     edx = MEM32(ecx);
     if (!chudgps_va_range_is_valid(edx, 8)) {
-        fprintf(stderr, "[FSW/ZeroList] iterator stopped invalid node=%08X iter=%08X\n",
-                (unsigned)edx, (unsigned)ecx);
+        if (invalid_node_log_count++ < 16) {
+            fprintf(stderr, "[FSW/ZeroList] iterator stopped invalid node=%08X iter=%08X\n",
+                    (unsigned)edx, (unsigned)ecx);
+        }
         MEM32(ecx) = 0;
         MEM32(eax) = 0;
         MEM32(eax + 4) = MEM32(ecx + 4);
@@ -332,8 +341,10 @@ loc_0004E360:
     PUSH32(esp, edi);
     next = MEM32(edx + 4);
     if (next != 0 && !chudgps_va_range_is_valid(next, 8)) {
-        fprintf(stderr, "[FSW/ZeroList] iterator dropping invalid next node=%08X next=%08X\n",
-                (unsigned)edx, (unsigned)next);
+        if (invalid_next_log_count++ < 16) {
+            fprintf(stderr, "[FSW/ZeroList] iterator dropping invalid next node=%08X next=%08X\n",
+                    (unsigned)edx, (unsigned)next);
+        }
         next = 0;
     }
     edi = next;

@@ -7,12 +7,18 @@
 #define RECOMP_GENERATED_CODE
 #include "recomp_funcs.h"
 #include <math.h>
+#include <stdio.h>
 
 extern uint32_t xbox_HeapAlloc(uint32_t size, uint32_t alignment);
 
 static int cui_va_is_valid(uint32_t va)
 {
     return va >= 0x00010000u && va < 0x04000000u;
+}
+
+static int cui_va_range_is_valid(uint32_t va, uint32_t size)
+{
+    return va >= 0x00010000u && va < 0x04000000u && size <= 0x04000000u - va;
 }
 
 /**
@@ -279,8 +285,35 @@ loc_000526D4:
 void fn_000526E0_VCRC_U_CEntry_ZeroHashSet_RemoveAll(void)
 {
     int _flags = 0; /* fallback flag var */
+    uint32_t table;
+    uint32_t capacity;
 
 loc_000526E0:
+    table = MEM32(esi);
+    capacity = MEM32(esi + 8);
+    if (table == 0 || capacity == 0) {
+        MEM32(esi + 0xC) = 0;
+        esp += 4; return; /* ret */
+    }
+    if (capacity > 0x10000 || !cui_va_range_is_valid(table, capacity * 12)) {
+        fprintf(stderr,
+                "[FSW/UI] clearing invalid CUIDataRegistry hashset set=%08X table=%08X capacity=%u count=%u\n",
+                (unsigned)esi, (unsigned)table, (unsigned)capacity, (unsigned)MEM32(esi + 0xC));
+        MEM32(esi) = 0;
+        MEM32(esi + 4) = 0;
+        MEM32(esi + 8) = 0;
+        MEM32(esi + 0xC) = 0;
+        esp += 4; return; /* ret */
+    }
+    for (uint32_t i = 0; i < capacity; i++) {
+        uint32_t slot = table + i * 12;
+        MEM32(slot) = 0xFFFFFFFFu;
+        MEM32(slot + 4) = 0;
+        MEM32(slot + 8) = 0;
+    }
+    MEM32(esi + 0xC) = 0;
+    esp += 4; return; /* ret */
+
     eax = MEM32(esi);
     esp = esp - 0xC;
     if (TEST_Z(eax, eax)) goto loc_00052727; /* je: equal / zero */

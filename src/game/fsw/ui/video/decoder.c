@@ -7,8 +7,17 @@
 #define RECOMP_GENERATED_CODE
 #include "recomp_funcs.h"
 #include <math.h>
+#include <stdio.h>
+#include <stdlib.h>
 
 extern uint32_t xbox_HeapAlloc(uint32_t size, uint32_t alignment);
+
+#define FSW_BINK_MAGIC 0x42494E4Bu
+
+static int fsw_decoder_va_is_valid(uint32_t va)
+{
+    return va >= 0x00010000u && va < 0x04000000u;
+}
 
 /**
  * fn_0004C3C0_GCDecoder_UAEPAXI_Z
@@ -363,6 +372,33 @@ loc_001BB598:
     PUSH32(esp, 0); fn_001BC190_0CBinkDecoder_QAE_ABV_ZeroStrT_0EA_N_Z(); /* call 0x001BC190 */
 
 loc_001BB5A7:
+#ifdef XBOXRECOMP_VULKAN_GRAPHICS
+    if (getenv("FSW_TH_BINK_DEBUG") != NULL) {
+        uint32_t saved_decoder = MEM32(esp);
+        uint32_t saved_bink = fsw_decoder_va_is_valid(saved_decoder) ? MEM32(saved_decoder + 0x7C) : 0;
+        fprintf(stderr,
+                "[FSW/Bink] CDecoder_Create return eax=%08X saved=%08X saved_bink=%08X magic=%08X done=%u\n",
+                (unsigned)eax,
+                (unsigned)saved_decoder,
+                (unsigned)saved_bink,
+                (unsigned)(fsw_decoder_va_is_valid(saved_bink) ? MEM32(saved_bink + 0x20) : 0),
+                (unsigned)(fsw_decoder_va_is_valid(saved_decoder) ? MEM8(saved_decoder + 0x4C) : 0));
+    }
+#endif
+    if (eax == 0 && MEM32(esp) != 0) {
+        eax = MEM32(esp);
+    }
+#ifdef XBOXRECOMP_VULKAN_GRAPHICS
+    if (getenv("FSW_TH_BINK_DEBUG") != NULL) {
+        uint32_t saved_bink = fsw_decoder_va_is_valid(eax) ? MEM32(eax + 0x7C) : 0;
+        fprintf(stderr,
+                "[FSW/Bink] CDecoder_Create final eax=%08X bink=%08X magic=%08X done=%u\n",
+                (unsigned)eax,
+                (unsigned)saved_bink,
+                (unsigned)(fsw_decoder_va_is_valid(saved_bink) ? MEM32(saved_bink + 0x20) : 0),
+                (unsigned)(fsw_decoder_va_is_valid(eax) ? MEM8(eax + 0x4C) : 0));
+    }
+#endif
     ecx = MEM32(esp + 4);
     MEM32(0) = ecx;
     esp = esp + 0x10;

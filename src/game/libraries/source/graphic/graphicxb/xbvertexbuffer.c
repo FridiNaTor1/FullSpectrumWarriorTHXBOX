@@ -1356,6 +1356,7 @@ loc_001395E4:
 
 loc_001395FB:
     edi = 0x20;
+    g_seh_ebp = ebp; sub_00139600(); return; /* fallthrough 0x00139600 */
 
 }
 

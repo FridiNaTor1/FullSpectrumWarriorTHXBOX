@@ -10,19 +10,29 @@ The current bring-up target is a **review copy build dated Dec 5 2005** because 
 
 These captures come from the Linux Vulkan renderer, not mockups.
 
-| Real shell/menu render | Direct first-level runtime |
-|---|---|
-| ![Current Linux shell menu render](docs/screenshots/linux-shell-menu-actual.png) | ![Current direct first-level runtime frame](docs/screenshots/first-level-runtime-actual.png) |
+| Press Start | New Profile | Brightness setup |
+|---|---|---|
+| ![Current Linux Press Start shell render](docs/screenshots/linux-shell-press-start.png) | ![Current Linux New Profile menu render](docs/screenshots/linux-profile-new-profile.png) | ![Current Linux brightness setup render](docs/screenshots/linux-profile-brightness.png) |
 
-The shell/menu screenshot shows real `Shell.pak` assets, the real start-menu logo, the shell background/splash texture, and font draws. The text is still visibly wrong, and animation/placement is not yet retail-correct.
+The shell/menu screenshots show real `Shell.pak` assets, the real start-menu logo, profile setup menus, shell background/splash textures, and real font draws through Vulkan. Text is now readable, but several transforms and overlay animations are still not retail-correct.
 
-The first-level screenshot is black because the direct mission path is now presenting frames from the gameplay loop with `vertices=0`. That is progress over crashing during setup, but it is not visible gameplay yet.
+| Direct first-level runtime |
+|---|
+| ![Current direct first-level runtime frame](docs/screenshots/first-level-runtime-actual.png) |
+
+The first-level screenshot is still black because the direct mission path presents frames from the gameplay loop with `vertices=0`. That is progress over crashing during setup, but it is not visible gameplay yet.
 
 ## Current Status
 
-**The Linux port now reaches two important real paths: the shell/menu renderer and the first-level mission loop.**
+**The Linux port now reaches two important real paths: the shell/profile renderer and the first-level mission loop.**
 
-The normal shell path initializes the Vulkan presentation host, loads `Shell.pak`, resolves PAK-contained resources through the game's `ZeroFile` memory-file system, loads `menu.ui`, selects the shell menu, decodes real shell textures, decodes font atlas data, and submits real RHW UI draws through Vulkan. A 20 second shell run reached Vulkan present frame 120 with 4,950 native RHW draws and 29,700 vertices.
+The normal shell path initializes the Vulkan presentation host, loads `Shell.pak`, resolves PAK-contained resources through the game's `ZeroFile` memory-file system, loads `menu.ui`, selects the shell menu, decodes real shell textures, decodes font atlas data, and submits real RHW UI draws through Vulkan. The verified flow now reaches:
+
+```text
+Loading/shell states -> Press Start -> New Profile -> Brightness setup -> post-brightness transition
+```
+
+The post-brightness transition now submits the real menu event from state `0x0D`, but it currently routes into net state `0x8A` with no menu CRC. The next shell blocker is identifying the intended state/menu after brightness so the profile flow can continue into profile selection or the main menu normally.
 
 The direct first-level path now loads `BD_startbusdepot.pak`, registers texture tables, object tables, ABKs, Havok descriptors, fonts, meshes, INI/CSV data, and then enters `ProcessGame`. A 30 second run reached more than 2,000 presented frames in the mission loop without crashing.
 
@@ -35,6 +45,9 @@ This is not playable yet. The mission path currently has no populated render sce
 - Improved Linux input through SDL/XInput mapping so controller and keyboard fallback paths can drive bring-up.
 - Added PAK/memfs/CRC work so resources resolve through the game's real CRC/path flow instead of hardcoded texture substitution.
 - Located shell-contained video resources and connected more Bink/video surface plumbing, though the full intro video sequence still needs integration and timing work.
+- Fixed the shell font atlas channel mapping so real menu text renders readable.
+- Switched shell background strip rendering to game-computed UVs and allowed inverted image-control UV ranges used by the menu animation data.
+- Advanced the real profile path through `Press Start`, `New Profile`, and `Brightness`, including a state `0x0D` profile setup transition repair.
 - Moved first-level direct mode past earlier setup crashes in PAK loading, object construction, Havok descriptor registration, AI setup, camera update, mission update, and render dispatch.
 - Stabilized generated render-cookie construction around clobbered `this`, `ebx`, and ESP state so render setup no longer dies during `XBRenderCookie` construction.
 - Added targeted guards and diagnostics across AI, Havok, scene, prop, HUD, particles, sky, sound, script, and manager code so bad generated state is logged and isolated instead of immediately crashing.
@@ -47,14 +60,15 @@ This is not playable yet. The mission path currently has no populated render sce
 - **Xbox runtime model** - the recomp runs against an Xbox-style flat memory layout, kernel thunk bridge, heap allocator, XAPI shims, and guest file descriptor table.
 - **Linux path handling** - Xbox paths such as `D:\Chapters\Shell.pak` resolve on a case-sensitive Linux filesystem.
 - **PAK/memfs loading** - shell and level PAK resources resolve through in-memory PAK tables with relocated data offsets.
-- **Real shell drawing** - the current renderer draws real shell textures and real font geometry through Vulkan.
+- **Real shell drawing** - the current renderer draws real shell textures, readable menu text, profile setup screens, and animated shell background strips through Vulkan.
 - **SDL input bridge** - SDL-backed XInput compatibility detects and maps modern controllers, with keyboard fallback for bring-up.
+- **Scripted input bring-up** - `FSW_TH_INPUT_SCRIPT` can drive repeatable shell/profile tests without manual controller input.
 - **Direct level loop** - `FSW_TH_FORCE_DIRECT=1 FSW_TH_LEVEL=1` reaches `ProcessGame` and continues presenting frames.
 
 ## Current Blockers
 
-- [ ] Fix shell font decoding/character mapping; the menu uses real font draws, but rendered text is garbled.
 - [ ] Finish shell/menu transforms and animation timing so the logo, splash strip, loading screen, Press Start, profile flow, and menu options match the Xbox presentation.
+- [ ] Route the post-brightness profile setup transition. State `0x0D` now submits event `2`, but the Linux path currently lands in net state `0x8A` with `menu_crc=00000000`.
 - [ ] Finish Bink intro playback from PAK-contained assets and route it into the real shell timeline.
 - [ ] Replace temporary XACT/audio bypasses with a real Xbox audio path after gameplay rendering is further along.
 - [ ] Fix first-level world/scene population. The direct path reaches `InitLevel`, `ConstructObjects`, and `ProcessGame`, but `SceneManager` still has zero scene objects and the renderer receives no gameplay vertices.
@@ -69,7 +83,8 @@ This is not playable yet. The mission path currently has no populated render sce
 | **Source layout** | PDB DBI source-file records are good enough to reconstruct most game modules under a readable `src/game/fsw/...` tree. |
 | **PAK resources** | `Shell.pak` contains shell UI resources and video assets; level PAKs contain object, texture, Havok, mesh, and script-side data. |
 | **CRC/resource lookup** | CRCs are calculated by the game path at runtime; the current work uses those calculated CRCs to resolve loaded PAK resources rather than mapping "CRC X means texture Y" by hand. |
-| **Menu rendering** | Real textures and fonts are reaching Vulkan, but font decode/character mapping and animation transforms still need correction. |
+| **Menu rendering** | Real textures and readable fonts are reaching Vulkan; remaining shell work is mostly transform/animation/state routing rather than placeholder rendering. |
+| **Profile flow** | Press Start reaches New Profile, New Profile reaches Brightness, and Brightness now submits a real state event. The next bad transition is state `0x8A` with no menu CRC. |
 | **Bink/video** | The host-side Bink decode path and video-surface plumbing are partly in place, but the intro sequence is not yet a verified end-to-end shell flow. |
 | **Render-cookie bug** | Generated code around `XBRenderCookie` construction could clobber `this`, `ebx`, and ESP; targeted repair keeps render-cookie setup alive for now. |
 | **First-level blocker** | Direct mode reaches the mission loop, but WLD/static prop setup does not appear to populate `SceneManager`, leaving gameplay presentation at `vertices=0`. |

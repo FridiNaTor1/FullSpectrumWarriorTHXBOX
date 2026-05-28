@@ -7,6 +7,9 @@
 #define RECOMP_GENERATED_CODE
 #include "recomp_funcs.h"
 #include <math.h>
+#include <stdio.h>
+
+static uint32_t g_fsw_ptree_parse_loop_log_count;
 
 /**
  * fn_0015FAA0_PTree_ReadBinaryData
@@ -734,10 +737,10 @@ loc_0015FF50:
 loc_0015FFAD:
     MEM32(esp + 0x68) = ebx;
     eax = MEM32(esp + 0x10);
-    if (CMP_GE(eax, ebx)) { sub_0015FFDB(); return; } /* jge: greater or equal (signed >=) */
+    if (CMP_GE(eax, ebx)) { g_seh_ebp = ebp; sub_0015FFDB(); return; } /* jge: greater or equal (signed >=) */
 
 loc_0015FFB9:
-    if (CMP_NE(MEM32(esp + 0x30), ebx)) { sub_0015FFDB(); return; } /* jne: not equal / not zero */
+    if (CMP_NE(MEM32(esp + 0x30), ebx)) { g_seh_ebp = ebp; sub_0015FFDB(); return; } /* jne: not equal / not zero */
 
 loc_0015FFBF:
     MEM32(esp + 0x68) = ebp;
@@ -841,6 +844,7 @@ loc_00160090:
 
 loc_00160093:
     SET_LO8(eax, 1);
+    g_seh_ebp = ebp; sub_00160095(); return; /* fallthrough */
 
 }
 
@@ -1717,10 +1721,13 @@ loc_00160727:
  */
 void sub_0016072D(void)
 {
+    uint32_t ebp;
     int _flags = 0; /* fallback flag var */
+    ebp = g_seh_ebp; /* fpo_leaf: inherit caller's frame */
 
 loc_0016072D:
     if (TEST_Z(eax, eax)) { sub_00160742(); return; } /* je: equal / zero */
+    g_seh_ebp = ebp; sub_00160731(); return; /* fallthrough */
 
 }
 
@@ -1751,9 +1758,12 @@ loc_00160731:
  */
 void sub_00160742(void)
 {
+    uint32_t ebp;
+    ebp = g_seh_ebp; /* fpo_leaf: inherit caller's frame */
 
 loc_00160742:
     esi = 0; /* xor self */
+    g_seh_ebp = ebp; sub_00160744(); return; /* fallthrough */
 
 }
 
@@ -1797,8 +1807,13 @@ loc_0016075F:
 void fn_00160770_PTree_ParseVariableReference(void)
 {
     int _flags = 0; /* fallback flag var */
+    static uint32_t variable_ref_log_count;
 
 loc_00160770:
+    if (variable_ref_log_count < 16) {
+        fprintf(stderr, "[FSW/PTree] ParseVariableReference entry esp=%08X scope_arg=%08X\n",
+                (unsigned)esp, (unsigned)MEM32(esp + 4));
+    }
     PUSH32(esp, ebx);
     PUSH32(esp, esi);
     PUSH32(esp, edi);
@@ -1848,10 +1863,18 @@ loc_001607CA:
     ecx = esp;
     MEM32(ecx) = eax;
     eax = MEM32(esp + 0x14);
+    if (variable_ref_log_count < 16) {
+        fprintf(stderr, "[FSW/PTree] ParseVariableReference before FindVariableVisible esp=%08X scope=%08X crc=%08X\n",
+                (unsigned)esp, (unsigned)eax, (unsigned)MEM32(ecx));
+    }
     PUSH32(esp, 0); fn_00161CB0_FScope_FindVariableVisible(); /* call 0x00161CB0 */
 
 loc_001607D8:
     ebx = eax;
+    if (variable_ref_log_count < 16) {
+        fprintf(stderr, "[FSW/PTree] ParseVariableReference after FindVariableVisible esp=%08X vnode=%08X\n",
+                (unsigned)esp, (unsigned)ebx);
+    }
     if (TEST_NZ(ebx, ebx)) goto loc_001607F8; /* jne: not equal / not zero */
 
 loc_001607DE:
@@ -1865,11 +1888,19 @@ loc_001607F5:
     esp = esp + 8;
 
 loc_001607F8:
+    if (variable_ref_log_count < 16) {
+        fprintf(stderr, "[FSW/PTree] ParseVariableReference before NewAtomicNode esp=%08X source=%08X\n",
+                (unsigned)esp, (unsigned)ebx);
+    }
     PUSH32(esp, ebx);
     PUSH32(esp, 0); fn_0015F3A0_VNode_NewAtomicNode(); /* call 0x0015F3A0 */
 
 loc_001607FE:
     ebx = eax;
+    if (variable_ref_log_count < 16) {
+        fprintf(stderr, "[FSW/PTree] ParseVariableReference after NewAtomicNode esp=%08X vnode=%08X\n",
+                (unsigned)esp, (unsigned)ebx);
+    }
     if (TEST_NZ(ebx, ebx)) goto loc_0016081E; /* jne: not equal / not zero */
 
 loc_00160804:
@@ -1883,9 +1914,18 @@ loc_0016081B:
     esp = esp + 8;
 
 loc_0016081E:
+    if (variable_ref_log_count < 16) {
+        fprintf(stderr, "[FSW/PTree] ParseVariableReference before PeekPunctuation esp=%08X vnode=%08X\n",
+                (unsigned)esp, (unsigned)ebx);
+    }
     PUSH32(esp, 0); fn_0015FB70_PTree_PeekPunctuation(); /* call 0x0015FB70 */
 
 loc_00160823:
+    if (variable_ref_log_count < 16) {
+        fprintf(stderr, "[FSW/PTree] ParseVariableReference epilogue esp=%08X vnode=%08X\n",
+                (unsigned)esp, (unsigned)ebx);
+        variable_ref_log_count++;
+    }
     POP32(esp, edi);
     POP32(esp, esi);
     eax = ebx;
@@ -2336,7 +2376,7 @@ loc_00160BE0:
 
 loc_00160BF4:
     ebx = eax;
-    if (TEST_Z(ebx, ebx)) { sub_00160C07(); return; } /* je: equal / zero */
+    if (TEST_Z(ebx, ebx)) { g_seh_ebp = ebp; sub_00160C07(); return; } /* je: equal / zero */
 
 loc_00160BFA:
     PUSH32(esp, 0); fn_0015FB70_PTree_PeekPunctuation(); /* call 0x0015FB70 */
@@ -2358,7 +2398,9 @@ loc_00160BFF:
  */
 void sub_00160C07(void)
 {
+    uint32_t ebp;
     int _flags = 0; /* fallback flag var */
+    ebp = g_seh_ebp; /* fpo_leaf: inherit caller's frame */
 
 loc_00160C07:
     PUSH32(esp, esi);
@@ -2376,15 +2418,15 @@ loc_00160C22:
 loc_00160C25:
     esi = MEM32(esi + 0x1C);
     esi = esi - 0;
-    if ((esi == 0)) { sub_00160C72(); return; } /* je: equal / zero */
+    if ((esi == 0)) { g_seh_ebp = ebp; sub_00160C72(); return; } /* je: equal / zero */
 
 loc_00160C2D:
     esi--;
-    if ((esi == 0)) { sub_00160C54(); return; } /* je: equal / zero */
+    if ((esi == 0)) { g_seh_ebp = ebp; sub_00160C54(); return; } /* je: equal / zero */
 
 loc_00160C30:
     esi--;
-    if ((esi != 0)) { sub_00160C4B(); return; } /* jne: not equal / not zero */
+    if ((esi != 0)) { g_seh_ebp = ebp; sub_00160C4B(); return; } /* jne: not equal / not zero */
 
 loc_00160C33:
     esi = MEM32(edi + 0x140);
@@ -2394,6 +2436,7 @@ loc_00160C33:
 
 loc_00160C48:
     esp = esp + 8;
+    g_seh_ebp = ebp; sub_00160C4B(); return; /* fallthrough 0x00160C4B */
 
 }
 
@@ -2432,7 +2475,7 @@ void sub_00160C54(void)
 
 loc_00160C54:
     eax = MEM32(edi + 0x140);
-    if (CMP_NE(MEM8(eax + 0x630), 0x26)) { sub_00160C4B(); return; } /* jne: not equal / not zero */
+    if (CMP_NE(MEM8(eax + 0x630), 0x26)) { g_seh_ebp = ebp; sub_00160C4B(); return; } /* jne: not equal / not zero */
 
 loc_00160C63:
     PUSH32(esp, ebp);
@@ -2525,7 +2568,7 @@ loc_00160CE4:
 
 loc_00160CF3:
     edi = eax;
-    if (TEST_Z(edi, edi)) { sub_00160DBE(); return; } /* je: equal / zero */
+    if (TEST_Z(edi, edi)) { g_seh_ebp = ebp; sub_00160DBE(); return; } /* je: equal / zero */
 
 loc_00160CFD:
     PUSH32(esp, ecx);
@@ -2542,7 +2585,7 @@ loc_00160D0F:
 
 loc_00160D18:
     ebx = eax;
-    if (TEST_Z(ebx, ebx)) { sub_00160D54(); return; } /* je: equal / zero */
+    if (TEST_Z(ebx, ebx)) { g_seh_ebp = ebp; sub_00160D54(); return; } /* je: equal / zero */
 
 loc_00160D1E:
     eax = MEM32(edi + 4);
@@ -2586,7 +2629,7 @@ void sub_00160D54(void)
 
 loc_00160D54:
     eax = MEM32(0x5F9E40);
-    if (TEST_NZ(eax, eax)) { sub_00160D69(); return; } /* jne: not equal / not zero */
+    if (TEST_NZ(eax, eax)) { g_seh_ebp = ebp; sub_00160D69(); return; } /* jne: not equal / not zero */
 
 loc_00160D5D:
     PUSH32(esp, 0x14);
@@ -2606,7 +2649,9 @@ loc_00160D64:
  */
 void sub_00160D69(void)
 {
+    uint32_t ebp;
     int _flags = 0; /* fallback flag var */
+    ebp = g_seh_ebp; /* fpo_leaf: inherit caller's frame */
 
 loc_00160D69:
     edx = MEM32(0x6135C8);
@@ -2618,7 +2663,7 @@ loc_00160D69:
     }
 
 loc_00160D7A:
-    if (TEST_NZ(eax, eax)) { sub_00160D88(); return; } /* jne: not equal / not zero */
+    if (TEST_NZ(eax, eax)) { g_seh_ebp = ebp; sub_00160D88(); return; } /* jne: not equal / not zero */
 
 loc_00160D7E:
     MEM32(eax) = 0x12345678;
@@ -2633,10 +2678,13 @@ loc_00160D7E:
  */
 void sub_00160D84(void)
 {
+    uint32_t ebp;
     int _flags = 0; /* fallback flag var */
+    ebp = g_seh_ebp; /* fpo_leaf: inherit caller's frame */
 
 loc_00160D84:
-    if (TEST_Z(eax, eax)) { sub_00160D99(); return; } /* je: equal / zero */
+    if (TEST_Z(eax, eax)) { g_seh_ebp = ebp; sub_00160D99(); return; } /* je: equal / zero */
+    g_seh_ebp = ebp; sub_00160D88(); return; /* fallthrough 0x00160D88 */
 
 }
 
@@ -2667,9 +2715,12 @@ loc_00160D88:
  */
 void sub_00160D99(void)
 {
+    uint32_t ebp;
+    ebp = g_seh_ebp; /* fpo_leaf: inherit caller's frame */
 
 loc_00160D99:
     ebx = 0; /* xor self */
+    g_seh_ebp = ebp; sub_00160D9B(); return; /* fallthrough 0x00160D9B */
 
 }
 
@@ -2722,6 +2773,7 @@ loc_00160DBE:
 
 loc_00160DDA:
     esp = esp + 0xC;
+    g_seh_ebp = ebp; sub_00160DDD(); return; /* fallthrough 0x00160DDD */
 
 }
 
@@ -2775,7 +2827,7 @@ loc_00160E10:
     PUSH32(esp, ebp);
     PUSH32(esp, esi);
     esi = 0; /* xor self */
-    if (CMP_NE(eax, esi)) { sub_00160E2D(); return; } /* jne: not equal / not zero */
+    if (CMP_NE(eax, esi)) { g_seh_ebp = ebp; sub_00160E2D(); return; } /* jne: not equal / not zero */
 
 loc_00160E21:
     PUSH32(esp, 0x40);
@@ -2795,7 +2847,9 @@ loc_00160E28:
  */
 void sub_00160E2D(void)
 {
+    uint32_t ebp;
     int _flags = 0; /* fallback flag var */
+    ebp = g_seh_ebp; /* fpo_leaf: inherit caller's frame */
 
 loc_00160E2D:
     edx = MEM32(0x6135C8);
@@ -2825,6 +2879,7 @@ loc_00160E4B:
     MEM32(eax) = edx;
     MEM32(0x5FA8C4) = ecx;
     eax = eax + 0x10;
+    g_seh_ebp = ebp; sub_00160E77(); return; /* fallthrough 0x00160E77 */
 
 }
 
@@ -2841,7 +2896,7 @@ void sub_00160E77(void)
     ebp = g_seh_ebp; /* fpo_leaf: inherit caller's frame */
 
 loc_00160E77:
-    if (CMP_EQ(eax, esi)) { sub_00160EB4(); return; } /* je: equal / zero */
+    if (CMP_EQ(eax, esi)) { g_seh_ebp = ebp; sub_00160EB4(); return; } /* je: equal / zero */
 
 loc_00160E7B:
     MEM32(eax + 0x10) = esi;
@@ -2880,6 +2935,7 @@ void sub_00160EB4(void)
 
 loc_00160EB4:
     ebp = 0; /* xor self */
+    g_seh_ebp = ebp; sub_00160EB6(); return; /* fallthrough 0x00160EB6 */
 
 }
 
@@ -2895,6 +2951,10 @@ void sub_00160EB6(void)
     ebp = g_seh_ebp; /* fpo_leaf: inherit caller's frame */
 
 loc_00160EB6:
+    if (g_fsw_ptree_parse_loop_log_count <= 8) {
+        fprintf(stderr, "[FSW/PTree] ParseFunctionArguments before FScope_Setup new_scope=%08X parent=%08X esp=%08X\n",
+                (unsigned)ebp, (unsigned)MEM32(esp + 0x18), (unsigned)esp);
+    }
     edx = MEM32(esp + 0x18);
     PUSH32(esp, ecx);
     eax = esp;
@@ -2907,6 +2967,10 @@ loc_00160EB6:
     PUSH32(esp, 0); fn_00162740_FScope_Setup(); /* call 0x00162740 */
 
 loc_00160ED5:
+    if (g_fsw_ptree_parse_loop_log_count <= 8) {
+        fprintf(stderr, "[FSW/PTree] ParseFunctionArguments after FScope_Setup new_scope=%08X esp=%08X eax=%08X\n",
+                (unsigned)ebp, (unsigned)esp, (unsigned)eax);
+    }
     SET_LO8(ebx, 0); /* xor self */
     g_seh_ebp = ebp; sub_00160EE0(); return; /* tail jmp 0x00160EE0 */
 
@@ -2957,14 +3021,22 @@ loc_00160F21:
     esp = esp + 0xC;
 
 loc_00160F24:
+    if (g_fsw_ptree_parse_loop_log_count <= 8) {
+        fprintf(stderr, "[FSW/PTree] ParseFunctionArguments before arg vnode scope=%08X esp=%08X\n",
+                (unsigned)ebp, (unsigned)esp);
+    }
     PUSH32(esp, ebp);
     eax = edi;
     PUSH32(esp, 0); fn_00160BE0_PTree_ParseVNodeData(); /* call 0x00160BE0 */
 
 loc_00160F2C:
+    if (g_fsw_ptree_parse_loop_log_count <= 8) {
+        fprintf(stderr, "[FSW/PTree] ParseFunctionArguments after arg vnode scope=%08X esp=%08X eax=%08X\n",
+                (unsigned)ebp, (unsigned)esp, (unsigned)eax);
+    }
     (void)0; /* test eax, eax - flags set for next jcc */
     MEM32(esp + 0x18) = eax;
-    if (TEST_Z(eax, eax)) { sub_00160F42(); return; } /* je: equal / zero */
+    if (TEST_Z(eax, eax)) { g_seh_ebp = ebp; sub_00160F42(); return; } /* je: equal / zero */
 
 loc_00160F34:
     esi = ebp + 0x10;
@@ -2984,10 +3056,12 @@ loc_00160F40:
  */
 void sub_00160F42(void)
 {
+    uint32_t ebp;
     int _flags = 0; /* fallback flag var */
+    ebp = g_seh_ebp; /* fpo_leaf: inherit caller's frame */
 
 loc_00160F42:
-    if (TEST_Z(LO8(ebx), LO8(ebx))) { sub_00160F65(); return; } /* je: equal / zero */
+    if (TEST_Z(LO8(ebx), LO8(ebx))) { g_seh_ebp = ebp; sub_00160F65(); return; } /* je: equal / zero */
 
 loc_00160F46:
     esi = MEM32(edi + 0x140);
@@ -2999,6 +3073,7 @@ loc_00160F46:
 
 loc_00160F62:
     esp = esp + 0xC;
+    g_seh_ebp = ebp; sub_00160F65(); return; /* fallthrough 0x00160F65 */
 
 }
 
@@ -3018,7 +3093,7 @@ loc_00160F65:
     edx = MEM32(edi + 0x140);
     (void)0; /* cmp MEM8(edx + 0x630), 0x2C - flags set for next jcc */
     SET_LO8(ebx, 1);
-    if (CMP_EQ(MEM8(edx + 0x630), 0x2C)) { sub_00160EE0(); return; } /* je: equal / zero */
+    if (CMP_EQ(MEM8(edx + 0x630), 0x2C)) { g_seh_ebp = ebp; sub_00160EE0(); return; } /* je: equal / zero */
 
 loc_00160F7A:
     ebx = 0x55F624;
@@ -3026,6 +3101,10 @@ loc_00160F7A:
     PUSH32(esp, 0); fn_0015F8E0_TBuf_Accept(); /* call 0x0015F8E0 */
 
 loc_00160F86:
+    if (g_fsw_ptree_parse_loop_log_count <= 8) {
+        fprintf(stderr, "[FSW/PTree] ParseFunctionArguments epilogue scope=%08X esp=%08X eax=%08X\n",
+                (unsigned)ebp, (unsigned)esp, (unsigned)eax);
+    }
     POP32(esp, esi);
     eax = ebp;
     POP32(esp, ebp);
@@ -3557,9 +3636,12 @@ loc_00161369:
  */
 void sub_0016137A(void)
 {
+    uint32_t ebp;
+    ebp = g_seh_ebp; /* fpo_leaf: inherit caller's frame */
 
 loc_0016137A:
     ebx = 0; /* xor self */
+    g_seh_ebp = ebp; sub_0016137C(); return; /* fallthrough */
 
 }
 
@@ -3626,10 +3708,13 @@ loc_001613AA:
  */
 void sub_001613B0(void)
 {
+    uint32_t ebp;
     int _flags = 0; /* fallback flag var */
+    ebp = g_seh_ebp; /* fpo_leaf: inherit caller's frame */
 
 loc_001613B0:
     if (TEST_Z(eax, eax)) { sub_001613C5(); return; } /* je: equal / zero */
+    g_seh_ebp = ebp; sub_001613B4(); return; /* fallthrough */
 
 }
 
@@ -3660,9 +3745,12 @@ loc_001613B4:
  */
 void sub_001613C5(void)
 {
+    uint32_t ebp;
+    ebp = g_seh_ebp; /* fpo_leaf: inherit caller's frame */
 
 loc_001613C5:
     esi = 0; /* xor self */
+    g_seh_ebp = ebp; sub_001613C7(); return; /* fallthrough */
 
 }
 
@@ -3737,6 +3825,10 @@ void fn_00161450_PTree_ParseFunctionConstruct(void)
     ebp = g_seh_ebp; /* fpo_leaf: inherit caller's frame */
 
 loc_00161450:
+    if (g_fsw_ptree_parse_loop_log_count <= 8) {
+        fprintf(stderr, "[FSW/PTree] ParseFunctionConstruct entry tree=%08X arg_scope=%08X esp=%08X\n",
+                (unsigned)ebx, (unsigned)MEM32(esp + 4), (unsigned)esp);
+    }
     PUSH32(esp, ebp);
     ebp = MEM32(esp + 8);
     PUSH32(esp, esi);
@@ -3779,13 +3871,13 @@ loc_00161497:
 loc_0016149E:
     eax = MEM32(ebx + 0x140);
     SET_LO8(ecx, MEM8(eax + 0x630));
-    if (CMP_EQ(LO8(ecx), 0x28)) { sub_0016152A(); return; } /* je: equal / zero */
+    if (CMP_EQ(LO8(ecx), 0x28)) { g_seh_ebp = ebp; sub_0016152A(); return; } /* je: equal / zero */
 
 loc_001614AF:
-    if (CMP_EQ(LO8(ecx), 0x3D)) { sub_0016151D(); return; } /* je: equal / zero */
+    if (CMP_EQ(LO8(ecx), 0x3D)) { g_seh_ebp = ebp; sub_0016151D(); return; } /* je: equal / zero */
 
 loc_001614B4:
-    if (CMP_EQ(LO8(ecx), 0x7B)) { sub_001614DA(); return; } /* je: equal / zero */
+    if (CMP_EQ(LO8(ecx), 0x7B)) { g_seh_ebp = ebp; sub_001614DA(); return; } /* je: equal / zero */
 
 loc_001614B9:
     esi = eax;
@@ -3796,6 +3888,9 @@ loc_001614B9:
     PUSH32(esp, 0); fn_0015F550_TBuf_TokenError(); /* call 0x0015F550 */
 
 loc_001614D1:
+    if (g_fsw_ptree_parse_loop_log_count <= 8) {
+        fprintf(stderr, "[FSW/PTree] ParseFunctionConstruct error epilogue esp=%08X\n", (unsigned)esp);
+    }
     esp = esp + 0xC;
     POP32(esp, edi);
     POP32(esp, esi);
@@ -3841,6 +3936,9 @@ loc_0016150F:
     PUSH32(esp, 0); fn_00161110_PTree_ParseEnumeration(); /* call 0x00161110 */
 
 loc_00161517:
+    if (g_fsw_ptree_parse_loop_log_count <= 8) {
+        fprintf(stderr, "[FSW/PTree] ParseFunctionConstruct enum epilogue esp=%08X\n", (unsigned)esp);
+    }
     POP32(esp, edi);
     POP32(esp, esi);
     POP32(esp, ebp);
@@ -3865,6 +3963,9 @@ loc_0016151D:
     PUSH32(esp, 0); fn_00160C90_PTree_ParseVariable(); /* call 0x00160C90 */
 
 loc_00161524:
+    if (g_fsw_ptree_parse_loop_log_count <= 8) {
+        fprintf(stderr, "[FSW/PTree] ParseFunctionConstruct var epilogue esp=%08X\n", (unsigned)esp);
+    }
     POP32(esp, edi);
     POP32(esp, esi);
     POP32(esp, ebp);
@@ -3885,16 +3986,27 @@ void sub_0016152A(void)
     ebp = g_seh_ebp; /* fpo_leaf: inherit caller's frame */
 
 loc_0016152A:
+    if (g_fsw_ptree_parse_loop_log_count <= 8) {
+        fprintf(stderr, "[FSW/PTree] ParseFunctionConstruct function path start esp=%08X scope_arg=%08X\n",
+                (unsigned)esp, (unsigned)ebp);
+    }
     eax = eax + 0x430;
     PUSH32(esp, ebx);
     PUSH32(esp, 0); fn_0015FEC0_PTree_CheckLegalIdent(); /* call 0x0015FEC0 */
 
 loc_00161535:
+    if (g_fsw_ptree_parse_loop_log_count <= 8) {
+        fprintf(stderr, "[FSW/PTree] ParseFunctionConstruct after ident esp=%08X\n", (unsigned)esp);
+    }
     PUSH32(esp, ebp);
     edi = ebx;
     PUSH32(esp, 0); fn_00160E10_PTree_ParseFunctionArguments(); /* call 0x00160E10 */
 
 loc_0016153D:
+    if (g_fsw_ptree_parse_loop_log_count <= 8) {
+        fprintf(stderr, "[FSW/PTree] ParseFunctionConstruct after args new_scope=%08X esp=%08X eax=%08X\n",
+                (unsigned)eax, (unsigned)esp, (unsigned)eax);
+    }
     esi = eax;
     eax = MEM32(ebx + 0x140);
     PUSH32(esp, 0); fn_0015F780_TBuf_NextToken(); /* call 0x0015F780 */
@@ -3922,6 +4034,10 @@ loc_0016156E:
     PUSH32(esp, 0); fn_001615C0_PTree_ParseFunctionContents(); /* call 0x001615C0 */
 
 loc_00161576:
+    if (g_fsw_ptree_parse_loop_log_count <= 8) {
+        fprintf(stderr, "[FSW/PTree] ParseFunctionConstruct after nested contents result=%u esp=%08X scope=%08X\n",
+                (unsigned)eax, (unsigned)esp, (unsigned)esi);
+    }
     if (CMP_NE(eax, 2)) goto loc_001615B8; /* jne: not equal / not zero */
 
 loc_0016157B:
@@ -3931,6 +4047,9 @@ loc_0016157B:
     PUSH32(esp, 0); fn_0015F550_TBuf_TokenError(); /* call 0x0015F550 */
 
 loc_00161590:
+    if (g_fsw_ptree_parse_loop_log_count <= 8) {
+        fprintf(stderr, "[FSW/PTree] ParseFunctionConstruct bad nested epilogue esp=%08X\n", (unsigned)esp);
+    }
     esp = esp + 8;
     POP32(esp, edi);
     POP32(esp, esi);
@@ -3951,6 +4070,9 @@ loc_001615B5:
     esp = esp + 0xC;
 
 loc_001615B8:
+    if (g_fsw_ptree_parse_loop_log_count <= 8) {
+        fprintf(stderr, "[FSW/PTree] ParseFunctionConstruct normal epilogue esp=%08X\n", (unsigned)esp);
+    }
     POP32(esp, edi);
     POP32(esp, esi);
     POP32(esp, ebp);
@@ -3978,6 +4100,7 @@ loc_001615C0:
     PUSH32(esp, edi);
     edi = ecx;
     /* nop */
+    g_seh_ebp = ebp; sub_001615D0(); return; /* fallthrough 0x001615D0 */
 
 }
 
@@ -4008,15 +4131,15 @@ loc_001615EA:
 loc_001615ED:
     esi = MEM32(esi + 0x1C);
     esi = esi - 0;
-    if ((esi == 0)) { sub_00161611(); return; } /* je: equal / zero */
+    if ((esi == 0)) { g_seh_ebp = ebp; sub_00161611(); return; } /* je: equal / zero */
 
 loc_001615F5:
     esi--;
-    if ((esi != 0)) { sub_0016161B(); return; } /* jne: not equal / not zero */
+    if ((esi != 0)) { g_seh_ebp = ebp; sub_0016161B(); return; } /* jne: not equal / not zero */
 
 loc_001615F8:
     eax = MEM32(edi + 0x140);
-    if (CMP_NE(MEM8(eax + 0x630), 0x23)) { sub_00161627(); return; } /* jne: not equal / not zero */
+    if (CMP_NE(MEM8(eax + 0x630), 0x23)) { g_seh_ebp = ebp; sub_00161627(); return; } /* jne: not equal / not zero */
 
 loc_00161607:
     PUSH32(esp, ebp);
@@ -4040,11 +4163,19 @@ void sub_00161611(void)
     ebp = g_seh_ebp; /* fpo_leaf: inherit caller's frame */
 
 loc_00161611:
+    if (g_fsw_ptree_parse_loop_log_count <= 8) {
+        fprintf(stderr, "[FSW/PTree] ParseFunctionContents before construct scope=%08X esp=%08X\n",
+                (unsigned)ebp, (unsigned)esp);
+    }
     PUSH32(esp, ebp);
     ebx = edi;
     PUSH32(esp, 0); fn_00161450_PTree_ParseFunctionConstruct(); /* call 0x00161450 */
 
 loc_00161619:
+    if (g_fsw_ptree_parse_loop_log_count <= 8) {
+        fprintf(stderr, "[FSW/PTree] ParseFunctionContents after construct scope=%08X esp=%08X eax=%08X\n",
+                (unsigned)ebp, (unsigned)esp, (unsigned)eax);
+    }
     g_seh_ebp = ebp; sub_001615D0(); return; /* tail jmp 0x001615D0 */
 
 }
@@ -4061,6 +4192,10 @@ void sub_0016161B(void)
     ebp = g_seh_ebp; /* fpo_leaf: inherit caller's frame */
 
 loc_0016161B:
+    if (g_fsw_ptree_parse_loop_log_count <= 8) {
+        fprintf(stderr, "[FSW/PTree] ParseFunctionContents return done pre-epilogue scope=%08X esp=%08X\n",
+                (unsigned)ebp, (unsigned)esp);
+    }
     POP32(esp, edi);
     POP32(esp, esi);
     POP32(esp, ebp);
@@ -4110,6 +4245,17 @@ void fn_00161640_PTree_AddFileToScope(void)
     ebp = g_seh_ebp; /* fpo_leaf: inherit caller's frame */
 
 loc_00161640:
+    {
+        uint32_t path_arg = MEM32(esp + 4);
+        if (path_arg != 0 && path_arg < 0x04000000u) {
+            const char *path = (const char *)XBOX_PTR(path_arg);
+            if (path && path[0] == 'l' && path[1] == 'e' && path[2] == 'v' &&
+                path[3] == 'e' && path[4] == 'l' && path[5] == '.') {
+                fprintf(stderr, "[FSW/PTree] AddFileToScope begin path=%s scope=%08X tree=%08X esp=%08X\n",
+                        path, (unsigned)MEM32(esp + 8), (unsigned)MEM32(esp + 0xC), (unsigned)esp);
+            }
+        }
+    }
     PUSH32(esp, 0xFFFFFFFFu);
     PUSH32(esp, 0x4060B8);
     eax = MEM32(0);
@@ -4139,11 +4285,20 @@ loc_00161640:
     PUSH32(esp, 0); fn_00123A20_ZeroFile_OpenFile(); /* call 0x00123A20 */
 
 loc_001616A4:
+    if (ebp != 0 && ebp < 0x04000000u) {
+        const char *path = (const char *)XBOX_PTR(ebp);
+        if (path && path[0] == 'l' && path[1] == 'e' && path[2] == 'v' &&
+            path[3] == 'e' && path[4] == 'l' && path[5] == '.') {
+            fprintf(stderr, "[FSW/PTree] AddFileToScope opened path=%s handle=%08X memstream=%08X raw_size=%d\n",
+                    path, (unsigned)MEM32(esp + 0x14), (unsigned)MEM32(esp + 0x34),
+                    (int)MEM32(esp + 0x14));
+        }
+    }
     MEM32(esp + 0x6C) = ebx;
-    if (CMP_GE(MEM32(esp + 0x14), ebx)) { sub_001616C6(); return; } /* jge: greater or equal (signed >=) */
+    if (CMP_GE(MEM32(esp + 0x14), ebx)) { g_seh_ebp = ebp; sub_001616C6(); return; } /* jge: greater or equal (signed >=) */
 
 loc_001616AE:
-    if (CMP_NE(MEM32(esp + 0x34), ebx)) { sub_001616C6(); return; } /* jne: not equal / not zero */
+    if (CMP_NE(MEM32(esp + 0x34), ebx)) { g_seh_ebp = ebp; sub_001616C6(); return; } /* jne: not equal / not zero */
 
 loc_001616B4:
     PUSH32(esp, edi);
@@ -4175,18 +4330,27 @@ loc_001616C6:
 
 loc_001616CF:
     edi = eax;
+    if (ebp != 0 && ebp < 0x04000000u) {
+        const char *path = (const char *)XBOX_PTR(ebp);
+        if (path && path[0] == 'l' && path[1] == 'e' && path[2] == 'v' &&
+            path[3] == 'e' && path[4] == 'l' && path[5] == '.') {
+            fprintf(stderr, "[FSW/PTree] AddFileToScope size path=%s size=%u stream=%08X handle=%08X\n",
+                    path, (unsigned)edi, (unsigned)MEM32(esp + 0x34),
+                    (unsigned)MEM32(esp + 0x14));
+        }
+    }
     (void)0; /* cmp edi, ebx - flags set for next jcc */
     MEM32(esp + 0x74) = edi;
-    if (CMP_EQ(edi, ebx)) { sub_00161853(); return; } /* je: equal / zero */
+    if (CMP_EQ(edi, ebx)) { g_seh_ebp = ebp; sub_00161853(); return; } /* je: equal / zero */
 
 loc_001616DD:
-    if (CMP_B(edi, 0x28)) { sub_00161787(); return; } /* jb: below (unsigned <) */
+    if (CMP_B(edi, 0x28)) { g_seh_ebp = ebp; sub_00161787(); return; } /* jb: below (unsigned <) */
 
 loc_001616E6:
     ecx = MEM32(esp + 0x34);
     (void)0; /* cmp ecx, ebx - flags set for next jcc */
     PUSH32(esp, 0x28);
-    if (CMP_EQ(ecx, ebx)) { sub_001616FC(); return; } /* je: equal / zero */
+    if (CMP_EQ(ecx, ebx)) { g_seh_ebp = ebp; sub_001616FC(); return; } /* je: equal / zero */
 
 loc_001616F0:
     eax = MEM32(ecx);
@@ -4209,6 +4373,8 @@ loc_001616FA:
  */
 void sub_001616FC(void)
 {
+    uint32_t ebp;
+    ebp = g_seh_ebp; /* fpo_leaf: inherit caller's frame */
 
 loc_001616FC:
     ecx = MEM32(esp + 0x18);
@@ -4219,6 +4385,7 @@ loc_001616FC:
 
 loc_0016170B:
     esp = esp + 0xC;
+    g_seh_ebp = ebp; sub_0016170E(); return; /* fallthrough 0x0016170E */
 
 }
 
@@ -4236,10 +4403,19 @@ void sub_0016170E(void)
 
 loc_0016170E:
     edx = MEM32(esp + 0x38);
-    if (CMP_NE(edx, MEM32(0x6132AC))) { sub_00161787(); return; } /* jne: not equal / not zero */
+    if (ebp != 0 && ebp < 0x04000000u) {
+        const char *path = (const char *)XBOX_PTR(ebp);
+        if (path && path[0] == 'l' && path[1] == 'e' && path[2] == 'v' &&
+            path[3] == 'e' && path[4] == 'l' && path[5] == '.') {
+            fprintf(stderr, "[FSW/PTree] AddFileToScope header path=%s magic=%08X expect=%08X version=%u\n",
+                    path, (unsigned)edx, (unsigned)MEM32(0x6132AC),
+                    (unsigned)MEM32(esp + 0x3C));
+        }
+    }
+    if (CMP_NE(edx, MEM32(0x6132AC))) { g_seh_ebp = ebp; sub_00161787(); return; } /* jne: not equal / not zero */
 
 loc_0016171A:
-    if (CMP_EQ(MEM32(esp + 0x3C), 1)) { sub_00161754(); return; } /* je: equal / zero */
+    if (CMP_EQ(MEM32(esp + 0x3C), 1)) { g_seh_ebp = ebp; sub_00161754(); return; } /* je: equal / zero */
 
 loc_00161721:
     eax = MEM32(esp + 0x78);
@@ -4250,6 +4426,7 @@ loc_00161721:
 
 loc_00161731:
     MEM32(esp + 0x78) = 0xFFFFFFFFu;
+    g_seh_ebp = ebp; sub_00161739(); return; /* fallthrough 0x00161739 */
 
 }
 
@@ -4288,6 +4465,14 @@ void sub_00161754(void)
     ebp = g_seh_ebp; /* fpo_leaf: inherit caller's frame */
 
 loc_00161754:
+    if (ebp != 0 && ebp < 0x04000000u) {
+        const char *path = (const char *)XBOX_PTR(ebp);
+        if (path && path[0] == 'l' && path[1] == 'e' && path[2] == 'v' &&
+            path[3] == 'e' && path[4] == 'l' && path[5] == '.') {
+            fprintf(stderr, "[FSW/PTree] AddFileToScope binary parse path=%s payload=%u scope=%08X\n",
+                    path, (unsigned)MEM32(esp + 0x74), (unsigned)MEM32(esp + 0x7C));
+        }
+    }
     ecx = MEM32(esp + 0x7C);
     eax = MEM32(esp + 0x18);
     eax = eax + 0x28;
@@ -4324,7 +4509,7 @@ loc_00161787:
 loc_00161791:
     esi = eax;
     esp = esp + 4;
-    if (CMP_EQ(esi, ebx)) { sub_001617AE(); return; } /* je: equal / zero */
+    if (CMP_EQ(esi, ebx)) { g_seh_ebp = ebp; sub_001617AE(); return; } /* je: equal / zero */
 
 loc_0016179A:
     ecx = 0x100;
@@ -4346,9 +4531,12 @@ loc_0016179A:
  */
 void sub_001617AE(void)
 {
+    uint32_t ebp;
+    ebp = g_seh_ebp; /* fpo_leaf: inherit caller's frame */
 
 loc_001617AE:
     esi = 0; /* xor self */
+    g_seh_ebp = ebp; sub_001617B0(); return; /* fallthrough 0x001617B0 */
 
 }
 
@@ -4365,6 +4553,15 @@ void sub_001617B0(void)
     ebp = g_seh_ebp; /* fpo_leaf: inherit caller's frame */
 
 loc_001617B0:
+    if (ebp != 0 && ebp < 0x04000000u) {
+        const char *path = (const char *)XBOX_PTR(ebp);
+        if (path && path[0] == 'l' && path[1] == 'e' && path[2] == 'v' &&
+            path[3] == 'e' && path[4] == 'l' && path[5] == '.') {
+            fprintf(stderr, "[FSW/PTree] AddFileToScope text parse path=%s size=%u buffer=%08X scope=%08X\n",
+                    path, (unsigned)edi, (unsigned)MEM32(esp + 0x18),
+                    (unsigned)MEM32(esp + 0x7C));
+        }
+    }
     edx = MEM32(ebp + 0x140);
     ecx = MEM32(esp + 0x78);
     MEM32(esi + 0x730) = edx;
@@ -4401,13 +4598,43 @@ loc_00161804:
     if (CMP_NE(LO8(eax), LO8(ebx))) goto loc_00161804; /* jne: not equal / not zero */
 
 loc_00161812:
+    {
+        uint32_t tbuf = MEM32(ebp + 0x140);
+        if (g_fsw_ptree_parse_loop_log_count < 8) {
+            fprintf(stderr,
+                    "[FSW/PTree] parse loop #%u tree=%08X tbuf=%08X pos=%u/%u state=%u token='%s' punct='%s' esp=%08X\n",
+                    (unsigned)g_fsw_ptree_parse_loop_log_count,
+                    (unsigned)ebp, (unsigned)tbuf,
+                    (unsigned)(tbuf ? MEM32(tbuf + 0x10) : 0),
+                    (unsigned)(tbuf ? MEM32(tbuf + 0x0C) : 0),
+                    (unsigned)(tbuf ? MEM32(tbuf + 4) : 0),
+                    (tbuf ? (const char *)XBOX_PTR(tbuf + 0x430) : "<null>"),
+                    (tbuf ? (const char *)XBOX_PTR(tbuf + 0x630) : "<null>"),
+                    (unsigned)esp);
+        }
+        g_fsw_ptree_parse_loop_log_count++;
+    }
     ecx = MEM32(esp + 0x7C);
     PUSH32(esp, ecx);
     ecx = ebp;
     PUSH32(esp, 0); fn_001615C0_PTree_ParseFunctionContents(); /* call 0x001615C0 */
 
 loc_0016181E:
-    if (CMP_NE(eax, esi)) goto loc_00161812; /* jne: not equal / not zero */
+    {
+        uint32_t tbuf = MEM32(ebp + 0x140);
+        if (g_fsw_ptree_parse_loop_log_count <= 8) {
+            fprintf(stderr,
+                    "[FSW/PTree] parse loop result=%u tbuf=%08X pos=%u/%u state=%u token='%s' punct='%s' esp=%08X\n",
+                    (unsigned)eax, (unsigned)tbuf,
+                    (unsigned)(tbuf ? MEM32(tbuf + 0x10) : 0),
+                    (unsigned)(tbuf ? MEM32(tbuf + 0x0C) : 0),
+                    (unsigned)(tbuf ? MEM32(tbuf + 4) : 0),
+                    (tbuf ? (const char *)XBOX_PTR(tbuf + 0x430) : "<null>"),
+                    (tbuf ? (const char *)XBOX_PTR(tbuf + 0x630) : "<null>"),
+                    (unsigned)esp);
+        }
+    }
+    if (CMP_NE(eax, 2)) goto loc_00161812; /* jne: not equal / not zero */
 
 loc_00161822:
     eax = MEM32(ebp + 0x140);
@@ -4421,7 +4648,7 @@ loc_0016182E:
     (void)0; /* cmp eax, ebx - flags set for next jcc */
     edx = MEM32(eax + 0x730);
     MEM32(ebp + 0x140) = edx;
-    if (CMP_EQ(eax, ebx)) { sub_00161853(); return; } /* je: equal / zero */
+    if (CMP_EQ(eax, ebx)) { g_seh_ebp = ebp; sub_00161853(); return; } /* je: equal / zero */
 
 loc_00161844:
     if (CMP_EQ(MEM8(eax), LO8(ebx))) goto loc_0016184A; /* je: equal / zero */
@@ -4435,6 +4662,7 @@ loc_0016184A:
 
 loc_00161850:
     esp = esp + 4;
+    g_seh_ebp = ebp; sub_00161853(); return; /* fallthrough 0x00161853 */
 
 }
 
@@ -4446,8 +4674,14 @@ loc_00161850:
  */
 void sub_00161853(void)
 {
+    uint32_t ebp;
+    ebp = g_seh_ebp; /* fpo_leaf: inherit caller's frame */
 
 loc_00161853:
+    if (g_fsw_ptree_parse_loop_log_count <= 8) {
+        fprintf(stderr, "[FSW/PTree] AddFileToScope cleanup before close tree=%08X esp=%08X eax=%08X\n",
+                (unsigned)ebp, (unsigned)esp, (unsigned)eax);
+    }
     MEM32(esp + 0x6C) = 0xFFFFFFFFu;
     esi = esp + 0x10;
     MEM32(esp + 0x10) = 0x560D0C;
@@ -4455,6 +4689,7 @@ loc_00161853:
 
 loc_0016186C:
     SET_LO8(eax, 1);
+    g_seh_ebp = ebp; sub_0016186E(); return; /* fallthrough 0x0016186E */
 
 }
 
@@ -4470,6 +4705,10 @@ void sub_0016186E(void)
     ebp = g_seh_ebp; /* fpo_leaf: inherit caller's frame */
 
 loc_0016186E:
+    if (g_fsw_ptree_parse_loop_log_count <= 8) {
+        fprintf(stderr, "[FSW/PTree] AddFileToScope epilogue begin tree=%08X esp=%08X eax=%08X\n",
+                (unsigned)ebp, (unsigned)esp, (unsigned)eax);
+    }
     ecx = MEM32(esp + 0x64);
     POP32(esp, edi);
     POP32(esp, esi);
@@ -4481,6 +4720,10 @@ loc_0016186E:
 
 loc_00161886:
     esp = esp + 0x60;
+    if (g_fsw_ptree_parse_loop_log_count <= 8) {
+        fprintf(stderr, "[FSW/PTree] AddFileToScope epilogue final esp=%08X eax=%08X\n",
+                (unsigned)(esp + 16), (unsigned)eax);
+    }
     esp += 16; return; /* ret 12 */
 
 }

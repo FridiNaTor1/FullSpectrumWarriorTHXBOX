@@ -8,6 +8,7 @@
 #include "recomp_funcs.h"
 #include <math.h>
 #include <stdio.h>
+#include <stdlib.h>
 
 static int cnetstate_va_is_valid(uint32_t va)
 {
@@ -21,10 +22,44 @@ static void cnetstate_ensure_singleton(void)
         return;
     }
 
+    if ((MEM32(0x6971F0 + 0xFA8) != 0 || MEM32(0x6971F0 + 0xFAC) != 0) &&
+        MEM32(0x6971F0 + 0xFA8) < 0xC8u && MEM32(0x6971F0 + 0xFAC) <= 8u) {
+        static uint32_t object_fix_count = 0;
+        if (object_fix_count < 16) {
+            fprintf(stderr,
+                    "[FSW/Net] repairing CNetState object singleton=%08X vtbl=%08X state=%08X pending=%08X\n",
+                    (unsigned)object, (unsigned)MEM32(0x6971F0),
+                    (unsigned)MEM32(0x6971F0 + 0xFA8),
+                    (unsigned)MEM32(0x6971F0 + 0xFAC));
+        }
+        object_fix_count++;
+        MEM32(0x6971E8) = 0x6971F0;
+        MEM32(0x6971F0) = 0x542A40;
+        MEM32(0x698708) = MEM32(0x698708) | 3;
+        return;
+    }
+
+    if (cnetstate_va_is_valid(0x6971F0u) && MEM32(0x6971F0) == 0x542A40u) {
+        static uint32_t pointer_fix_count = 0;
+        if (pointer_fix_count < 16) {
+            fprintf(stderr,
+                    "[FSW/Net] restoring CNetState singleton pointer object=%08X stored_vtbl=%08X state=%08X pending=%08X\n",
+                    (unsigned)object, (unsigned)MEM32(0x6971F0),
+                    (unsigned)MEM32(0x6971F0 + 0xFA8),
+                    (unsigned)MEM32(0x6971F0 + 0xFAC));
+        }
+        pointer_fix_count++;
+        MEM32(0x6971E8) = 0x6971F0;
+        MEM32(0x698708) = MEM32(0x698708) | 3;
+        return;
+    }
+
     static uint32_t fix_count = 0;
     if (fix_count < 16) {
-        fprintf(stderr, "[FSW/Net] restoring CNetState singleton object=%08X vtbl=%08X\n",
-                (unsigned)object, cnetstate_va_is_valid(object) ? (unsigned)MEM32(object) : 0);
+        fprintf(stderr,
+                "[FSW/Net] rebuilding CNetState singleton object=%08X object_vtbl=%08X stored_vtbl=%08X\n",
+                (unsigned)object, cnetstate_va_is_valid(object) ? (unsigned)MEM32(object) : 0,
+                (unsigned)MEM32(0x6971F0));
     }
     fix_count++;
 
@@ -6890,6 +6925,19 @@ void fn_00272C20_CNetState_Update(void)
     int _flags = 0; /* fallback flag var */
 
 loc_00272C20:
+#ifdef XBOXRECOMP_VULKAN_GRAPHICS
+    if (getenv("FSW_TH_ALLOW_NET_ERRORS") == NULL && MEM32(0x5FA410) != 0) {
+        static uint32_t linux_net_error_clear_count = 0;
+        if (linux_net_error_clear_count < 16) {
+            fprintf(stderr,
+                    "[FSW/Net] clearing Xbox network error for Linux local flow err=%08X state=%08X pending=%08X\n",
+                    (unsigned)MEM32(0x5FA410), (unsigned)MEM32(ecx + 0xFA8),
+                    (unsigned)MEM32(ecx + 0xFAC));
+        }
+        linux_net_error_clear_count++;
+        MEM32(0x5FA410) = 0;
+    }
+#endif
     PUSH32(esp, ebx);
     ebx = MEM32(esp + 8);
     (void)0; /* cmp ebx, 4 - flags set for next jcc */

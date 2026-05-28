@@ -7,6 +7,7 @@
 #define RECOMP_GENERATED_CODE
 #include "recomp_funcs.h"
 #include <math.h>
+#include <stdio.h>
 
 /**
  * fn_003C4D90_ProcessScope
@@ -78,6 +79,18 @@ loc_003C4DC0:
 
 loc_003C4DF0:
     edx = MEM32(esp + 0x264);
+    fprintf(stderr,
+            "[FSW/ProcessConfig] args path=%08X native=%p bytes=%02X/%02X/%02X/%02X/%02X/%02X/%02X/%02X path_str=%s next=%08X next_str=%s esi=%08X esp=%08X\n",
+            (unsigned)edx,
+            (void *)XBOX_PTR(edx),
+            edx ? MEM8(edx + 0) : 0, edx ? MEM8(edx + 1) : 0,
+            edx ? MEM8(edx + 2) : 0, edx ? MEM8(edx + 3) : 0,
+            edx ? MEM8(edx + 4) : 0, edx ? MEM8(edx + 5) : 0,
+            edx ? MEM8(edx + 6) : 0, edx ? MEM8(edx + 7) : 0,
+            edx ? (const char *)XBOX_PTR(edx) : "<null>",
+            (unsigned)MEM32(esp + 0x268),
+            MEM32(esp + 0x268) ? (const char *)XBOX_PTR(MEM32(esp + 0x268)) : "<null>",
+            (unsigned)esi, (unsigned)esp);
     ecx = esp + 0x100;
     PUSH32(esp, ecx);
     PUSH32(esp, edx);
@@ -87,6 +100,9 @@ loc_003C4DF0:
     PUSH32(esp, 0); fn_00161640_PTree_AddFileToScope(); /* call 0x00161640 */
 
 loc_003C4E15:
+    fprintf(stderr, "[FSW/ProcessConfig] AddFileToScope result=%08X esp=%08X scope=%08X root_func_iter=%08X root_funcs=%08X\n",
+            (unsigned)eax, (unsigned)esp, (unsigned)(esp + 0x100),
+            (unsigned)(esp + 0x138), (unsigned)MEM32(esp + 0x138));
     if (TEST_Z(LO8(eax), LO8(eax))) { sub_003C4E8E(); return; } /* je: equal / zero */
 
 loc_003C4E19:
@@ -103,6 +119,8 @@ loc_003C4E19:
     PUSH32(esp, 0); fn_00161CE0_FScope_NextFunction(); /* call 0x00161CE0 */
 
 loc_003C4E58:
+    fprintf(stderr, "[FSW/ProcessConfig] first NextFunction eax=%08X esp=%08X scope=%08X\n",
+            (unsigned)eax, (unsigned)esp, (unsigned)(esp + 0x100));
     if (TEST_Z(eax, eax)) goto loc_003C4E76; /* je: equal / zero */
 
 loc_003C4E5C:
@@ -151,6 +169,7 @@ loc_003C4E8E:
 
 loc_003C4EA2:
     SET_LO8(eax, 0); /* xor self */
+    sub_003C4EA4(); return; /* fallthrough */
 
 }
 

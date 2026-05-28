@@ -17,25 +17,14 @@
  */
 void fn_0009CE2D_toupper(void)
 {
-    uint32_t ebp;
-    int _flags = 0; /* fallback flag var */
-    ebp = g_seh_ebp; /* fpo_leaf: inherit caller's frame */
+    uint32_t ch = MEM32(esp + 4);
 
 loc_0009CE2D:
-    (void)0; /* cmp MEM32(0x57DA00), 1 - flags set for next jcc */
-    PUSH32(esp, esi);
-    esi = MEM32(esp + 8);
-    if (CMP_LE(MEM32(0x57DA00), 1)) { sub_0009CE47(); return; } /* jle: less or equal (signed <=) */
-
-loc_0009CE3B:
-    PUSH32(esp, 2);
-    PUSH32(esp, esi);
-    PUSH32(esp, 0); fn_000A043A_isctype(); /* call 0x000A043A */
-
-loc_0009CE43:
-    POP32(esp, ecx);
-    POP32(esp, ecx);
-    g_seh_ebp = ebp; sub_0009CE53(); return; /* tail jmp 0x0009CE53 */
+    if (ch >= 'a' && ch <= 'z') {
+        ch -= 32;
+    }
+    eax = ch;
+    esp += 4; return; /* ret */
 
 }
 

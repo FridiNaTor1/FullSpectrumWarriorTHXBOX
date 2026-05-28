@@ -7,7 +7,77 @@
 #define RECOMP_GENERATED_CODE
 #include "recomp_funcs.h"
 #include <math.h>
+#include <stdio.h>
 #include <stdlib.h>
+
+extern void fsw_profile_manager_host_repair(const char *tag);
+
+static int fsw_netxbox_va_is_valid(uint32_t va)
+{
+    return va >= 0x00010000u && va < 0x04000000u;
+}
+
+static uint32_t fsw_linux_find_campaign_object(uint32_t manager, uint32_t campaign_crc)
+{
+    if (!fsw_netxbox_va_is_valid(manager) || !fsw_netxbox_va_is_valid(manager + 0x304)) {
+        return 0;
+    }
+    uint32_t count = MEM32(manager + 0x304);
+    if (count == 0 || count > 256) {
+        return 0;
+    }
+    for (uint32_t i = 0; i < count; i++) {
+        uint32_t campaign = manager + 4 + i * 0x30;
+        if (fsw_netxbox_va_is_valid(campaign + 0x18) && MEM32(campaign) == campaign_crc) {
+            return campaign;
+        }
+    }
+    return fsw_netxbox_va_is_valid(manager + 4) ? manager + 4 : 0;
+}
+
+static void fsw_linux_ensure_local_campaign_level(const char *tag)
+{
+    uint32_t settings = MEM32(0x5FA38C);
+    uint32_t campaigns = MEM32(0x5FA338);
+    if (!fsw_netxbox_va_is_valid(settings + 0xD8) ||
+        !fsw_netxbox_va_is_valid(campaigns + 0x304) ||
+        MEM32(campaigns + 0x304) == 0) {
+        return;
+    }
+
+    uint32_t before_campaign = MEM32(settings + 0xD4);
+    uint32_t before_level = MEM32(settings + 0xD8);
+    uint32_t campaign_crc = before_campaign;
+    if (campaign_crc == 0) {
+        campaign_crc = MEM32(campaigns + 8);
+        MEM32(settings + 0xD4) = campaign_crc;
+    }
+
+    uint32_t campaign = fsw_linux_find_campaign_object(campaigns, campaign_crc);
+    uint32_t level_crc = before_level;
+    if (level_crc == 0 && fsw_netxbox_va_is_valid(campaign + 0x18)) {
+        uint32_t levels = MEM32(campaign + 0x14);
+        uint32_t level_count = MEM32(campaign + 8);
+        if (level_count != 0 && level_count < 256 && fsw_netxbox_va_is_valid(levels)) {
+            level_crc = MEM32(levels);
+            MEM32(settings + 0xD8) = level_crc;
+            MEM32(0x60F148) = level_crc;
+        }
+    }
+
+    if (before_campaign != MEM32(settings + 0xD4) || before_level != MEM32(settings + 0xD8) ||
+        getenv("FSW_TH_LEVEL_LOADING_DEBUG") != NULL) {
+        fprintf(stderr,
+                "[FSW/Net] Linux local %s campaign/level %08X/%08X -> %08X/%08X count=%u campaign=%08X\n",
+                tag,
+                (unsigned)before_campaign,
+                (unsigned)before_level,
+                (unsigned)MEM32(settings + 0xD4),
+                (unsigned)MEM32(settings + 0xD8),
+                (unsigned)MEM32(campaigns + 0x304),
+                (unsigned)campaign);
+    }
+}
 
 /**
  * fn_00033020_GCNetStateXbox_UAEPAXI_Z
@@ -14770,6 +14840,7 @@ loc_0026E630:
         static uint32_t net_state_passthrough_log_count = 0;
         static uint32_t forced_state_applied = 0;
         static uint32_t linux_bootstrap_applied = 0;
+        static uint32_t linux_shell_logo_sequence = 0;
         uint32_t net_obj = ecx;
         uint32_t event = MEM32(esp + 4);
         uint32_t next_state = MEM32(esp + 8);
@@ -14783,19 +14854,45 @@ loc_0026E630:
             esi = 0;
             PUSH32(esp, 0); fn_00272580_CNetState_SetState(); /* call 0x00272580 */
             ecx = net_obj;
+            if (state == 7) {
+                linux_shell_logo_sequence = 1;
+            } else if (state == 6) {
+                linux_shell_logo_sequence = 2;
+            }
             forced_state_applied = 1;
         }
         if (!linux_bootstrap_applied && (forced_state == NULL || forced_state[0] == 0) &&
             getenv("FSW_TH_DISABLE_BOOTSTRAP") == NULL &&
             MEM32(net_obj + 0xFA8) == 0 && MEM32(net_obj + 0xFAC) <= 4) {
-            uint32_t state = 0xAA;
+            uint32_t state = 7;
             fprintf(stderr, "[FSW/Net] bootstrapping Linux shell state=0x%08X\n", (unsigned)state);
             eax = state;
             ecx = net_obj;
             esi = 0;
             PUSH32(esp, 0); fn_00272580_CNetState_SetState(); /* call 0x00272580 */
             ecx = net_obj;
+            linux_shell_logo_sequence = 1;
             linux_bootstrap_applied = 1;
+        }
+        if (linux_shell_logo_sequence == 1 && MEM32(net_obj + 0xFA8) == 7 && MEM8(0x60F0BC) != 0) {
+            fprintf(stderr, "[FSW/Net] Linux shell logo sequence Pandemic -> THQ\n");
+            MEM8(0x60F0BC) = 0;
+            eax = 6;
+            ecx = net_obj;
+            esi = 0;
+            PUSH32(esp, 0); fn_00272580_CNetState_SetState(); /* call 0x00272580 */
+            linux_shell_logo_sequence = 2;
+            esp += 16; return; /* ret 12 */
+        }
+        if (linux_shell_logo_sequence == 2 && MEM32(net_obj + 0xFA8) == 6 && MEM8(0x60F0BC) != 0) {
+            fprintf(stderr, "[FSW/Net] Linux shell logo sequence THQ -> shell\n");
+            MEM8(0x60F0BC) = 0;
+            eax = 0xAA;
+            ecx = net_obj;
+            esi = 0;
+            PUSH32(esp, 0); fn_00272580_CNetState_SetState(); /* call 0x00272580 */
+            linux_shell_logo_sequence = 3;
+            esp += 16; return; /* ret 12 */
         }
         if (event > 4 || next_state >= 0x100) {
             static uint32_t clamped_net_event_count = 0;
@@ -14816,6 +14913,14 @@ loc_0026E630:
                     (unsigned)MEM32(ecx + 0xFA8), (unsigned)MEM32(ecx + 0xFAC));
             net_state_passthrough_log_count++;
         }
+        if (getenv("FSW_TH_BINK_DEBUG") != NULL &&
+            (MEM32(ecx + 0xFA8) == 6 || MEM32(ecx + 0xFA8) == 7 || event != 0)) {
+            fprintf(stderr,
+                    "[FSW/Bink] net update event=%u next=%u data=%08X state=%08X pending=%08X phase=%08X\n",
+                    (unsigned)event, (unsigned)next_state, (unsigned)data,
+                    (unsigned)MEM32(ecx + 0xFA8), (unsigned)MEM32(ecx + 0xFAC),
+                    (unsigned)MEM32(ecx + 0xFB0));
+        }
         if (getenv("FSW_TH_LEVEL") != NULL && getenv("FSW_TH_NET_PASSTHROUGH") == NULL) {
             static uint32_t net_state_skip_log_count = 0;
             if (net_state_skip_log_count < 8) {
@@ -14827,7 +14932,74 @@ loc_0026E630:
         PUSH32(esp, data);
         PUSH32(esp, next_state);
         PUSH32(esp, event);
+        uint32_t before_state = MEM32(net_obj + 0xFA8);
         PUSH32(esp, 0); fn_00272C20_CNetState_Update(); /* call base CNetState::Update */
+        if (event == 2 && before_state == 0xAA) {
+            fsw_profile_manager_host_repair("LinuxStartRoute");
+            uint32_t mgr = MEM32(0x5FA358);
+            uint32_t target_state = 0x0D;
+            if (mgr >= 0x00010000u && mgr < 0x04000000u && MEM32(mgr + 0x2C90) != 0) {
+                target_state = 0x09;
+            }
+            fprintf(stderr,
+                    "[FSW/Net] Linux shell start -> local profile state=%08X profiles=%u\n",
+                    (unsigned)target_state,
+                    (unsigned)((mgr >= 0x00010000u && mgr < 0x04000000u) ? MEM32(mgr + 0x2C90) : 0));
+            eax = target_state;
+            ecx = net_obj;
+            esi = 0;
+            PUSH32(esp, 0); fn_00272580_CNetState_SetState(); /* call SetState */
+            MEM32(0x613FCC) = target_state;
+        } else if (event == 2 && before_state == 0x09 && next_state == 0x07) {
+            fprintf(stderr, "[FSW/Net] Linux profile selection -> create profile state=0000000D\n");
+            eax = 0x0D;
+            ecx = net_obj;
+            esi = 0;
+            PUSH32(esp, 0); fn_00272580_CNetState_SetState(); /* call SetState */
+            MEM32(0x613FCC) = 0x0D;
+        } else if (event == 2 && before_state == 0x0D && next_state == 0x01) {
+            fprintf(stderr, "[FSW/Net] Linux profile creation complete -> main menu state=00000013\n");
+            eax = 0x13;
+            ecx = net_obj;
+            esi = 0;
+            PUSH32(esp, 0); fn_00272580_CNetState_SetState(); /* call SetState */
+            MEM32(0x613FCC) = 0x13;
+        } else if (event == 2 && before_state == 0x13 && next_state == 0x00) {
+            fprintf(stderr, "[FSW/Net] Linux main menu local play -> campaign selection state=00000012\n");
+            fsw_linux_ensure_local_campaign_level("main-to-campaign");
+            eax = 0x12;
+            ecx = net_obj;
+            esi = 0;
+            PUSH32(esp, 0); fn_00272580_CNetState_SetState(); /* call SetState */
+            MEM32(0x613FCC) = 0x12;
+        } else if (event == 2 && before_state == 0x12 && next_state == 0x00) {
+            fprintf(stderr, "[FSW/Net] Linux campaign selection -> difficulty selection state=0000002C\n");
+            fsw_linux_ensure_local_campaign_level("campaign-to-difficulty");
+            eax = 0x2C;
+            ecx = net_obj;
+            esi = 0;
+            PUSH32(esp, 0); fn_00272580_CNetState_SetState(); /* call SetState */
+            MEM32(0x613FCC) = 0x2C;
+        } else if (event == 2 && before_state == 0x2C && next_state == 0x00) {
+            fprintf(stderr, "[FSW/Net] Linux difficulty selection -> level loading state=0000003A\n");
+            fsw_linux_ensure_local_campaign_level("difficulty-to-loading");
+            eax = 0x3A;
+            ecx = net_obj;
+            esi = 0;
+            PUSH32(esp, 0); fn_00272580_CNetState_SetState(); /* call SetState */
+            MEM32(0x613FCC) = 0x3A;
+        } else if (event == 2 || event == 3) {
+            ecx = net_obj;
+            PUSH32(esp, next_state);
+            PUSH32(esp, 1);
+            PUSH32(esp, 0); fn_00269D40_CNetStateXbox_ProcessStates(); /* call ProcessStates(true, next) */
+        }
+        if (event != 0) {
+            fprintf(stderr,
+                    "[FSW/Net] after base event=%u next=%u state=%08X pending=%08X\n",
+                    (unsigned)event, (unsigned)next_state,
+                    (unsigned)MEM32(net_obj + 0xFA8), (unsigned)MEM32(net_obj + 0xFAC));
+        }
         esp += 16; return; /* ret 12 */
     }
 #endif

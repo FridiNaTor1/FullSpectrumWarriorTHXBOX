@@ -8,6 +8,30 @@
 #include "recomp_funcs.h"
 #include <math.h>
 
+static uint32_t fsw_uiconfig_file;
+
+static void fsw_uiconfig_read_section_token(void)
+{
+    static uint32_t repair_count;
+    uint32_t saved_esp = esp;
+
+    eax = fsw_uiconfig_file;
+    PUSH32(esp, 0);
+    fn_00123C40_ZeroFile_ReadSectionToken();
+    if (esp != saved_esp) {
+        if (repair_count < 16 || (repair_count % 120) == 0) {
+            fprintf(stderr,
+                    "[FSW/UIConfig] repaired ReadSectionToken esp %08X -> %08X file=%08X stream=%08X count=%u\n",
+                    (unsigned)esp, (unsigned)saved_esp,
+                    (unsigned)fsw_uiconfig_file,
+                    (unsigned)MEM32(fsw_uiconfig_file + 0x24),
+                    (unsigned)(repair_count + 1));
+        }
+        repair_count++;
+        esp = saved_esp;
+    }
+}
+
 /**
  * fn_001C4A60_UIConfigCleanup
  * Symbol: ?UIConfigCleanup@@YAXXZ
@@ -68,6 +92,7 @@ loc_001C4A80:
 void fn_001C4A90_LoadConfigIni(void)
 {
     uint32_t ebp;
+    uint32_t saved_open_esp;
     int _flags = 0; /* fallback flag var */
     float xmm0, xmm1, xmm2, xmm3;
     ebp = g_seh_ebp; /* fpo_leaf: inherit caller's frame */
@@ -97,9 +122,19 @@ loc_001C4A90:
     MEM32(esp + 0x58) = ebx;
     MEM8(esp + 0x5C) = LO8(ebx);
     MEM32(esp + 0x68) = ebx;
+    fsw_uiconfig_file = esp + 0x44;
+    saved_open_esp = esp;
     PUSH32(esp, 0); fn_00123A20_ZeroFile_OpenFile(); /* call 0x00123A20 */
 
 loc_001C4AE9:
+    if (esp != saved_open_esp) {
+        fprintf(stderr, "[FSW/UIConfig] repaired OpenFile esp %08X -> %08X file=%08X stream=%08X fd=%08X\n",
+                (unsigned)esp, (unsigned)saved_open_esp,
+                (unsigned)(saved_open_esp + 0x44),
+                (unsigned)MEM32(saved_open_esp + 0x68),
+                (unsigned)MEM32(saved_open_esp + 0x48));
+        esp = saved_open_esp;
+    }
     MEM32(esp + 0x74) = ebx;
     if (CMP_GE(MEM32(esp + 0x48), ebx)) goto loc_001C4AFD; /* jge: greater or equal (signed >=) */
 
@@ -112,8 +147,8 @@ loc_001C4AFD:
     PUSH32(esp, 0x538EB4);
     PUSH32(esp, 0x55A1CC);
     PUSH32(esp, 0x55A1C0);
-    eax = esp + 0x54;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C4B1A:
     esp = esp + 0x10;
@@ -128,9 +163,9 @@ loc_001C4B25:
     SET_LO8(ecx, (CMP_NE(eax, ebx)) ? 1 : 0); /* setne */
     PUSH32(esp, 0x55A1B4);
     PUSH32(esp, 0x55A1C0);
-    eax = esp + 0x54;
+    eax = fsw_uiconfig_file;
     MEM8(0x5FA4C0) = LO8(ecx);
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    fsw_uiconfig_read_section_token();
 
 loc_001C4B51:
     esp = esp + 0x10;
@@ -145,8 +180,8 @@ loc_001C4B5C:
     MEM8(0x5FA4C1) = LO8(eax);
     PUSH32(esp, 0x55A1A4);
     PUSH32(esp, 0x55A1C0);
-    eax = esp + 0x54;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C4B87:
     esp = esp + 0x10;
@@ -157,8 +192,8 @@ loc_001C4B92:
     PUSH32(esp, 0x539098);
     PUSH32(esp, 0x55A190);
     PUSH32(esp, 0x55A1C0);
-    eax = esp + 0x54;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C4BAF:
     esp = esp + 0x10;
@@ -169,8 +204,8 @@ loc_001C4BBA:
     PUSH32(esp, 0x539098);
     PUSH32(esp, 0x55A180);
     PUSH32(esp, 0x55A1C0);
-    eax = esp + 0x54;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C4BD7:
     esp = esp + 0x10;
@@ -181,8 +216,8 @@ loc_001C4BE2:
     PUSH32(esp, 0x539098);
     PUSH32(esp, 0x55A170);
     PUSH32(esp, 0x55A1C0);
-    eax = esp + 0x54;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C4BFF:
     esp = esp + 0x10;
@@ -193,8 +228,8 @@ loc_001C4C0A:
     PUSH32(esp, 0x539098);
     PUSH32(esp, 0x55A168);
     PUSH32(esp, 0x55A1C0);
-    eax = esp + 0x54;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C4C27:
     esp = esp + 0x10;
@@ -206,8 +241,8 @@ loc_001C4C32:
     PUSH32(esp, 0x539098);
     PUSH32(esp, 0x55A158);
     PUSH32(esp, 0x55A1C0);
-    eax = esp + 0x54;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C4C4F:
     esp = esp + 0x10;
@@ -223,8 +258,8 @@ loc_001C4C64:
     PUSH32(esp, 0x539098);
     PUSH32(esp, 0x55A144);
     PUSH32(esp, 0x55A1C0);
-    eax = esp + 0x54;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C4C81:
     esp = esp + 0x10;
@@ -240,8 +275,8 @@ loc_001C4C96:
     PUSH32(esp, 0x539098);
     PUSH32(esp, 0x55A134);
     PUSH32(esp, 0x55A1C0);
-    eax = esp + 0x54;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C4CB3:
     esp = esp + 0x10;
@@ -263,8 +298,8 @@ loc_001C4CC8:
     PUSH32(esp, 0x55A120);
     PUSH32(esp, 0x55A118);
     PUSH32(esp, 0x55A1C0);
-    eax = esp + 0x60;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C4CF4:
     esp = esp + 0x1C;
@@ -292,8 +327,8 @@ loc_001C4D22:
     PUSH32(esp, 0x55A120);
     PUSH32(esp, 0x55A110);
     PUSH32(esp, 0x55A1C0);
-    eax = esp + 0x60;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C4D4E:
     esp = esp + 0x1C;
@@ -321,8 +356,8 @@ loc_001C4D7C:
     PUSH32(esp, 0x55A120);
     PUSH32(esp, 0x55A104);
     PUSH32(esp, 0x55A1C0);
-    eax = esp + 0x60;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C4DA8:
     esp = esp + 0x1C;
@@ -350,8 +385,8 @@ loc_001C4DD5:
     PUSH32(esp, 0x55A120);
     PUSH32(esp, 0x55A0F8);
     PUSH32(esp, 0x55A1C0);
-    eax = esp + 0x60;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C4E01:
     esp = esp + 0x1C;
@@ -373,8 +408,8 @@ loc_001C4E2F:
     PUSH32(esp, 0x539098);
     PUSH32(esp, 0x55A0E4);
     PUSH32(esp, 0x55A1C0);
-    eax = esp + 0x54;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C4E4C:
     esp = esp + 0x10;
@@ -390,8 +425,8 @@ loc_001C4E61:
     PUSH32(esp, 0x539098);
     PUSH32(esp, 0x55A0D0);
     PUSH32(esp, 0x55A1C0);
-    eax = esp + 0x54;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C4E7E:
     esp = esp + 0x10;
@@ -407,8 +442,8 @@ loc_001C4E93:
     PUSH32(esp, 0x539098);
     PUSH32(esp, 0x55A0C4);
     PUSH32(esp, 0x55A1C0);
-    eax = esp + 0x54;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C4EB0:
     esp = esp + 0x10;
@@ -424,8 +459,8 @@ loc_001C4EC5:
     PUSH32(esp, 0x539098);
     PUSH32(esp, 0x55A0B4);
     PUSH32(esp, 0x55A1C0);
-    eax = esp + 0x54;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C4EE2:
     esp = esp + 0x10;
@@ -441,8 +476,8 @@ loc_001C4EF7:
     PUSH32(esp, 0x539098);
     PUSH32(esp, 0x55A0A4);
     PUSH32(esp, 0x55A1C0);
-    eax = esp + 0x54;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C4F14:
     esp = esp + 0x10;
@@ -458,8 +493,8 @@ loc_001C4F29:
     PUSH32(esp, 0x539098);
     PUSH32(esp, 0x55A094);
     PUSH32(esp, 0x55A1C0);
-    eax = esp + 0x54;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C4F46:
     esp = esp + 0x10;
@@ -475,8 +510,8 @@ loc_001C4F5B:
     PUSH32(esp, 0x539098);
     PUSH32(esp, 0x55A080);
     PUSH32(esp, 0x55A1C0);
-    eax = esp + 0x54;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C4F78:
     esp = esp + 0x10;
@@ -492,8 +527,8 @@ loc_001C4F8D:
     PUSH32(esp, 0x539098);
     PUSH32(esp, 0x55A06C);
     PUSH32(esp, 0x55A1C0);
-    eax = esp + 0x54;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C4FAA:
     esp = esp + 0x10;
@@ -509,8 +544,8 @@ loc_001C4FBF:
     PUSH32(esp, 0x539098);
     PUSH32(esp, 0x55A060);
     PUSH32(esp, 0x55A1C0);
-    eax = esp + 0x54;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C4FDC:
     esp = esp + 0x10;
@@ -526,8 +561,8 @@ loc_001C4FF1:
     PUSH32(esp, 0x539098);
     PUSH32(esp, 0x55A050);
     PUSH32(esp, 0x55A1C0);
-    eax = esp + 0x54;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C500E:
     esp = esp + 0x10;
@@ -543,8 +578,8 @@ loc_001C5023:
     PUSH32(esp, 0x539098);
     PUSH32(esp, 0x55A03C);
     PUSH32(esp, 0x55A1C0);
-    eax = esp + 0x54;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C5040:
     esp = esp + 0x10;
@@ -560,8 +595,8 @@ loc_001C5055:
     PUSH32(esp, 0x539098);
     PUSH32(esp, 0x55A028);
     PUSH32(esp, 0x55A1C0);
-    eax = esp + 0x54;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C5072:
     esp = esp + 0x10;
@@ -577,8 +612,8 @@ loc_001C5087:
     PUSH32(esp, 0x539098);
     PUSH32(esp, 0x55A014);
     PUSH32(esp, 0x55A1C0);
-    eax = esp + 0x54;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C50A4:
     esp = esp + 0x10;
@@ -600,8 +635,8 @@ loc_001C50B9:
     PUSH32(esp, 0x55A120);
     PUSH32(esp, 0x55A000);
     PUSH32(esp, 0x55A1C0);
-    eax = esp + 0x60;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C50E5:
     esp = esp + 0x1C;
@@ -629,8 +664,8 @@ loc_001C5113:
     PUSH32(esp, 0x55A120);
     PUSH32(esp, 0x559FF0);
     PUSH32(esp, 0x55A1C0);
-    eax = esp + 0x60;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C513F:
     esp = esp + 0x1C;
@@ -658,8 +693,8 @@ loc_001C516D:
     PUSH32(esp, 0x55A120);
     PUSH32(esp, 0x559FE0);
     PUSH32(esp, 0x55A1C0);
-    eax = esp + 0x60;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C5199:
     esp = esp + 0x1C;
@@ -687,8 +722,8 @@ loc_001C51C6:
     PUSH32(esp, 0x55A120);
     PUSH32(esp, 0x559FD0);
     PUSH32(esp, 0x55A1C0);
-    eax = esp + 0x60;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C51F2:
     esp = esp + 0x1C;
@@ -716,8 +751,8 @@ loc_001C5220:
     PUSH32(esp, 0x55A120);
     PUSH32(esp, 0x559FC4);
     PUSH32(esp, 0x55A1C0);
-    eax = esp + 0x60;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C524C:
     esp = esp + 0x1C;
@@ -745,8 +780,8 @@ loc_001C527A:
     PUSH32(esp, 0x55A120);
     PUSH32(esp, 0x559FB0);
     PUSH32(esp, 0x55A1C0);
-    eax = esp + 0x60;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C52A6:
     esp = esp + 0x1C;
@@ -768,8 +803,8 @@ loc_001C52D3:
     PUSH32(esp, 0x539098);
     PUSH32(esp, 0x559F9C);
     PUSH32(esp, 0x55A1C0);
-    eax = esp + 0x54;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C52F0:
     esp = esp + 0x10;
@@ -785,8 +820,8 @@ loc_001C5305:
     PUSH32(esp, 0x539098);
     PUSH32(esp, 0x559F88);
     PUSH32(esp, 0x55A1C0);
-    eax = esp + 0x54;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C5322:
     esp = esp + 0x10;
@@ -802,8 +837,8 @@ loc_001C5337:
     PUSH32(esp, 0x539098);
     PUSH32(esp, 0x559F70);
     PUSH32(esp, 0x55A1C0);
-    eax = esp + 0x54;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C5354:
     esp = esp + 0x10;
@@ -823,8 +858,8 @@ loc_001C537B:
     PUSH32(esp, 0x539098);
     PUSH32(esp, 0x559F64);
     PUSH32(esp, 0x559F5C);
-    eax = esp + 0x58;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C5398:
     esp = esp + 0x14;
@@ -835,8 +870,8 @@ loc_001C53A3:
     PUSH32(esp, 0x539098);
     PUSH32(esp, 0x559F50);
     PUSH32(esp, 0x559F5C);
-    eax = esp + 0x54;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C53C0:
     esp = esp + 0x10;
@@ -847,8 +882,8 @@ loc_001C53CB:
     PUSH32(esp, 0x539098);
     PUSH32(esp, 0x559F40);
     PUSH32(esp, 0x559F5C);
-    eax = esp + 0x54;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C53E8:
     esp = esp + 0x10;
@@ -860,8 +895,8 @@ loc_001C53F3:
     PUSH32(esp, 0x539098);
     PUSH32(esp, 0x559F2C);
     PUSH32(esp, 0x559F5C);
-    eax = esp + 0x54;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C5410:
     esp = esp + 0x10;
@@ -877,8 +912,8 @@ loc_001C5425:
     PUSH32(esp, 0x539098);
     PUSH32(esp, 0x559F18);
     PUSH32(esp, 0x559F5C);
-    eax = esp + 0x54;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C5442:
     esp = esp + 0x10;
@@ -894,8 +929,8 @@ loc_001C5457:
     PUSH32(esp, 0x539098);
     PUSH32(esp, 0x559F08);
     PUSH32(esp, 0x559EF8);
-    eax = esp + 0x54;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C5474:
     esp = esp + 0x10;
@@ -911,8 +946,8 @@ loc_001C5489:
     PUSH32(esp, 0x539098);
     PUSH32(esp, 0x559EE8);
     PUSH32(esp, 0x559EF8);
-    eax = esp + 0x54;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C54A6:
     esp = esp + 0x10;
@@ -928,8 +963,8 @@ loc_001C54BB:
     PUSH32(esp, 0x539098);
     PUSH32(esp, 0x559ED4);
     PUSH32(esp, 0x559EF8);
-    eax = esp + 0x54;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C54D8:
     esp = esp + 0x10;
@@ -951,8 +986,8 @@ loc_001C54ED:
     PUSH32(esp, 0x55A120);
     PUSH32(esp, 0x559EC4);
     PUSH32(esp, 0x559EF8);
-    eax = esp + 0x60;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C5519:
     esp = esp + 0x1C;
@@ -980,8 +1015,8 @@ loc_001C5547:
     PUSH32(esp, 0x55A120);
     PUSH32(esp, 0x559EB4);
     PUSH32(esp, 0x559EF8);
-    eax = esp + 0x60;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C5573:
     esp = esp + 0x1C;
@@ -1002,8 +1037,8 @@ loc_001C55A0:
     PUSH32(esp, 0x539098);
     PUSH32(esp, 0x559EA8);
     PUSH32(esp, 0x559EA0);
-    eax = esp + 0x54;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C55BD:
     esp = esp + 0x10;
@@ -1014,8 +1049,8 @@ loc_001C55C8:
     PUSH32(esp, 0x539098);
     PUSH32(esp, 0x559E94);
     PUSH32(esp, 0x559EA0);
-    eax = esp + 0x54;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C55E5:
     esp = esp + 0x10;
@@ -1026,8 +1061,8 @@ loc_001C55F0:
     PUSH32(esp, 0x539098);
     PUSH32(esp, 0x559E88);
     PUSH32(esp, 0x559EA0);
-    eax = esp + 0x54;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C560D:
     esp = esp + 0x10;
@@ -1038,8 +1073,8 @@ loc_001C5618:
     PUSH32(esp, 0x539098);
     PUSH32(esp, 0x559E7C);
     PUSH32(esp, 0x559EA0);
-    eax = esp + 0x54;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C5635:
     esp = esp + 0x10;
@@ -1050,8 +1085,8 @@ loc_001C5640:
     PUSH32(esp, 0x539098);
     PUSH32(esp, 0x559E6C);
     PUSH32(esp, 0x559EA0);
-    eax = esp + 0x54;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C565D:
     esp = esp + 0x10;
@@ -1067,8 +1102,8 @@ loc_001C5668:
     PUSH32(esp, 0x559E5C);
     PUSH32(esp, 0x559E50);
     PUSH32(esp, 0x559EA0);
-    eax = esp + 0x5C;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C568F:
     esp = esp + 0x18;
@@ -1088,9 +1123,9 @@ loc_001C569A:
     ecx = MEM32(esp + 0x40);
     PUSH32(esp, 0x559E3C);
     PUSH32(esp, 0x559EA0);
-    eax = esp + 0x54;
+    eax = fsw_uiconfig_file;
     MEM32(0x5CF984) = ecx;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    fsw_uiconfig_read_section_token();
 
 loc_001C56DE:
     esp = esp + 0x10;
@@ -1107,8 +1142,8 @@ loc_001C56F1:
     PUSH32(esp, 0x539098);
     PUSH32(esp, 0x559E2C);
     PUSH32(esp, 0x559EA0);
-    eax = esp + 0x54;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C570E:
     esp = esp + 0x10;
@@ -1124,8 +1159,8 @@ loc_001C5723:
     PUSH32(esp, 0x539098);
     PUSH32(esp, 0x559E18);
     PUSH32(esp, 0x559EA0);
-    eax = esp + 0x54;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C5740:
     esp = esp + 0x10;
@@ -1145,8 +1180,8 @@ loc_001C5755:
     PUSH32(esp, 0x559E08);
     PUSH32(esp, 0x559DFC);
     PUSH32(esp, 0x559EA0);
-    eax = esp + 0x5C;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C577C:
     esp = esp + 0x18;
@@ -1176,8 +1211,8 @@ loc_001C57C4:
     PUSH32(esp, 0x559E08);
     PUSH32(esp, 0x559DEC);
     PUSH32(esp, 0x559EA0);
-    eax = esp + 0x5C;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C57EB:
     esp = esp + 0x18;
@@ -1207,8 +1242,8 @@ loc_001C5846:
     PUSH32(esp, 0x538EB4);
     PUSH32(esp, 0x559DE0);
     PUSH32(esp, 0x559EA0);
-    eax = esp + 0x54;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C5863:
     esp = esp + 0x10;
@@ -1224,8 +1259,8 @@ loc_001C5874:
     PUSH32(esp, 0x538EB4);
     PUSH32(esp, 0x559DD0);
     PUSH32(esp, 0x559EA0);
-    eax = esp + 0x54;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C5891:
     esp = esp + 0x10;
@@ -1241,8 +1276,8 @@ loc_001C58A1:
     PUSH32(esp, 0x539098);
     PUSH32(esp, 0x559DC4);
     PUSH32(esp, 0x559EA0);
-    eax = esp + 0x54;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C58BE:
     esp = esp + 0x10;
@@ -1258,8 +1293,8 @@ loc_001C58D3:
     PUSH32(esp, 0x539098);
     PUSH32(esp, 0x559DB8);
     PUSH32(esp, 0x559EA0);
-    eax = esp + 0x54;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C58F0:
     esp = esp + 0x10;
@@ -1286,8 +1321,8 @@ loc_001C5917:
     PUSH32(esp, 0x55A120);
     PUSH32(esp, 0x559DA8);
     PUSH32(esp, 0x559DA0);
-    eax = esp + 0x64;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C5943:
     esp = esp + 0x20;
@@ -1317,8 +1352,8 @@ loc_001C5974:
     PUSH32(esp, 0x55A120);
     PUSH32(esp, 0x559D90);
     PUSH32(esp, 0x559DA0);
-    eax = esp + 0x60;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C59A0:
     esp = esp + 0x1C;
@@ -1348,8 +1383,8 @@ loc_001C59D1:
     PUSH32(esp, 0x55A120);
     PUSH32(esp, 0x559D80);
     PUSH32(esp, 0x559DA0);
-    eax = esp + 0x60;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C59FD:
     esp = esp + 0x1C;
@@ -1373,8 +1408,8 @@ loc_001C5A2E:
     PUSH32(esp, 0x538EB4);
     PUSH32(esp, 0x559D70);
     PUSH32(esp, 0x559DA0);
-    eax = esp + 0x54;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C5A4B:
     esp = esp + 0x10;
@@ -1390,8 +1425,8 @@ loc_001C5A5C:
     PUSH32(esp, 0x538EB4);
     PUSH32(esp, 0x559D60);
     PUSH32(esp, 0x559DA0);
-    eax = esp + 0x54;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C5A79:
     esp = esp + 0x10;
@@ -1407,8 +1442,8 @@ loc_001C5A89:
     PUSH32(esp, 0x539098);
     PUSH32(esp, 0x559D54);
     PUSH32(esp, 0x559DA0);
-    eax = esp + 0x54;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C5AA6:
     esp = esp + 0x10;
@@ -1424,8 +1459,8 @@ loc_001C5ABB:
     PUSH32(esp, 0x539098);
     PUSH32(esp, 0x559D44);
     PUSH32(esp, 0x559DA0);
-    eax = esp + 0x54;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C5AD8:
     esp = esp + 0x10;
@@ -1441,8 +1476,8 @@ loc_001C5AED:
     PUSH32(esp, 0x538EB4);
     PUSH32(esp, 0x559D38);
     PUSH32(esp, 0x559DA0);
-    eax = esp + 0x54;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C5B0A:
     esp = esp + 0x10;
@@ -1458,8 +1493,8 @@ loc_001C5B1B:
     PUSH32(esp, 0x538EB4);
     PUSH32(esp, 0x559D2C);
     PUSH32(esp, 0x559DA0);
-    eax = esp + 0x54;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C5B38:
     esp = esp + 0x10;
@@ -1474,8 +1509,8 @@ loc_001C5B48:
     PUSH32(esp, 0x539098);
     PUSH32(esp, 0x559D20);
     PUSH32(esp, 0x559D14);
-    eax = esp + 0x54;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C5B65:
     esp = esp + 0x10;
@@ -1486,8 +1521,8 @@ loc_001C5B70:
     PUSH32(esp, 0x539098);
     PUSH32(esp, 0x559D04);
     PUSH32(esp, 0x559D14);
-    eax = esp + 0x54;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C5B8D:
     esp = esp + 0x10;
@@ -1498,8 +1533,8 @@ loc_001C5B98:
     PUSH32(esp, 0x539098);
     PUSH32(esp, 0x559CF4);
     PUSH32(esp, 0x559D14);
-    eax = esp + 0x54;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C5BB5:
     esp = esp + 0x10;
@@ -1517,8 +1552,8 @@ loc_001C5BC0:
     PUSH32(esp, 0x55A120);
     PUSH32(esp, 0x559CE0);
     PUSH32(esp, 0x559D14);
-    eax = esp + 0x60;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C5BEC:
     esp = esp + 0x1C;
@@ -1539,8 +1574,8 @@ loc_001C5BF7:
     MEM32(0x5CF9A0) = eax;
     PUSH32(esp, 0x559CD0);
     PUSH32(esp, 0x559D14);
-    eax = esp + 0x54;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C5C3D:
     esp = esp + 0x10;
@@ -1551,8 +1586,8 @@ loc_001C5C44:
     PUSH32(esp, 0x539098);
     PUSH32(esp, 0x559CC0);
     PUSH32(esp, 0x559D14);
-    eax = esp + 0x54;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C5C61:
     esp = esp + 0x10;
@@ -1570,8 +1605,8 @@ loc_001C5C68:
     PUSH32(esp, 0x55A120);
     PUSH32(esp, 0x559CB0);
     PUSH32(esp, 0x559D14);
-    eax = esp + 0x60;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C5C94:
     esp = esp + 0x1C;
@@ -1625,8 +1660,8 @@ loc_001C5CC1:
     MEM32(0x5CF9A4) = eax;
     PUSH32(esp, 0x559CA4);
     PUSH32(esp, 0x559D14);
-    eax = esp + 0x54;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C5D07:
     esp = esp + 0x10;
@@ -1642,8 +1677,8 @@ loc_001C5D1C:
     PUSH32(esp, 0x539098);
     PUSH32(esp, 0x559C94);
     PUSH32(esp, 0x559D14);
-    eax = esp + 0x54;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C5D39:
     esp = esp + 0x10;
@@ -1659,8 +1694,8 @@ loc_001C5D4E:
     PUSH32(esp, 0x539098);
     PUSH32(esp, 0x559C80);
     PUSH32(esp, 0x559D14);
-    eax = esp + 0x54;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C5D6B:
     esp = esp + 0x10;
@@ -1676,8 +1711,8 @@ loc_001C5D80:
     PUSH32(esp, 0x539098);
     PUSH32(esp, 0x559C6C);
     PUSH32(esp, 0x559D14);
-    eax = esp + 0x54;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C5D9D:
     esp = esp + 0x10;
@@ -1693,8 +1728,8 @@ loc_001C5DB2:
     PUSH32(esp, 0x539098);
     PUSH32(esp, 0x559C60);
     PUSH32(esp, 0x559D14);
-    eax = esp + 0x54;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C5DCF:
     esp = esp + 0x10;
@@ -1710,8 +1745,8 @@ loc_001C5DE4:
     PUSH32(esp, 0x538EB4);
     PUSH32(esp, 0x559C50);
     PUSH32(esp, 0x559D14);
-    eax = esp + 0x54;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C5E01:
     esp = esp + 0x10;
@@ -1734,8 +1769,8 @@ loc_001C5E15:
     PUSH32(esp, 0x55A120);
     PUSH32(esp, 0x559C44);
     PUSH32(esp, 0x559D14);
-    eax = esp + 0x60;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C5E41:
     esp = esp + 0x1C;
@@ -1765,8 +1800,8 @@ loc_001C5E72:
     PUSH32(esp, 0x55A120);
     PUSH32(esp, 0x559C34);
     PUSH32(esp, 0x559D14);
-    eax = esp + 0x60;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C5E9E:
     esp = esp + 0x1C;
@@ -1790,8 +1825,8 @@ loc_001C5ECF:
     PUSH32(esp, 0x539098);
     PUSH32(esp, 0x559C24);
     PUSH32(esp, 0x559D14);
-    eax = esp + 0x54;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C5EEC:
     esp = esp + 0x10;
@@ -1807,8 +1842,8 @@ loc_001C5F01:
     PUSH32(esp, 0x539098);
     PUSH32(esp, 0x559C10);
     PUSH32(esp, 0x559D14);
-    eax = esp + 0x54;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C5F1E:
     esp = esp + 0x10;
@@ -1824,8 +1859,8 @@ loc_001C5F33:
     PUSH32(esp, 0x539098);
     PUSH32(esp, 0x559C00);
     PUSH32(esp, 0x559D14);
-    eax = esp + 0x54;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C5F50:
     esp = esp + 0x10;
@@ -1841,8 +1876,8 @@ loc_001C5F65:
     PUSH32(esp, 0x539098);
     PUSH32(esp, 0x559BF0);
     PUSH32(esp, 0x559D14);
-    eax = esp + 0x54;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C5F82:
     esp = esp + 0x10;
@@ -1864,8 +1899,8 @@ loc_001C5F97:
     PUSH32(esp, 0x55A120);
     PUSH32(esp, 0x559BE0);
     PUSH32(esp, 0x559D14);
-    eax = esp + 0x60;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C5FC3:
     esp = esp + 0x1C;
@@ -1889,8 +1924,8 @@ loc_001C5FF4:
     PUSH32(esp, 0x539098);
     PUSH32(esp, 0x559BCC);
     PUSH32(esp, 0x559D14);
-    eax = esp + 0x54;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C6011:
     esp = esp + 0x10;
@@ -1906,8 +1941,8 @@ loc_001C6026:
     PUSH32(esp, 0x539098);
     PUSH32(esp, 0x559BB8);
     PUSH32(esp, 0x559D14);
-    eax = esp + 0x54;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C6043:
     esp = esp + 0x10;
@@ -1923,8 +1958,8 @@ loc_001C6058:
     PUSH32(esp, 0x539098);
     PUSH32(esp, 0x559BA4);
     PUSH32(esp, 0x559D14);
-    eax = esp + 0x54;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C6075:
     esp = esp + 0x10;
@@ -1946,8 +1981,8 @@ loc_001C608A:
     PUSH32(esp, 0x55A120);
     PUSH32(esp, 0x559B90);
     PUSH32(esp, 0x559D14);
-    eax = esp + 0x60;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C60B6:
     esp = esp + 0x1C;
@@ -1971,8 +2006,8 @@ loc_001C60E7:
     PUSH32(esp, 0x539098);
     PUSH32(esp, 0x559B84);
     PUSH32(esp, 0x559B70);
-    eax = esp + 0x54;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C6104:
     esp = esp + 0x10;
@@ -1988,8 +2023,8 @@ loc_001C6119:
     PUSH32(esp, 0x539098);
     PUSH32(esp, 0x559B60);
     PUSH32(esp, 0x559B70);
-    eax = esp + 0x54;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C6136:
     esp = esp + 0x10;
@@ -2011,8 +2046,8 @@ loc_001C614B:
     PUSH32(esp, 0x55A120);
     PUSH32(esp, 0x559B54);
     PUSH32(esp, 0x559B70);
-    eax = esp + 0x60;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C6177:
     esp = esp + 0x1C;
@@ -2036,8 +2071,8 @@ loc_001C61A8:
     PUSH32(esp, 0x538EB4);
     PUSH32(esp, 0x559B48);
     PUSH32(esp, 0x559B70);
-    eax = esp + 0x54;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C61C5:
     esp = esp + 0x10;
@@ -2053,8 +2088,8 @@ loc_001C61D5:
     PUSH32(esp, 0x538EB4);
     PUSH32(esp, 0x559B38);
     PUSH32(esp, 0x559B70);
-    eax = esp + 0x54;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C61F2:
     esp = esp + 0x10;
@@ -2070,8 +2105,8 @@ loc_001C6203:
     PUSH32(esp, 0x538EB4);
     PUSH32(esp, 0x559B28);
     PUSH32(esp, 0x559B70);
-    eax = esp + 0x54;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C6220:
     esp = esp + 0x10;
@@ -2087,8 +2122,8 @@ loc_001C6231:
     PUSH32(esp, 0x538EB4);
     PUSH32(esp, 0x559B18);
     PUSH32(esp, 0x559B04);
-    eax = esp + 0x54;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C624E:
     esp = esp + 0x10;
@@ -2104,8 +2139,8 @@ loc_001C625E:
     PUSH32(esp, 0x538EB4);
     PUSH32(esp, 0x559AF4);
     PUSH32(esp, 0x559B04);
-    eax = esp + 0x54;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C627B:
     esp = esp + 0x10;
@@ -2121,8 +2156,8 @@ loc_001C628C:
     PUSH32(esp, 0x538EB4);
     PUSH32(esp, 0x559AE4);
     PUSH32(esp, 0x559B04);
-    eax = esp + 0x54;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C62A9:
     esp = esp + 0x10;
@@ -2138,8 +2173,8 @@ loc_001C62BA:
     PUSH32(esp, 0x538EB4);
     PUSH32(esp, 0x559AD4);
     PUSH32(esp, 0x559B04);
-    eax = esp + 0x54;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C62D7:
     esp = esp + 0x10;
@@ -2155,8 +2190,8 @@ loc_001C62E7:
     PUSH32(esp, 0x538EB4);
     PUSH32(esp, 0x559AC4);
     PUSH32(esp, 0x559B04);
-    eax = esp + 0x54;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C6304:
     esp = esp + 0x10;
@@ -2172,8 +2207,8 @@ loc_001C6315:
     PUSH32(esp, 0x538EB4);
     PUSH32(esp, 0x559AB4);
     PUSH32(esp, 0x559B04);
-    eax = esp + 0x54;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C6332:
     esp = esp + 0x10;
@@ -2189,8 +2224,8 @@ loc_001C6343:
     PUSH32(esp, 0x538EB4);
     PUSH32(esp, 0x559AA4);
     PUSH32(esp, 0x559B04);
-    eax = esp + 0x54;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C6360:
     esp = esp + 0x10;
@@ -2206,8 +2241,8 @@ loc_001C6370:
     PUSH32(esp, 0x538EB4);
     PUSH32(esp, 0x559A98);
     PUSH32(esp, 0x559B04);
-    eax = esp + 0x54;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C638D:
     esp = esp + 0x10;
@@ -2229,8 +2264,8 @@ loc_001C639E:
     PUSH32(esp, 0x55A120);
     PUSH32(esp, 0x559A8C);
     PUSH32(esp, 0x559B04);
-    eax = esp + 0x60;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C63CA:
     esp = esp + 0x1C;
@@ -2254,8 +2289,8 @@ loc_001C63FB:
     PUSH32(esp, 0x539098);
     PUSH32(esp, 0x559A80);
     PUSH32(esp, 0x559B04);
-    eax = esp + 0x54;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C6418:
     esp = esp + 0x10;
@@ -2271,8 +2306,8 @@ loc_001C642D:
     PUSH32(esp, 0x539098);
     PUSH32(esp, 0x559A74);
     PUSH32(esp, 0x559B04);
-    eax = esp + 0x54;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C644A:
     esp = esp + 0x10;
@@ -2292,8 +2327,8 @@ loc_001C645F:
     PUSH32(esp, 0x559E08);
     PUSH32(esp, 0x559A6C);
     PUSH32(esp, 0x559B04);
-    eax = esp + 0x5C;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C6486:
     esp = esp + 0x18;
@@ -2323,8 +2358,8 @@ loc_001C64CE:
     PUSH32(esp, 0x559E08);
     PUSH32(esp, 0x559A60);
     PUSH32(esp, 0x559B04);
-    eax = esp + 0x5C;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C64F5:
     esp = esp + 0x18;
@@ -2354,8 +2389,8 @@ loc_001C6550:
     PUSH32(esp, 0x539098);
     PUSH32(esp, 0x559A4C);
     PUSH32(esp, 0x559B04);
-    eax = esp + 0x54;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C656D:
     esp = esp + 0x10;
@@ -2375,8 +2410,8 @@ loc_001C6582:
     PUSH32(esp, 0x559E08);
     PUSH32(esp, 0x559A3C);
     PUSH32(esp, 0x559B04);
-    eax = esp + 0x5C;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C65A9:
     esp = esp + 0x18;
@@ -2410,8 +2445,8 @@ loc_001C6604:
     PUSH32(esp, 0x559E08);
     PUSH32(esp, 0x559A2C);
     PUSH32(esp, 0x559B04);
-    eax = esp + 0x5C;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C662B:
     esp = esp + 0x18;
@@ -2446,8 +2481,8 @@ loc_001C6698:
     PUSH32(esp, 0x539098);
     PUSH32(esp, 0x559A20);
     PUSH32(esp, 0x559A10);
-    eax = esp + 0x58;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C66B5:
     esp = esp + 0x14;
@@ -2463,8 +2498,8 @@ loc_001C66CA:
     PUSH32(esp, 0x539098);
     PUSH32(esp, 0x553968);
     PUSH32(esp, 0x559A10);
-    eax = esp + 0x54;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C66E7:
     esp = esp + 0x10;
@@ -2480,8 +2515,8 @@ loc_001C66FC:
     PUSH32(esp, 0x539098);
     PUSH32(esp, 0x559A04);
     PUSH32(esp, 0x559A10);
-    eax = esp + 0x54;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C6719:
     esp = esp + 0x10;
@@ -2503,8 +2538,8 @@ loc_001C672E:
     PUSH32(esp, 0x55A120);
     PUSH32(esp, 0x5599F0);
     PUSH32(esp, 0x559B04);
-    eax = esp + 0x60;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C675A:
     esp = esp + 0x1C;
@@ -2534,8 +2569,8 @@ loc_001C678B:
     PUSH32(esp, 0x55A120);
     PUSH32(esp, 0x5599DC);
     PUSH32(esp, 0x559B04);
-    eax = esp + 0x60;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C67B7:
     esp = esp + 0x1C;
@@ -2565,8 +2600,8 @@ loc_001C67E8:
     PUSH32(esp, 0x55A120);
     PUSH32(esp, 0x5599C8);
     PUSH32(esp, 0x559B04);
-    eax = esp + 0x60;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C6814:
     esp = esp + 0x1C;
@@ -2596,8 +2631,8 @@ loc_001C6845:
     PUSH32(esp, 0x55A120);
     PUSH32(esp, 0x5599B8);
     PUSH32(esp, 0x559B04);
-    eax = esp + 0x60;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C6871:
     esp = esp + 0x1C;
@@ -2621,8 +2656,8 @@ loc_001C68A2:
     PUSH32(esp, 0x538EB4);
     PUSH32(esp, 0x5599A8);
     PUSH32(esp, 0x559998);
-    eax = esp + 0x54;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C68BF:
     esp = esp + 0x10;
@@ -2638,8 +2673,8 @@ loc_001C68D0:
     PUSH32(esp, 0x538EB4);
     PUSH32(esp, 0x559988);
     PUSH32(esp, 0x559998);
-    eax = esp + 0x54;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C68ED:
     esp = esp + 0x10;
@@ -2655,8 +2690,8 @@ loc_001C68FD:
     PUSH32(esp, 0x539098);
     PUSH32(esp, 0x559978);
     PUSH32(esp, 0x559998);
-    eax = esp + 0x54;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C691A:
     esp = esp + 0x10;
@@ -2672,8 +2707,8 @@ loc_001C692F:
     PUSH32(esp, 0x539098);
     PUSH32(esp, 0x559968);
     PUSH32(esp, 0x559998);
-    eax = esp + 0x54;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C694C:
     esp = esp + 0x10;
@@ -2689,8 +2724,8 @@ loc_001C6961:
     PUSH32(esp, 0x539098);
     PUSH32(esp, 0x559958);
     PUSH32(esp, 0x559998);
-    eax = esp + 0x54;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C697E:
     esp = esp + 0x10;
@@ -2706,8 +2741,8 @@ loc_001C6993:
     PUSH32(esp, 0x539098);
     PUSH32(esp, 0x559944);
     PUSH32(esp, 0x559998);
-    eax = esp + 0x54;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C69B0:
     esp = esp + 0x10;
@@ -2723,8 +2758,8 @@ loc_001C69C5:
     PUSH32(esp, 0x539098);
     PUSH32(esp, 0x559930);
     PUSH32(esp, 0x559998);
-    eax = esp + 0x54;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C69E2:
     esp = esp + 0x10;
@@ -2740,8 +2775,8 @@ loc_001C69F7:
     PUSH32(esp, 0x539098);
     PUSH32(esp, 0x559920);
     PUSH32(esp, 0x559998);
-    eax = esp + 0x54;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C6A14:
     esp = esp + 0x10;
@@ -2757,8 +2792,8 @@ loc_001C6A29:
     PUSH32(esp, 0x539098);
     PUSH32(esp, 0x559910);
     PUSH32(esp, 0x559998);
-    eax = esp + 0x54;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C6A46:
     esp = esp + 0x10;
@@ -2774,8 +2809,8 @@ loc_001C6A5B:
     PUSH32(esp, 0x539098);
     PUSH32(esp, 0x559900);
     PUSH32(esp, 0x559998);
-    eax = esp + 0x54;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C6A78:
     esp = esp + 0x10;
@@ -2791,8 +2826,8 @@ loc_001C6A8D:
     PUSH32(esp, 0x539098);
     PUSH32(esp, 0x5598F0);
     PUSH32(esp, 0x559998);
-    eax = esp + 0x54;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C6AAA:
     esp = esp + 0x10;
@@ -2808,8 +2843,8 @@ loc_001C6ABF:
     PUSH32(esp, 0x539098);
     PUSH32(esp, 0x5598E0);
     PUSH32(esp, 0x559998);
-    eax = esp + 0x54;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C6ADC:
     esp = esp + 0x10;
@@ -2829,8 +2864,8 @@ loc_001C6AF1:
     PUSH32(esp, 0x559E08);
     PUSH32(esp, 0x5598D4);
     PUSH32(esp, 0x559998);
-    eax = esp + 0x5C;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C6B18:
     esp = esp + 0x18;
@@ -2860,8 +2895,8 @@ loc_001C6B60:
     PUSH32(esp, 0x559E08);
     PUSH32(esp, 0x5598C0);
     PUSH32(esp, 0x559998);
-    eax = esp + 0x5C;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C6B87:
     esp = esp + 0x18;
@@ -2891,8 +2926,8 @@ loc_001C6BCF:
     PUSH32(esp, 0x559E08);
     PUSH32(esp, 0x5598B0);
     PUSH32(esp, 0x559998);
-    eax = esp + 0x5C;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C6BF6:
     esp = esp + 0x18;
@@ -2926,8 +2961,8 @@ loc_001C6C51:
     PUSH32(esp, 0x559E08);
     PUSH32(esp, 0x5598A0);
     PUSH32(esp, 0x559998);
-    eax = esp + 0x5C;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C6C78:
     esp = esp + 0x18;
@@ -2961,8 +2996,8 @@ loc_001C6CD3:
     PUSH32(esp, 0x559E08);
     PUSH32(esp, 0x559890);
     PUSH32(esp, 0x559998);
-    eax = esp + 0x5C;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C6CFA:
     esp = esp + 0x18;
@@ -2996,8 +3031,8 @@ loc_001C6D55:
     PUSH32(esp, 0x559E08);
     PUSH32(esp, 0x559880);
     PUSH32(esp, 0x559998);
-    eax = esp + 0x5C;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C6D7C:
     esp = esp + 0x18;
@@ -3031,8 +3066,8 @@ loc_001C6DD7:
     PUSH32(esp, 0x559E08);
     PUSH32(esp, 0x559870);
     PUSH32(esp, 0x559998);
-    eax = esp + 0x5C;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C6DFE:
     esp = esp + 0x18;
@@ -3062,8 +3097,8 @@ loc_001C6E59:
     PUSH32(esp, 0x539098);
     PUSH32(esp, 0x55985C);
     PUSH32(esp, 0x559998);
-    eax = esp + 0x54;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C6E76:
     esp = esp + 0x10;
@@ -3079,8 +3114,8 @@ loc_001C6E8B:
     PUSH32(esp, 0x539098);
     PUSH32(esp, 0x559848);
     PUSH32(esp, 0x55983C);
-    eax = esp + 0x54;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C6EA8:
     esp = esp + 0x10;
@@ -3096,8 +3131,8 @@ loc_001C6EBD:
     PUSH32(esp, 0x539098);
     PUSH32(esp, 0x559828);
     PUSH32(esp, 0x55983C);
-    eax = esp + 0x54;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C6EDA:
     esp = esp + 0x10;
@@ -3113,8 +3148,8 @@ loc_001C6EEF:
     PUSH32(esp, 0x539098);
     PUSH32(esp, 0x559814);
     PUSH32(esp, 0x55983C);
-    eax = esp + 0x54;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C6F0C:
     esp = esp + 0x10;
@@ -3130,8 +3165,8 @@ loc_001C6F21:
     PUSH32(esp, 0x539098);
     PUSH32(esp, 0x559804);
     PUSH32(esp, 0x55983C);
-    eax = esp + 0x54;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C6F3E:
     esp = esp + 0x10;
@@ -3147,8 +3182,8 @@ loc_001C6F53:
     PUSH32(esp, 0x539098);
     PUSH32(esp, 0x5597F8);
     PUSH32(esp, 0x5597E8);
-    eax = esp + 0x54;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C6F70:
     esp = esp + 0x10;
@@ -3164,8 +3199,8 @@ loc_001C6F85:
     PUSH32(esp, 0x539098);
     PUSH32(esp, 0x5597D8);
     PUSH32(esp, 0x5597E8);
-    eax = esp + 0x54;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C6FA2:
     esp = esp + 0x10;
@@ -3181,8 +3216,8 @@ loc_001C6FB7:
     PUSH32(esp, 0x539098);
     PUSH32(esp, 0x5597C8);
     PUSH32(esp, 0x5597E8);
-    eax = esp + 0x54;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C6FD4:
     esp = esp + 0x10;
@@ -3202,8 +3237,8 @@ loc_001C6FE9:
     PUSH32(esp, 0x559E08);
     PUSH32(esp, 0x5597C0);
     PUSH32(esp, 0x5597E8);
-    eax = esp + 0x5C;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C7010:
     esp = esp + 0x18;
@@ -3233,8 +3268,8 @@ loc_001C7058:
     PUSH32(esp, 0x559E08);
     PUSH32(esp, 0x5597B4);
     PUSH32(esp, 0x5597E8);
-    eax = esp + 0x5C;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C707F:
     esp = esp + 0x18;
@@ -3264,8 +3299,8 @@ loc_001C70DA:
     PUSH32(esp, 0x539098);
     PUSH32(esp, 0x5597A4);
     PUSH32(esp, 0x559790);
-    eax = esp + 0x54;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C70F7:
     esp = esp + 0x10;
@@ -3281,8 +3316,8 @@ loc_001C710C:
     PUSH32(esp, 0x539098);
     PUSH32(esp, 0x559778);
     PUSH32(esp, 0x559790);
-    eax = esp + 0x54;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C7129:
     esp = esp + 0x10;
@@ -3298,8 +3333,8 @@ loc_001C713E:
     PUSH32(esp, 0x539098);
     PUSH32(esp, 0x559764);
     PUSH32(esp, 0x55974C);
-    eax = esp + 0x54;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C715B:
     esp = esp + 0x10;
@@ -3315,8 +3350,8 @@ loc_001C7170:
     PUSH32(esp, 0x539098);
     PUSH32(esp, 0x559734);
     PUSH32(esp, 0x55974C);
-    eax = esp + 0x54;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C718D:
     esp = esp + 0x10;
@@ -3332,8 +3367,8 @@ loc_001C71A2:
     PUSH32(esp, 0x539098);
     PUSH32(esp, 0x559718);
     PUSH32(esp, 0x55974C);
-    eax = esp + 0x54;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C71BF:
     esp = esp + 0x10;
@@ -3355,8 +3390,8 @@ loc_001C71D4:
     PUSH32(esp, 0x55A120);
     PUSH32(esp, 0x55970C);
     PUSH32(esp, 0x559704);
-    eax = esp + 0x60;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C7200:
     esp = esp + 0x1C;
@@ -3386,8 +3421,8 @@ loc_001C7231:
     PUSH32(esp, 0x55A120);
     PUSH32(esp, 0x5596F8);
     PUSH32(esp, 0x559704);
-    eax = esp + 0x60;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C725D:
     esp = esp + 0x1C;
@@ -3411,8 +3446,8 @@ loc_001C728E:
     PUSH32(esp, 0x5596F0);
     PUSH32(esp, 0x5596E4);
     PUSH32(esp, 0x559704);
-    eax = esp + 0x54;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C72AB:
     esp = esp + 0x10;
@@ -3428,8 +3463,8 @@ loc_001C72C0:
     PUSH32(esp, 0x5596F0);
     PUSH32(esp, 0x5596D4);
     PUSH32(esp, 0x559704);
-    eax = esp + 0x54;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C72DD:
     esp = esp + 0x10;
@@ -3445,8 +3480,8 @@ loc_001C72F2:
     PUSH32(esp, 0x5596F0);
     PUSH32(esp, 0x5596C8);
     PUSH32(esp, 0x559704);
-    eax = esp + 0x54;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C730F:
     esp = esp + 0x10;
@@ -3462,8 +3497,8 @@ loc_001C7324:
     PUSH32(esp, 0x5596F0);
     PUSH32(esp, 0x5596B8);
     PUSH32(esp, 0x559704);
-    eax = esp + 0x54;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C7341:
     esp = esp + 0x10;
@@ -3490,8 +3525,8 @@ loc_001C7368:
     PUSH32(esp, 0x55A120);
     PUSH32(esp, 0x5596A8);
     PUSH32(esp, 0x5596A0);
-    eax = esp + 0x64;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C7394:
     esp = esp + 0x20;
@@ -3521,8 +3556,8 @@ loc_001C73C4:
     PUSH32(esp, 0x55A120);
     PUSH32(esp, 0x559690);
     PUSH32(esp, 0x5596A0);
-    eax = esp + 0x60;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C73F0:
     esp = esp + 0x1C;
@@ -3546,8 +3581,8 @@ loc_001C7420:
     PUSH32(esp, 0x5596F0);
     PUSH32(esp, 0x559680);
     PUSH32(esp, 0x5596A0);
-    eax = esp + 0x54;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C743D:
     esp = esp + 0x10;
@@ -3563,8 +3598,8 @@ loc_001C7452:
     PUSH32(esp, 0x5596F0);
     PUSH32(esp, 0x559670);
     PUSH32(esp, 0x5596A0);
-    eax = esp + 0x54;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C746F:
     esp = esp + 0x10;
@@ -3580,8 +3615,8 @@ loc_001C7484:
     PUSH32(esp, 0x5596F0);
     PUSH32(esp, 0x559664);
     PUSH32(esp, 0x5596A0);
-    eax = esp + 0x54;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C74A1:
     esp = esp + 0x10;
@@ -3597,8 +3632,8 @@ loc_001C74B6:
     PUSH32(esp, 0x5596F0);
     PUSH32(esp, 0x559654);
     PUSH32(esp, 0x5596A0);
-    eax = esp + 0x54;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C74D3:
     esp = esp + 0x10;
@@ -3614,8 +3649,8 @@ loc_001C74E8:
     PUSH32(esp, 0x5596F0);
     PUSH32(esp, 0x559644);
     PUSH32(esp, 0x5596A0);
-    eax = esp + 0x54;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C7505:
     esp = esp + 0x10;
@@ -3631,8 +3666,8 @@ loc_001C751A:
     PUSH32(esp, 0x5596F0);
     PUSH32(esp, 0x559638);
     PUSH32(esp, 0x55962C);
-    eax = esp + 0x54;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C7537:
     esp = esp + 0x10;
@@ -3648,8 +3683,8 @@ loc_001C754C:
     PUSH32(esp, 0x5596F0);
     PUSH32(esp, 0x55961C);
     PUSH32(esp, 0x55962C);
-    eax = esp + 0x54;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C7569:
     esp = esp + 0x10;
@@ -3665,8 +3700,8 @@ loc_001C757E:
     PUSH32(esp, 0x5596F0);
     PUSH32(esp, 0x559610);
     PUSH32(esp, 0x55962C);
-    eax = esp + 0x54;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C759B:
     esp = esp + 0x10;
@@ -3688,8 +3723,8 @@ loc_001C75B0:
     PUSH32(esp, 0x55A120);
     PUSH32(esp, 0x559600);
     PUSH32(esp, 0x55962C);
-    eax = esp + 0x60;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C75DC:
     esp = esp + 0x1C;
@@ -3719,8 +3754,8 @@ loc_001C760D:
     PUSH32(esp, 0x55A120);
     PUSH32(esp, 0x5595F4);
     PUSH32(esp, 0x5595EC);
-    eax = esp + 0x60;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C7639:
     esp = esp + 0x1C;
@@ -3750,8 +3785,8 @@ loc_001C766A:
     PUSH32(esp, 0x55A120);
     PUSH32(esp, 0x5595E0);
     PUSH32(esp, 0x5595EC);
-    eax = esp + 0x60;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C7696:
     esp = esp + 0x1C;
@@ -3781,8 +3816,8 @@ loc_001C76C7:
     PUSH32(esp, 0x55A120);
     PUSH32(esp, 0x5595D4);
     PUSH32(esp, 0x5595EC);
-    eax = esp + 0x60;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C76F3:
     esp = esp + 0x1C;
@@ -3812,8 +3847,8 @@ loc_001C7724:
     PUSH32(esp, 0x55A120);
     PUSH32(esp, 0x5595C8);
     PUSH32(esp, 0x5595EC);
-    eax = esp + 0x60;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C7750:
     esp = esp + 0x1C;
@@ -3843,8 +3878,8 @@ loc_001C7781:
     PUSH32(esp, 0x55A120);
     PUSH32(esp, 0x5595BC);
     PUSH32(esp, 0x5595EC);
-    eax = esp + 0x60;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C77AD:
     esp = esp + 0x1C;
@@ -3874,8 +3909,8 @@ loc_001C77DE:
     PUSH32(esp, 0x55A120);
     PUSH32(esp, 0x5595B0);
     PUSH32(esp, 0x5595EC);
-    eax = esp + 0x60;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C780A:
     esp = esp + 0x1C;
@@ -3905,8 +3940,8 @@ loc_001C783B:
     PUSH32(esp, 0x55A120);
     PUSH32(esp, 0x5595A0);
     PUSH32(esp, 0x5595EC);
-    eax = esp + 0x60;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C7867:
     esp = esp + 0x1C;
@@ -3936,8 +3971,8 @@ loc_001C7898:
     PUSH32(esp, 0x55A120);
     PUSH32(esp, 0x559594);
     PUSH32(esp, 0x5595EC);
-    eax = esp + 0x60;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C78C4:
     esp = esp + 0x1C;
@@ -3967,8 +4002,8 @@ loc_001C78F5:
     PUSH32(esp, 0x55A120);
     PUSH32(esp, 0x559584);
     PUSH32(esp, 0x5595EC);
-    eax = esp + 0x60;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C7921:
     esp = esp + 0x1C;
@@ -3998,8 +4033,8 @@ loc_001C7952:
     PUSH32(esp, 0x55A120);
     PUSH32(esp, 0x559574);
     PUSH32(esp, 0x5595EC);
-    eax = esp + 0x60;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C797E:
     esp = esp + 0x1C;
@@ -4029,8 +4064,8 @@ loc_001C79AF:
     PUSH32(esp, 0x55A120);
     PUSH32(esp, 0x559568);
     PUSH32(esp, 0x5595EC);
-    eax = esp + 0x60;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C79DB:
     esp = esp + 0x1C;
@@ -4054,8 +4089,8 @@ loc_001C7A0C:
     PUSH32(esp, 0x539098);
     PUSH32(esp, 0x559558);
     PUSH32(esp, 0x5595EC);
-    eax = esp + 0x54;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C7A29:
     esp = esp + 0x10;
@@ -4071,8 +4106,8 @@ loc_001C7A3E:
     PUSH32(esp, 0x538EB4);
     PUSH32(esp, 0x55954C);
     PUSH32(esp, 0x5595EC);
-    eax = esp + 0x54;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C7A5B:
     esp = esp + 0x10;
@@ -4090,8 +4125,8 @@ loc_001C7A6C:
     PUSH32(esp, 0x559540);
     PUSH32(esp, 0x559534);
     PUSH32(esp, 0x5595EC);
-    eax = esp + 0x58;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C7A8E:
     esp = esp + 0x14;
@@ -4115,8 +4150,8 @@ loc_001C7AC0:
     PUSH32(esp, 0x559540);
     PUSH32(esp, 0x559528);
     PUSH32(esp, 0x5595EC);
-    eax = esp + 0x58;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C7AE2:
     esp = esp + 0x14;
@@ -4140,8 +4175,8 @@ loc_001C7B14:
     PUSH32(esp, 0x559540);
     PUSH32(esp, 0x559518);
     PUSH32(esp, 0x5595EC);
-    eax = esp + 0x58;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C7B36:
     esp = esp + 0x14;
@@ -4165,8 +4200,8 @@ loc_001C7B69:
     PUSH32(esp, 0x559540);
     PUSH32(esp, 0x559508);
     PUSH32(esp, 0x5595EC);
-    eax = esp + 0x58;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C7B8B:
     esp = esp + 0x14;
@@ -4190,8 +4225,8 @@ loc_001C7BBD:
     PUSH32(esp, 0x559540);
     PUSH32(esp, 0x5594FC);
     PUSH32(esp, 0x5595EC);
-    eax = esp + 0x58;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C7BDF:
     esp = esp + 0x14;
@@ -4215,8 +4250,8 @@ loc_001C7C11:
     PUSH32(esp, 0x559540);
     PUSH32(esp, 0x5594F4);
     PUSH32(esp, 0x5595EC);
-    eax = esp + 0x58;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C7C33:
     esp = esp + 0x14;
@@ -4240,8 +4275,8 @@ loc_001C7C66:
     PUSH32(esp, 0x559540);
     PUSH32(esp, 0x5594E4);
     PUSH32(esp, 0x5595EC);
-    eax = esp + 0x58;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C7C88:
     esp = esp + 0x14;
@@ -4265,8 +4300,8 @@ loc_001C7CBA:
     PUSH32(esp, 0x559540);
     PUSH32(esp, 0x5594D8);
     PUSH32(esp, 0x5595EC);
-    eax = esp + 0x58;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C7CDC:
     esp = esp + 0x14;
@@ -4290,8 +4325,8 @@ loc_001C7D0E:
     PUSH32(esp, 0x559540);
     PUSH32(esp, 0x5594CC);
     PUSH32(esp, 0x5595EC);
-    eax = esp + 0x58;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C7D30:
     esp = esp + 0x14;
@@ -4315,8 +4350,8 @@ loc_001C7D63:
     PUSH32(esp, 0x559540);
     PUSH32(esp, 0x5594BC);
     PUSH32(esp, 0x5595EC);
-    eax = esp + 0x58;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C7D85:
     esp = esp + 0x14;
@@ -4340,8 +4375,8 @@ loc_001C7DB7:
     PUSH32(esp, 0x559540);
     PUSH32(esp, 0x5594A8);
     PUSH32(esp, 0x5595EC);
-    eax = esp + 0x58;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C7DD9:
     esp = esp + 0x14;
@@ -4363,8 +4398,8 @@ loc_001C7E0B:
     PUSH32(esp, 0x539098);
     PUSH32(esp, 0x559494);
     PUSH32(esp, 0x5595EC);
-    eax = esp + 0x54;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C7E28:
     esp = esp + 0x10;
@@ -4380,8 +4415,8 @@ loc_001C7E3D:
     PUSH32(esp, 0x539098);
     PUSH32(esp, 0x559480);
     PUSH32(esp, 0x5595EC);
-    eax = esp + 0x54;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C7E5A:
     esp = esp + 0x10;
@@ -4399,8 +4434,8 @@ loc_001C7E6F:
     PUSH32(esp, 0x559540);
     PUSH32(esp, 0x559478);
     PUSH32(esp, 0x55946C);
-    eax = esp + 0x58;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C7E91:
     esp = esp + 0x14;
@@ -4424,8 +4459,8 @@ loc_001C7EC3:
     PUSH32(esp, 0x559540);
     PUSH32(esp, 0x559460);
     PUSH32(esp, 0x55946C);
-    eax = esp + 0x58;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C7EE5:
     esp = esp + 0x14;
@@ -4449,8 +4484,8 @@ loc_001C7F18:
     PUSH32(esp, 0x559540);
     PUSH32(esp, 0x559454);
     PUSH32(esp, 0x55946C);
-    eax = esp + 0x58;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C7F3A:
     esp = esp + 0x14;
@@ -4474,8 +4509,8 @@ loc_001C7F6C:
     PUSH32(esp, 0x559540);
     PUSH32(esp, 0x559448);
     PUSH32(esp, 0x55946C);
-    eax = esp + 0x58;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C7F8E:
     esp = esp + 0x14;
@@ -4499,8 +4534,8 @@ loc_001C7FC0:
     PUSH32(esp, 0x559540);
     PUSH32(esp, 0x559430);
     PUSH32(esp, 0x55946C);
-    eax = esp + 0x58;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C7FE2:
     esp = esp + 0x14;
@@ -4524,8 +4559,8 @@ loc_001C8015:
     PUSH32(esp, 0x559540);
     PUSH32(esp, 0x559418);
     PUSH32(esp, 0x55946C);
-    eax = esp + 0x58;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C8037:
     esp = esp + 0x14;
@@ -4549,8 +4584,8 @@ loc_001C8069:
     PUSH32(esp, 0x559540);
     PUSH32(esp, 0x559400);
     PUSH32(esp, 0x55946C);
-    eax = esp + 0x58;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C808B:
     esp = esp + 0x14;
@@ -4574,8 +4609,8 @@ loc_001C80BD:
     PUSH32(esp, 0x559540);
     PUSH32(esp, 0x5593E8);
     PUSH32(esp, 0x55946C);
-    eax = esp + 0x58;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C80DF:
     esp = esp + 0x14;
@@ -4599,8 +4634,8 @@ loc_001C8112:
     PUSH32(esp, 0x559540);
     PUSH32(esp, 0x5593D8);
     PUSH32(esp, 0x55946C);
-    eax = esp + 0x58;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C8134:
     esp = esp + 0x14;
@@ -4624,8 +4659,8 @@ loc_001C8166:
     PUSH32(esp, 0x559540);
     PUSH32(esp, 0x5593C4);
     PUSH32(esp, 0x55946C);
-    eax = esp + 0x58;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C8188:
     esp = esp + 0x14;
@@ -4649,8 +4684,8 @@ loc_001C81BA:
     PUSH32(esp, 0x559540);
     PUSH32(esp, 0x5593AC);
     PUSH32(esp, 0x55946C);
-    eax = esp + 0x58;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C81DC:
     esp = esp + 0x14;
@@ -4674,8 +4709,8 @@ loc_001C820F:
     PUSH32(esp, 0x559540);
     PUSH32(esp, 0x559394);
     PUSH32(esp, 0x55946C);
-    eax = esp + 0x58;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C8231:
     esp = esp + 0x14;
@@ -4699,8 +4734,8 @@ loc_001C8263:
     PUSH32(esp, 0x559540);
     PUSH32(esp, 0x55937C);
     PUSH32(esp, 0x55946C);
-    eax = esp + 0x58;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C8285:
     esp = esp + 0x14;
@@ -4724,8 +4759,8 @@ loc_001C82B7:
     PUSH32(esp, 0x559540);
     PUSH32(esp, 0x559368);
     PUSH32(esp, 0x55946C);
-    eax = esp + 0x58;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C82D9:
     esp = esp + 0x14;
@@ -4749,8 +4784,8 @@ loc_001C830C:
     PUSH32(esp, 0x559540);
     PUSH32(esp, 0x559350);
     PUSH32(esp, 0x55946C);
-    eax = esp + 0x58;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C832E:
     esp = esp + 0x14;
@@ -4774,8 +4809,8 @@ loc_001C8360:
     PUSH32(esp, 0x559540);
     PUSH32(esp, 0x559338);
     PUSH32(esp, 0x55946C);
-    eax = esp + 0x58;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C8382:
     esp = esp + 0x14;
@@ -4799,8 +4834,8 @@ loc_001C83B4:
     PUSH32(esp, 0x559540);
     PUSH32(esp, 0x559320);
     PUSH32(esp, 0x55946C);
-    eax = esp + 0x58;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C83D6:
     esp = esp + 0x14;
@@ -4822,8 +4857,8 @@ loc_001C8409:
     PUSH32(esp, 0x539098);
     PUSH32(esp, 0x559308);
     PUSH32(esp, 0x55946C);
-    eax = esp + 0x54;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C8426:
     esp = esp + 0x10;
@@ -4839,8 +4874,8 @@ loc_001C843B:
     PUSH32(esp, 0x539098);
     PUSH32(esp, 0x5592EC);
     PUSH32(esp, 0x5592E0);
-    eax = esp + 0x54;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C8458:
     esp = esp + 0x10;
@@ -4856,8 +4891,8 @@ loc_001C846D:
     PUSH32(esp, 0x539098);
     PUSH32(esp, 0x5592C4);
     PUSH32(esp, 0x5592E0);
-    eax = esp + 0x54;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C848A:
     esp = esp + 0x10;
@@ -4873,8 +4908,8 @@ loc_001C849F:
     PUSH32(esp, 0x539098);
     PUSH32(esp, 0x5592B0);
     PUSH32(esp, 0x5592E0);
-    eax = esp + 0x54;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C84BC:
     esp = esp + 0x10;
@@ -4890,8 +4925,8 @@ loc_001C84D1:
     PUSH32(esp, 0x539098);
     PUSH32(esp, 0x559294);
     PUSH32(esp, 0x559280);
-    eax = esp + 0x54;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C84EE:
     esp = esp + 0x10;
@@ -4907,8 +4942,8 @@ loc_001C8503:
     PUSH32(esp, 0x539098);
     PUSH32(esp, 0x559264);
     PUSH32(esp, 0x559280);
-    eax = esp + 0x54;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C8520:
     esp = esp + 0x10;
@@ -4924,8 +4959,8 @@ loc_001C8535:
     PUSH32(esp, 0x539098);
     PUSH32(esp, 0x55924C);
     PUSH32(esp, 0x559280);
-    eax = esp + 0x54;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C8552:
     esp = esp + 0x10;
@@ -4941,8 +4976,8 @@ loc_001C8567:
     PUSH32(esp, 0x539098);
     PUSH32(esp, 0x559238);
     PUSH32(esp, 0x559280);
-    eax = esp + 0x54;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C8584:
     esp = esp + 0x10;
@@ -4958,8 +4993,8 @@ loc_001C8599:
     PUSH32(esp, 0x539098);
     PUSH32(esp, 0x559224);
     PUSH32(esp, 0x559280);
-    eax = esp + 0x54;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C85B6:
     esp = esp + 0x10;
@@ -4975,8 +5010,8 @@ loc_001C85CB:
     PUSH32(esp, 0x539098);
     PUSH32(esp, 0x55920C);
     PUSH32(esp, 0x559280);
-    eax = esp + 0x54;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C85E8:
     esp = esp + 0x10;
@@ -4992,8 +5027,8 @@ loc_001C85FD:
     PUSH32(esp, 0x539098);
     PUSH32(esp, 0x5591F0);
     PUSH32(esp, 0x559280);
-    eax = esp + 0x54;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C861A:
     esp = esp + 0x10;
@@ -5009,8 +5044,8 @@ loc_001C862F:
     PUSH32(esp, 0x539098);
     PUSH32(esp, 0x5591D4);
     PUSH32(esp, 0x559280);
-    eax = esp + 0x54;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C864C:
     esp = esp + 0x10;
@@ -5032,8 +5067,8 @@ loc_001C8661:
     PUSH32(esp, 0x55A120);
     PUSH32(esp, 0x5591BC);
     PUSH32(esp, 0x559280);
-    eax = esp + 0x60;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C868D:
     esp = esp + 0x1C;
@@ -5063,8 +5098,8 @@ loc_001C86BE:
     PUSH32(esp, 0x55A120);
     PUSH32(esp, 0x5591A4);
     PUSH32(esp, 0x559280);
-    eax = esp + 0x60;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C86EA:
     esp = esp + 0x1C;
@@ -5094,8 +5129,8 @@ loc_001C871B:
     PUSH32(esp, 0x55A120);
     PUSH32(esp, 0x55918C);
     PUSH32(esp, 0x559280);
-    eax = esp + 0x60;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C8747:
     esp = esp + 0x1C;
@@ -5125,8 +5160,8 @@ loc_001C8778:
     PUSH32(esp, 0x55A120);
     PUSH32(esp, 0x559174);
     PUSH32(esp, 0x559280);
-    eax = esp + 0x60;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C87A4:
     esp = esp + 0x1C;
@@ -5157,8 +5192,8 @@ loc_001C87E7:
     PUSH32(esp, 0x559540);
     PUSH32(esp, 0x559164);
     PUSH32(esp, 0x559158);
-    eax = esp + 0x5C;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C8809:
     esp = esp + 0x18;
@@ -5182,8 +5217,8 @@ loc_001C883B:
     PUSH32(esp, 0x559540);
     PUSH32(esp, 0x559148);
     PUSH32(esp, 0x559158);
-    eax = esp + 0x58;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C885D:
     esp = esp + 0x14;
@@ -5207,8 +5242,8 @@ loc_001C888F:
     PUSH32(esp, 0x559540);
     PUSH32(esp, 0x559138);
     PUSH32(esp, 0x559158);
-    eax = esp + 0x58;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C88B1:
     esp = esp + 0x14;
@@ -5232,8 +5267,8 @@ loc_001C88E4:
     PUSH32(esp, 0x559540);
     PUSH32(esp, 0x559128);
     PUSH32(esp, 0x559158);
-    eax = esp + 0x58;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C8906:
     esp = esp + 0x14;
@@ -5257,8 +5292,8 @@ loc_001C8938:
     PUSH32(esp, 0x559540);
     PUSH32(esp, 0x559114);
     PUSH32(esp, 0x559158);
-    eax = esp + 0x58;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C895A:
     esp = esp + 0x14;
@@ -5282,8 +5317,8 @@ loc_001C898C:
     PUSH32(esp, 0x559540);
     PUSH32(esp, 0x559104);
     PUSH32(esp, 0x559158);
-    eax = esp + 0x58;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C89AE:
     esp = esp + 0x14;
@@ -5307,8 +5342,8 @@ loc_001C89E1:
     PUSH32(esp, 0x559540);
     PUSH32(esp, 0x5590F4);
     PUSH32(esp, 0x559158);
-    eax = esp + 0x58;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C8A03:
     esp = esp + 0x14;
@@ -5332,8 +5367,8 @@ loc_001C8A35:
     PUSH32(esp, 0x559540);
     PUSH32(esp, 0x5590E4);
     PUSH32(esp, 0x559158);
-    eax = esp + 0x58;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C8A57:
     esp = esp + 0x14;
@@ -5361,8 +5396,8 @@ loc_001C8A89:
     PUSH32(esp, 0x55A120);
     PUSH32(esp, 0x5590D4);
     PUSH32(esp, 0x559158);
-    eax = esp + 0x60;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C8AB5:
     esp = esp + 0x1C;
@@ -5392,8 +5427,8 @@ loc_001C8AE6:
     PUSH32(esp, 0x55A120);
     PUSH32(esp, 0x5590C8);
     PUSH32(esp, 0x559158);
-    eax = esp + 0x60;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C8B12:
     esp = esp + 0x1C;
@@ -5419,8 +5454,8 @@ loc_001C8B43:
     PUSH32(esp, 0x559540);
     PUSH32(esp, 0x5590B8);
     PUSH32(esp, 0x559158);
-    eax = esp + 0x58;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C8B65:
     esp = esp + 0x14;
@@ -5444,8 +5479,8 @@ loc_001C8B98:
     PUSH32(esp, 0x559540);
     PUSH32(esp, 0x5590A8);
     PUSH32(esp, 0x559158);
-    eax = esp + 0x58;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C8BBA:
     esp = esp + 0x14;
@@ -5469,8 +5504,8 @@ loc_001C8BEC:
     PUSH32(esp, 0x559540);
     PUSH32(esp, 0x55909C);
     PUSH32(esp, 0x559158);
-    eax = esp + 0x58;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C8C0E:
     esp = esp + 0x14;
@@ -5494,8 +5529,8 @@ loc_001C8C40:
     PUSH32(esp, 0x559540);
     PUSH32(esp, 0x55908C);
     PUSH32(esp, 0x559158);
-    eax = esp + 0x58;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C8C62:
     esp = esp + 0x14;
@@ -5519,8 +5554,8 @@ loc_001C8C95:
     PUSH32(esp, 0x559540);
     PUSH32(esp, 0x55907C);
     PUSH32(esp, 0x559158);
-    eax = esp + 0x58;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C8CB7:
     esp = esp + 0x14;
@@ -5544,8 +5579,8 @@ loc_001C8CE9:
     PUSH32(esp, 0x559540);
     PUSH32(esp, 0x559070);
     PUSH32(esp, 0x559158);
-    eax = esp + 0x58;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C8D0B:
     esp = esp + 0x14;
@@ -5573,8 +5608,8 @@ loc_001C8D3D:
     PUSH32(esp, 0x55A120);
     PUSH32(esp, 0x559068);
     PUSH32(esp, 0x559050);
-    eax = esp + 0x60;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C8D69:
     esp = esp + 0x1C;
@@ -5598,8 +5633,8 @@ loc_001C8D9A:
     PUSH32(esp, 0x539098);
     PUSH32(esp, 0x553968);
     PUSH32(esp, 0x559050);
-    eax = esp + 0x54;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C8DB7:
     esp = esp + 0x10;
@@ -5615,8 +5650,8 @@ loc_001C8DCC:
     PUSH32(esp, 0x539098);
     PUSH32(esp, 0x55904C);
     PUSH32(esp, 0x559050);
-    eax = esp + 0x54;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C8DE9:
     esp = esp + 0x10;
@@ -5632,8 +5667,8 @@ loc_001C8DFE:
     PUSH32(esp, 0x539098);
     PUSH32(esp, 0x559044);
     PUSH32(esp, 0x559050);
-    eax = esp + 0x54;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C8E1B:
     esp = esp + 0x10;
@@ -5655,8 +5690,8 @@ loc_001C8E30:
     PUSH32(esp, 0x55A120);
     PUSH32(esp, 0x559068);
     PUSH32(esp, 0x559030);
-    eax = esp + 0x60;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C8E5C:
     esp = esp + 0x1C;
@@ -5680,8 +5715,8 @@ loc_001C8E8D:
     PUSH32(esp, 0x539098);
     PUSH32(esp, 0x553968);
     PUSH32(esp, 0x559030);
-    eax = esp + 0x54;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C8EAA:
     esp = esp + 0x10;
@@ -5697,8 +5732,8 @@ loc_001C8EBF:
     PUSH32(esp, 0x539098);
     PUSH32(esp, 0x55904C);
     PUSH32(esp, 0x559030);
-    eax = esp + 0x54;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C8EDC:
     esp = esp + 0x10;
@@ -5714,8 +5749,8 @@ loc_001C8EF1:
     PUSH32(esp, 0x539098);
     PUSH32(esp, 0x559044);
     PUSH32(esp, 0x559030);
-    eax = esp + 0x54;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C8F0E:
     esp = esp + 0x10;
@@ -5737,8 +5772,8 @@ loc_001C8F23:
     PUSH32(esp, 0x55A120);
     PUSH32(esp, 0x559020);
     PUSH32(esp, 0x559000);
-    eax = esp + 0x60;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C8F4F:
     esp = esp + 0x1C;
@@ -5762,8 +5797,8 @@ loc_001C8F80:
     PUSH32(esp, 0x539098);
     PUSH32(esp, 0x558FF4);
     PUSH32(esp, 0x559000);
-    eax = esp + 0x54;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C8F9D:
     esp = esp + 0x10;
@@ -5781,8 +5816,8 @@ loc_001C8FB2:
     PUSH32(esp, 0x559540);
     PUSH32(esp, 0x558FEC);
     PUSH32(esp, 0x559000);
-    eax = esp + 0x58;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C8FD4:
     esp = esp + 0x14;
@@ -5810,8 +5845,8 @@ loc_001C9006:
     PUSH32(esp, 0x55A120);
     PUSH32(esp, 0x558FD8);
     PUSH32(esp, 0x559000);
-    eax = esp + 0x60;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C9032:
     esp = esp + 0x1C;
@@ -5841,8 +5876,8 @@ loc_001C9062:
     PUSH32(esp, 0x55A120);
     PUSH32(esp, 0x558FC4);
     PUSH32(esp, 0x559000);
-    eax = esp + 0x60;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C908E:
     esp = esp + 0x1C;
@@ -5866,8 +5901,8 @@ loc_001C90BE:
     PUSH32(esp, 0x539098);
     PUSH32(esp, 0x558FB0);
     PUSH32(esp, 0x559000);
-    eax = esp + 0x54;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C90DB:
     esp = esp + 0x10;
@@ -5883,8 +5918,8 @@ loc_001C90F0:
     PUSH32(esp, 0x539098);
     PUSH32(esp, 0x558F9C);
     PUSH32(esp, 0x559000);
-    eax = esp + 0x54;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C910D:
     esp = esp + 0x10;
@@ -5900,8 +5935,8 @@ loc_001C9122:
     PUSH32(esp, 0x539098);
     PUSH32(esp, 0x558F84);
     PUSH32(esp, 0x559000);
-    eax = esp + 0x54;
-    PUSH32(esp, 0); fn_00123C40_ZeroFile_ReadSectionToken(); /* call 0x00123C40 */
+    eax = fsw_uiconfig_file;
+    fsw_uiconfig_read_section_token();
 
 loc_001C913F:
     esp = esp + 0x10;

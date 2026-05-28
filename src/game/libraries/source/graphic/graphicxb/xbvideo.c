@@ -10,8 +10,10 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
+#include <string.h>
 
 extern uint32_t xbox_HeapAlloc(uint32_t size, uint32_t alignment);
+extern void xbox_HeapFree(uint32_t xbox_va);
 
 typedef struct FswSurfaceRegistryEntry {
     uint32_t crc;
@@ -251,6 +253,11 @@ static uint8_t fsw_xbvideo_expand6(uint32_t v) { return (uint8_t)((v << 2) | (v 
 static uint16_t fsw_xbvideo_rd16(const uint8_t *p)
 {
     return (uint16_t)p[0] | ((uint16_t)p[1] << 8);
+}
+
+static int fsw_xbvideo_va_is_rdata(uint32_t va)
+{
+    return va >= 0x0050B060u && va < 0x005728E0u;
 }
 
 static uint32_t fsw_xbvideo_rd32(const uint8_t *p)
@@ -640,6 +647,95 @@ void fn_00050B70_ZeroBucket_UBucketKey_ZeroDynArrayBase_SetCount(void)
     int _flags = 0; /* fallback flag var */
 
 loc_00050B70:
+    {
+        uint32_t array = eax;
+        uint32_t target = esi;
+        uint32_t data;
+        uint32_t current_count;
+        uint32_t capacity;
+        static uint32_t bucket_setcount_logs;
+
+        if (!fsw_xbvideo_va_range_is_valid(array, 8)) {
+            if (bucket_setcount_logs < 16) {
+                fprintf(stderr, "[FSW/D3D] Bucket SetCount skipped invalid array=%08X target=%u\n",
+                        (unsigned)array, (unsigned)target);
+                bucket_setcount_logs++;
+            }
+            esp += 8; return; /* ret 4 */
+        }
+
+        if (target > 0x100u) {
+            if (bucket_setcount_logs < 16) {
+                fprintf(stderr, "[FSW/D3D] Bucket SetCount refused oversize array=%08X target=%u\n",
+                        (unsigned)array, (unsigned)target);
+                bucket_setcount_logs++;
+            }
+            esp += 8; return; /* ret 4 */
+        }
+
+        data = MEM32(array);
+        current_count = (uint32_t)(uint16_t)MEM16(array + 4);
+        capacity = (uint32_t)(uint16_t)MEM16(array + 6);
+
+        if (target == 0) {
+            MEM16(array + 4) = 0;
+            esp += 8; return; /* ret 4 */
+        }
+
+        if (current_count > capacity || capacity > 0x100u ||
+            (current_count != 0 && !fsw_xbvideo_va_range_is_valid(data, current_count * 8u))) {
+            if (bucket_setcount_logs < 16) {
+                fprintf(stderr, "[FSW/D3D] Bucket SetCount reset corrupt array=%08X data=%08X count=%u cap=%u target=%u\n",
+                        (unsigned)array, (unsigned)data, (unsigned)current_count,
+                        (unsigned)capacity, (unsigned)target);
+                bucket_setcount_logs++;
+            }
+            MEM32(array) = 0;
+            MEM16(array + 4) = 0;
+            MEM16(array + 6) = 0;
+            data = 0;
+            current_count = 0;
+            capacity = 0;
+        }
+
+        if (target > capacity) {
+            uint32_t new_capacity = (target + 0xFFu) & ~0xFFu;
+            uint32_t new_data = xbox_HeapAlloc(new_capacity * 8u, 16);
+            uint32_t copy_bytes = current_count * 8u;
+
+            if (!fsw_xbvideo_va_range_is_valid(new_data, new_capacity * 8u)) {
+                if (bucket_setcount_logs < 16) {
+                    fprintf(stderr, "[FSW/D3D] Bucket SetCount allocation failed array=%08X target=%u cap=%u\n",
+                            (unsigned)array, (unsigned)target, (unsigned)new_capacity);
+                    bucket_setcount_logs++;
+                }
+                esp += 8; return; /* ret 4 */
+            }
+            if (copy_bytes != 0 && fsw_xbvideo_va_range_is_valid(data, copy_bytes)) {
+                memcpy((void *)XBOX_PTR(new_data), (const void *)XBOX_PTR(data), copy_bytes);
+            }
+            if (capacity != 0 && fsw_xbvideo_va_range_is_valid(data, capacity * 8u)) {
+                xbox_HeapFree(data);
+            }
+            data = new_data;
+            capacity = new_capacity;
+            MEM32(array) = data;
+            MEM16(array + 6) = LO16(capacity);
+        }
+
+        while (current_count < target) {
+            uint32_t item = data + current_count * 8u;
+            if (!fsw_xbvideo_va_range_is_valid(item, 8)) {
+                break;
+            }
+            MEM32(item) = 0;
+            MEM32(item + 4) = 0;
+            current_count++;
+        }
+
+        MEM16(array + 4) = LO16(target);
+        esp += 8; return; /* ret 4 */
+    }
     PUSH32(esp, ebx);
     ebx = eax;
     eax = (uint32_t)(int32_t)SMEM16(ebx + 4);
@@ -2212,6 +2308,86 @@ void fn_000512F0_UZeroRenderItem_ZeroDynArrayBase_SetCount(void)
     float xmm0;
 
 loc_000512F0:
+    {
+        uint32_t array = esi;
+        uint32_t target = edi;
+        uint32_t current_count;
+        uint32_t capacity;
+        uint32_t data;
+
+        if (!fsw_xbvideo_va_range_is_valid(array, 8)) {
+            fprintf(stderr, "[FSW/D3D] RenderItem SetCount skipped invalid array=%08X target=%u\n",
+                    (unsigned)array, (unsigned)target);
+            esp += 8; return; /* ret 4 */
+        }
+        if (target > 0x200u) {
+            fprintf(stderr, "[FSW/D3D] RenderItem SetCount refused oversize array=%08X target=%u\n",
+                    (unsigned)array, (unsigned)target);
+            esp += 8; return; /* ret 4 */
+        }
+
+        current_count = (uint32_t)(uint16_t)MEM16(array + 4);
+        capacity = (uint32_t)(uint16_t)MEM16(array + 6);
+        data = MEM32(array);
+        if (current_count > capacity || capacity > 0x200u ||
+            (current_count != 0 && !fsw_xbvideo_va_range_is_valid(data, current_count * 0x24u))) {
+            fprintf(stderr, "[FSW/D3D] RenderItem SetCount reset corrupt array=%08X data=%08X count=%u cap=%u target=%u\n",
+                    (unsigned)array, (unsigned)data, (unsigned)current_count,
+                    (unsigned)capacity, (unsigned)target);
+            MEM32(array) = 0;
+            MEM16(array + 4) = 0;
+            MEM16(array + 6) = 0;
+            current_count = 0;
+            capacity = 0;
+            data = 0;
+        }
+
+        if (target > capacity) {
+            uint32_t new_capacity = (target + 0x1FFu) & ~0x1FFu;
+            uint32_t new_data;
+            uint32_t copy_bytes;
+
+            if (new_capacity > 0x200u) {
+                new_capacity = 0x200u;
+            }
+            new_data = xbox_HeapAlloc(new_capacity * 0x24u, 16);
+            if (!fsw_xbvideo_va_range_is_valid(new_data, new_capacity * 0x24u)) {
+                fprintf(stderr, "[FSW/D3D] RenderItem SetCount allocation failed array=%08X target=%u cap=%u\n",
+                        (unsigned)array, (unsigned)target, (unsigned)new_capacity);
+                esp += 8; return; /* ret 4 */
+            }
+            copy_bytes = current_count * 0x24u;
+            if (copy_bytes != 0 && fsw_xbvideo_va_range_is_valid(data, copy_bytes)) {
+                memcpy((void *)XBOX_PTR(new_data), (const void *)XBOX_PTR(data), copy_bytes);
+            }
+            if (capacity != 0 && fsw_xbvideo_va_range_is_valid(data, capacity * 0x24u)) {
+                xbox_HeapFree(data);
+            }
+            data = new_data;
+            capacity = new_capacity;
+            MEM32(array) = data;
+            MEM16(array + 6) = LO16(capacity);
+        }
+
+        while (current_count < target) {
+            uint32_t item = data + current_count * 0x24u;
+            if (!fsw_xbvideo_va_range_is_valid(item, 0x24)) {
+                fprintf(stderr, "[FSW/D3D] RenderItem SetCount invalid placement array=%08X item=%08X target=%u\n",
+                        (unsigned)array, (unsigned)item, (unsigned)target);
+                break;
+            }
+            memset((void *)XBOX_PTR(item), 0, 0x24);
+            MEMF(item + 0xC) = MEMF(0x561574);
+            MEMF(item + 0x10) = MEMF(0x561570);
+            MEMF(item + 0x1C) = MEMF(0x561420);
+            MEMF(item + 0x20) = MEMF(0x561418);
+            current_count++;
+        }
+
+        MEM16(array + 4) = LO16(target);
+        esp += 8; return; /* ret 4 */
+    }
+
     if (!fsw_xbvideo_va_range_is_valid(esi, 8)) {
         fprintf(stderr, "[FSW/D3D] RenderItem SetCount skipped invalid array=%08X target=%08X\n",
                 (unsigned)esi, (unsigned)edi);
@@ -2335,6 +2511,67 @@ void fn_000513B0_UZeroRenderItem_ZeroDynArrayBase_Grow(void)
     ebp = g_seh_ebp; /* fpo_leaf: inherit caller's frame */
 
 loc_000513B0:
+    {
+        uint32_t array = MEM32(esp + 4);
+        uint32_t requested = eax;
+        uint32_t old_data;
+        uint32_t new_data;
+        uint32_t current_count;
+        uint32_t current_capacity;
+        uint32_t new_capacity;
+        uint32_t copy_bytes;
+
+        if (!fsw_xbvideo_va_range_is_valid(array, 8)) {
+            static uint32_t warned_bad_array;
+            if (warned_bad_array < 8) {
+                fprintf(stderr, "[FSW/D3D] RenderItem Grow skipped invalid array=%08X target=%u\n",
+                        (unsigned)array, (unsigned)requested);
+                warned_bad_array++;
+            }
+            esp += 12; return; /* ret 8 */
+        }
+
+        current_count = (uint32_t)(uint16_t)MEM16(array + 4);
+        current_capacity = (uint32_t)(uint16_t)MEM16(array + 6);
+        old_data = MEM32(array);
+        if (requested <= current_capacity) {
+            esp += 12; return; /* ret 8 */
+        }
+        if (requested > 0x200u) {
+            fprintf(stderr, "[FSW/D3D] RenderItem Grow refused oversize array=%08X target=%u count=%u cap=%u\n",
+                    (unsigned)array, (unsigned)requested, (unsigned)current_count,
+                    (unsigned)current_capacity);
+            esp += 12; return; /* ret 8 */
+        }
+
+        new_capacity = (requested + 0x1FFu) & ~0x1FFu;
+        if (new_capacity > 0x200u) {
+            new_capacity = 0x200u;
+        }
+        new_data = xbox_HeapAlloc(new_capacity * 0x24u, 16);
+        if (!fsw_xbvideo_va_range_is_valid(new_data, new_capacity * 0x24u)) {
+            fprintf(stderr, "[FSW/D3D] RenderItem Grow allocation failed array=%08X target=%u cap=%u\n",
+                    (unsigned)array, (unsigned)requested, (unsigned)new_capacity);
+            esp += 12; return; /* ret 8 */
+        }
+
+        if (current_count > current_capacity) {
+            current_count = current_capacity;
+            MEM16(array + 4) = LO16(current_count);
+        }
+        copy_bytes = current_count * 0x24u;
+        if (copy_bytes != 0 && fsw_xbvideo_va_range_is_valid(old_data, copy_bytes)) {
+            memcpy((void *)XBOX_PTR(new_data), (const void *)XBOX_PTR(old_data), copy_bytes);
+        }
+        if (fsw_xbvideo_va_range_is_valid(old_data, current_capacity * 0x24u)) {
+            xbox_HeapFree(old_data);
+        }
+
+        MEM32(array) = new_data;
+        MEM16(array + 6) = LO16(new_capacity);
+        esp += 12; return; /* ret 8 */
+    }
+
     PUSH32(esp, ecx);
     PUSH32(esp, ebp);
     ebp = MEM32(esp + 0xC);
@@ -4057,6 +4294,17 @@ void fn_00051F60_0ZeroMaterialDesc_QAE_ABU0_Z(void)
     int _flags = 0; /* fallback flag var */
 
 loc_00051F60:
+    if (((edx & 0x03FFFFFFu) >= 0x0050B060u) && ((edx & 0x03FFFFFFu) < 0x005728E0u)) {
+        static uint32_t bad_desc_copy_count;
+        if (bad_desc_copy_count < 8) {
+            fprintf(stderr,
+                    "[FSW/XBVideo] blocked ZeroMaterialDesc copy into rdata dst=%08X src=%08X esp=%08X\n",
+                    (unsigned)edx, (unsigned)eax, (unsigned)esp);
+            bad_desc_copy_count++;
+        }
+        eax = edx;
+        esp += 4; return; /* ret */
+    }
     PUSH32(esp, esi);
     esi = eax;
     eax = MEM32(esi);
@@ -4066,6 +4314,9 @@ loc_00051F60:
     eax = MEM32(esi + 8);
     MEM32(edx + 8) = eax;
     ecx = MEM32(esi + 0xC);
+    if (ecx > 8u && ecx < 0x80000000u) {
+        ecx = 8u;
+    }
     eax = 0; /* xor self */
     (void)0; /* test ecx, ecx - flags set for next jcc */
     PUSH32(esp, edi);
@@ -12468,12 +12719,24 @@ void sub_0013DFA0(void)
     ebp = g_seh_ebp; /* fpo_leaf: inherit caller's frame */
 
 loc_0013DFA0:
+    if (!fsw_xbvideo_va_range_is_valid(esi, 4)) return;
     eax = MEM32(esi);
     if (CMP_EQ(eax, ebx)) goto loc_0013DFCC; /* je: equal / zero */
 
 loc_0013DFA6:
+    if (!fsw_xbvideo_va_range_is_valid(eax, 0xC)) {
+        static uint32_t invalid_end_scene_resource_logs;
+        if (invalid_end_scene_resource_logs < 16) {
+            fprintf(stderr,
+                    "[FSW/XBVideo] EndScene dropping invalid resource slot=%08X resource=%08X\n",
+                    (unsigned)esi, (unsigned)eax);
+            invalid_end_scene_resource_logs++;
+        }
+        MEM32(esi) = ebx;
+        goto loc_0013DFCC;
+    }
     ecx = MEM32(0x4E37B8);
-    edx = MEM32(ecx + 0x2C);
+    edx = fsw_xbvideo_va_range_is_valid(ecx, 0x30) ? MEM32(ecx + 0x2C) : 0;
     MEM32(eax + 8) = edx;
     edi = MEM32(esi);
     ecx = MEM32(edi);

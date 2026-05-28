@@ -7,6 +7,19 @@
 #define RECOMP_GENERATED_CODE
 #include "recomp_funcs.h"
 #include <math.h>
+#include <stdio.h>
+
+extern uint32_t g_fsw_loadpak_last_mesh_source;
+
+static int fsw_building_object_vtable_is_valid(uint32_t object, uint32_t min_vtbl_size)
+{
+    uint32_t vtbl;
+    if (object < 0x00010000u || object + 4u > 0x04000000u) {
+        return 0;
+    }
+    vtbl = MEM32(object);
+    return vtbl >= 0x00010000u && vtbl + min_vtbl_size <= 0x04000000u && vtbl < 0x00800000u;
+}
 
 /**
  * fn_00033410_CBuilding_IsTypeID
@@ -329,14 +342,39 @@ loc_003EC325:
     PUSH32(esp, 0); fn_002A9C90_FlushTMP(); /* call 0x002A9C90 */
 
 loc_003EC32D:
+    if (!fsw_building_object_vtable_is_valid(MEM32(ebx + 0x14), 0x20) &&
+        fsw_building_object_vtable_is_valid(g_fsw_loadpak_last_mesh_source, 0x20)) {
+        MEM32(ebx + 0x14) = g_fsw_loadpak_last_mesh_source;
+        MEM32(g_fsw_loadpak_last_mesh_source + 0x10) = ebx;
+        MEM32(g_fsw_loadpak_last_mesh_source + 0x18) = 0;
+        MEM32(g_fsw_loadpak_last_mesh_source + 0xC8) =
+            MEM32(g_fsw_loadpak_last_mesh_source + 0xC8) | 0x200u;
+        fprintf(stderr,
+                "[FSW/Building] restored world mesh child building=%08X child=%08X flags=%08X\n",
+                (unsigned)ebx,
+                (unsigned)g_fsw_loadpak_last_mesh_source,
+                (unsigned)MEM32(g_fsw_loadpak_last_mesh_source + 0xC8));
+    }
     edi = MEM32(ebx + 0x14);
     esi = 0; /* xor self */
     if (CMP_EQ(edi, esi)) goto loc_003EC41B; /* je: equal / zero */
+    if (!fsw_building_object_vtable_is_valid(edi, 0x20)) {
+        fprintf(stderr,
+                "[FSW/Building] stopping world mesh child walk invalid first child building=%08X child=%08X\n",
+                (unsigned)ebx, (unsigned)edi);
+        goto loc_003EC41B;
+    }
 
 loc_003EC33A:
     /* nop */
 
 loc_003EC340:
+    if (!fsw_building_object_vtable_is_valid(edi, 0x20)) {
+        fprintf(stderr,
+                "[FSW/Building] stopping world mesh child walk invalid node building=%08X node=%08X\n",
+                (unsigned)ebx, (unsigned)edi);
+        goto loc_003EC41B;
+    }
     eax = MEM32(edi + 0xC8);
     if (TEST_Z(HI8(eax), 2)) goto loc_003EC410; /* je: equal / zero */
 
@@ -426,6 +464,12 @@ loc_003EC40E:
 
 loc_003EC410:
     edi = MEM32(edi + 0x18);
+    if (CMP_NE(edi, esi) && !fsw_building_object_vtable_is_valid(edi, 0x20)) {
+        fprintf(stderr,
+                "[FSW/Building] stopping world mesh child walk invalid sibling building=%08X sibling=%08X\n",
+                (unsigned)ebx, (unsigned)edi);
+        goto loc_003EC41B;
+    }
     if (CMP_NE(edi, esi)) goto loc_003EC340; /* jne: not equal / not zero */
 
 loc_003EC41B:

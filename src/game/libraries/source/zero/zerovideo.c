@@ -14,6 +14,9 @@
 #include <stdlib.h>
 #include <string.h>
 
+extern uint32_t xbox_HeapAlloc(uint32_t size, uint32_t alignment);
+extern void xbox_HeapFree(uint32_t xbox_va);
+
 static int fsw_zero_va_range_is_valid(uint32_t addr, uint32_t size)
 {
     if (addr == 0 || addr >= 0x04000000u) {
@@ -741,6 +744,7 @@ void fn_00053850_ZeroBucket_Add(void)
     uint32_t item_index;
     uint32_t item_ptr;
     uint32_t free_count;
+    uint32_t free_array;
     int32_t insert_index;
 
     if (!fsw_zero_va_range_is_valid(bucket, 8)) {
@@ -782,10 +786,23 @@ void fn_00053850_ZeroBucket_Add(void)
     memset((void *)XBOX_PTR(key_slot), 0, 8);
 
     free_count = MEM16(0x613EAC);
-    if (free_count != 0 && fsw_zero_va_range_is_valid(MEM32(0x613EA8) + (free_count - 1u) * 2u, 2)) {
-        item_index = MEM16(MEM32(0x613EA8) + (free_count - 1u) * 2u);
+    free_array = MEM32(0x613EA8);
+    item_array = MEM32(0x613EA0);
+    if (free_count != 0 &&
+        fsw_zero_va_range_is_valid(item_array, 0x24) &&
+        fsw_zero_va_range_is_valid(free_array + (free_count - 1u) * 2u, 2)) {
+        item_index = MEM16(free_array + (free_count - 1u) * 2u);
         MEM16(0x613EAC) = LO16(free_count - 1u);
     } else {
+        if (free_count != 0) {
+            static uint32_t warned_bad_free;
+            if (warned_bad_free < 8) {
+                fprintf(stderr, "[FSW/ZeroBucket] Add ignored stale free list free_array=%08X free_count=%u item_array=%08X\n",
+                        (unsigned)free_array, (unsigned)free_count, (unsigned)item_array);
+                warned_bad_free++;
+            }
+            MEM16(0x613EAC) = 0;
+        }
         esi = 0x613EA0;
         SET_LO8(eax, 1);
         PUSH32(esp, 0); fn_000538F0_UZeroRenderItem_ZeroDynArrayBase_AddEmpty(); /* call 0x000538F0 */
@@ -875,6 +892,95 @@ void fn_000538F0_UZeroRenderItem_ZeroDynArrayBase_AddEmpty(void)
     float xmm0;
 
 loc_000538F0:
+    {
+        uint32_t array = esi;
+        uint32_t count;
+        uint32_t capacity;
+        uint32_t data;
+        uint32_t item;
+        uint32_t new_capacity;
+        uint32_t new_data;
+        uint32_t copy_bytes;
+
+        if (!fsw_zero_va_range_is_valid(array, 8)) {
+            static uint32_t warned_bad_array;
+            if (warned_bad_array < 8) {
+                fprintf(stderr, "[FSW/ZeroBucket] AddEmpty skipped invalid array=%08X\n",
+                        (unsigned)array);
+                warned_bad_array++;
+            }
+            eax = 0;
+            esp += 4; return; /* ret */
+        }
+
+        count = (uint32_t)(uint16_t)MEM16(array + 4);
+        capacity = (uint32_t)(uint16_t)MEM16(array + 6);
+        data = MEM32(array);
+        if (count > capacity || count > 0x200u) {
+            fprintf(stderr, "[FSW/ZeroBucket] AddEmpty reset corrupt array=%08X data=%08X count=%u cap=%u\n",
+                    (unsigned)array, (unsigned)data, (unsigned)count, (unsigned)capacity);
+            count = 0;
+            capacity = 0;
+            data = 0;
+            MEM32(array) = 0;
+            MEM16(array + 4) = 0;
+            MEM16(array + 6) = 0;
+        }
+
+        if (count >= capacity || !fsw_zero_va_range_is_valid(data, (capacity ? capacity : 1u) * 0x24u)) {
+            new_capacity = capacity ? capacity * 2u : 0x200u;
+            if (new_capacity < count + 1u) {
+                new_capacity = count + 1u;
+            }
+            new_capacity = (new_capacity + 0x1FFu) & ~0x1FFu;
+            if (new_capacity > 0x200u) {
+                new_capacity = 0x200u;
+            }
+            if (count >= new_capacity) {
+                fprintf(stderr, "[FSW/ZeroBucket] AddEmpty refused full array=%08X count=%u cap=%u\n",
+                        (unsigned)array, (unsigned)count, (unsigned)capacity);
+                eax = LO16(count ? count - 1u : 0u);
+                esp += 4; return; /* ret */
+            }
+            new_data = xbox_HeapAlloc(new_capacity * 0x24u, 16);
+            if (!fsw_zero_va_range_is_valid(new_data, new_capacity * 0x24u)) {
+                fprintf(stderr, "[FSW/ZeroBucket] AddEmpty allocation failed array=%08X cap=%u\n",
+                        (unsigned)array, (unsigned)new_capacity);
+                eax = 0;
+                esp += 4; return; /* ret */
+            }
+            copy_bytes = count * 0x24u;
+            if (copy_bytes != 0 && fsw_zero_va_range_is_valid(data, copy_bytes)) {
+                memcpy((void *)XBOX_PTR(new_data), (const void *)XBOX_PTR(data), copy_bytes);
+            }
+            if (capacity != 0 && fsw_zero_va_range_is_valid(data, capacity * 0x24u)) {
+                xbox_HeapFree(data);
+            }
+            data = new_data;
+            capacity = new_capacity;
+            MEM32(array) = data;
+            MEM16(array + 6) = LO16(capacity);
+        }
+
+        item = data + count * 0x24u;
+        if (!fsw_zero_va_range_is_valid(item, 0x24)) {
+            fprintf(stderr, "[FSW/ZeroBucket] AddEmpty invalid item array=%08X data=%08X count=%u cap=%u item=%08X\n",
+                    (unsigned)array, (unsigned)data, (unsigned)count, (unsigned)capacity,
+                    (unsigned)item);
+            eax = 0;
+            esp += 4; return; /* ret */
+        }
+
+        memset((void *)XBOX_PTR(item), 0, 0x24);
+        MEMF(item + 0xC) = MEMF(0x561574);
+        MEMF(item + 0x10) = MEMF(0x561570);
+        MEMF(item + 0x1C) = MEMF(0x561420);
+        MEMF(item + 0x20) = MEMF(0x561418);
+        MEM16(array + 4) = LO16(count + 1u);
+        eax = LO16(count);
+        esp += 4; return; /* ret */
+    }
+
     PUSH32(esp, eax);
     eax = (uint32_t)(int32_t)SMEM16(esi + 4);
     eax++;

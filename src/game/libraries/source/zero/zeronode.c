@@ -20,6 +20,22 @@ static int fsw_zeronode_va_range_is_valid(uint32_t va, uint32_t size)
     return 1;
 }
 
+static int fsw_zeronode_vtable_is_valid(uint32_t vtbl, uint32_t min_size)
+{
+    if (!fsw_zeronode_va_range_is_valid(vtbl, min_size)) {
+        return 0;
+    }
+    return vtbl >= 0x0050B060u && vtbl < 0x005728E0u;
+}
+
+static int fsw_zeronode_object_vtable_is_valid(uint32_t object, uint32_t min_vtbl_size)
+{
+    if (!fsw_zeronode_va_range_is_valid(object, 4)) {
+        return 0;
+    }
+    return fsw_zeronode_vtable_is_valid(MEM32(object), min_vtbl_size);
+}
+
 static void fsw_zeronode_warn_bad_find(uint32_t node, uint32_t crc)
 {
     static int warn_count;
@@ -28,6 +44,8 @@ static void fsw_zeronode_warn_bad_find(uint32_t node, uint32_t crc)
     }
     warn_count++;
 }
+
+static uint32_t g_fsw_zeronode_clone_log_count;
 
 /**
  * fn_00120F10_ZeroBaseNode_GetLast
@@ -601,6 +619,8 @@ loc_001211B2:
 void fn_001211C0_0ZeroBaseNode_IAE_ABV0_Z(void)
 {
     uint32_t ebp;
+    uint32_t clone_count;
+    uint32_t next_node;
     int _flags = 0; /* fallback flag var */
     ebp = g_seh_ebp; /* fpo_leaf: inherit caller's frame */
 
@@ -633,7 +653,37 @@ loc_00121211:
     ebp = MEM32(eax + 0x14);
     if (CMP_EQ(ebp, ebx)) goto loc_0012123E; /* je: equal / zero */
 
+    clone_count = 0;
+
 loc_00121218:
+    if (!fsw_zeronode_va_range_is_valid(ebp, 0x1C) || ++clone_count > 4096u) {
+        if (g_fsw_zeronode_clone_log_count < 64) {
+            fprintf(stderr,
+                    "[FSW/ZeroNode] clone child walk stopped source=%08X child=%08X count=%u\n",
+                    (unsigned)eax, (unsigned)ebp, (unsigned)clone_count);
+            g_fsw_zeronode_clone_log_count++;
+        }
+        goto loc_0012123E;
+    }
+    if (!fsw_zeronode_object_vtable_is_valid(ebp, 4)) {
+        if (g_fsw_zeronode_clone_log_count < 64) {
+            fprintf(stderr,
+                    "[FSW/ZeroNode] clone child walk stopped invalid object child=%08X vtbl=%08X sibling=%08X\n",
+                    (unsigned)ebp,
+                    (unsigned)(fsw_zeronode_va_range_is_valid(ebp, 4) ? MEM32(ebp) : 0),
+                    (unsigned)(fsw_zeronode_va_range_is_valid(ebp + 0x18, 4) ? MEM32(ebp + 0x18) : 0));
+            g_fsw_zeronode_clone_log_count++;
+        }
+        goto loc_0012123E;
+    }
+    if (g_fsw_zeronode_clone_log_count < 64) {
+        fprintf(stderr,
+                "[FSW/ZeroNode] clone child begin owner=%08X dest=%08X child=%08X child_vtbl=%08X sibling=%08X\n",
+                (unsigned)eax, (unsigned)edi, (unsigned)ebp,
+                (unsigned)(fsw_zeronode_va_range_is_valid(ebp, 4) ? MEM32(ebp) : 0),
+                (unsigned)(fsw_zeronode_va_range_is_valid(ebp + 0x18, 4) ? MEM32(ebp + 0x18) : 0));
+        g_fsw_zeronode_clone_log_count++;
+    }
     edx = MEM32(ebp);
     ecx = ebp;
     { uint32_t _icall_esp = g_esp;
@@ -642,6 +692,14 @@ loc_00121218:
 
 loc_0012121F:
     esi = eax;
+    if (g_fsw_zeronode_clone_log_count < 64) {
+        fprintf(stderr,
+                "[FSW/ZeroNode] clone child end source_child=%08X clone=%08X clone_vtbl=%08X\n",
+                (unsigned)ebp, (unsigned)esi,
+                (unsigned)(fsw_zeronode_va_range_is_valid(esi, 4) ? MEM32(esi) : 0));
+        g_fsw_zeronode_clone_log_count++;
+    }
+    if (!fsw_zeronode_object_vtable_is_valid(esi, 0x18)) goto loc_00121237;
     eax = MEM32(esi);
     { uint32_t _icall_esp = g_esp;
     PUSH32(esp, edi);
@@ -662,7 +720,18 @@ loc_0012122E:
     }
 
 loc_00121237:
-    ebp = MEM32(ebp + 0x18);
+    if (!fsw_zeronode_va_range_is_valid(ebp, 0x1C)) goto loc_0012123E;
+    next_node = MEM32(ebp + 0x18);
+    if (next_node == ebp) {
+        if (g_fsw_zeronode_clone_log_count < 64) {
+            fprintf(stderr,
+                    "[FSW/ZeroNode] clone child self-cycle child=%08X owner=%08X\n",
+                    (unsigned)ebp, (unsigned)eax);
+            g_fsw_zeronode_clone_log_count++;
+        }
+        goto loc_0012123E;
+    }
+    ebp = next_node;
     if (CMP_NE(ebp, ebx)) goto loc_00121218; /* jne: not equal / not zero */
 
 loc_0012123E:

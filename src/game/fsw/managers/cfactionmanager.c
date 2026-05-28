@@ -548,6 +548,8 @@ loc_0029F187:
 void fn_0029F1A0_CFactionManager_GetFaction(void)
 {
     uint32_t ebp;
+    uint32_t faction_slot_steps = 0;
+    uint32_t faction_slot_prev = 0;
     int _flags = 0; /* fallback flag var */
 
 loc_0029F1A0:
@@ -574,15 +576,25 @@ loc_0029F1BA:
     }
 
 loc_0029F1C2:
+    if (++faction_slot_steps > 1024 || eax == faction_slot_prev) {
+        fprintf(stderr, "[FSW/Faction] stopping GetFaction(slot) cyclic node=%08X prev=%08X steps=%u\n",
+                (unsigned)eax, (unsigned)faction_slot_prev, (unsigned)faction_slot_steps);
+        goto loc_0029F1F3;
+    }
+    faction_slot_prev = eax;
     if (!cfaction_va_range_is_valid(eax, 8)) {
         fprintf(stderr, "[FSW/Faction] stopping GetFaction(slot) invalid loop node=%08X\n",
                 (unsigned)eax);
         goto loc_0029F1F3;
     }
     esi = MEM32(eax);
-    eax = esp + 0x10;
-    ecx = esp + 8;
-    PUSH32(esp, 0); fn_0004E360_EIterator_ZeroList_K_QAE_AV01_H_Z(); /* call 0x0004E360 */
+    {
+        uint32_t next = cfaction_va_range_is_valid(eax, 0xC) ? MEM32(eax + 8) : 0;
+        if (next == eax || (next != 0 && !cfaction_va_range_is_valid(next, 8))) {
+            next = 0;
+        }
+        MEM32(esp + 8) = next;
+    }
 
 loc_0029F1D1:
     if (!cfaction_va_range_is_valid(esi, 0x14)) {
@@ -653,6 +665,8 @@ loc_0029F1FA:
 void fn_0029F210_CFactionManager_GetFaction(void)
 {
     uint32_t ebp;
+    uint32_t faction_crc_steps = 0;
+    uint32_t faction_crc_prev = 0;
     int _flags = 0; /* fallback flag var */
 
 loc_0029F210:
@@ -679,15 +693,25 @@ loc_0029F22F:
     edi = MEM32(ebp + 8);
 
 loc_0029F232:
+    if (++faction_crc_steps > 1024 || eax == faction_crc_prev) {
+        fprintf(stderr, "[FSW/Faction] stopping GetFaction(crc) cyclic node=%08X prev=%08X steps=%u\n",
+                (unsigned)eax, (unsigned)faction_crc_prev, (unsigned)faction_crc_steps);
+        goto loc_0029F24E;
+    }
+    faction_crc_prev = eax;
     if (!cfaction_va_range_is_valid(eax, 8)) {
         fprintf(stderr, "[FSW/Faction] stopping GetFaction(crc) invalid loop node=%08X\n",
                 (unsigned)eax);
         goto loc_0029F24E;
     }
     esi = MEM32(eax);
-    eax = esp + 0x10;
-    ecx = esp + 8;
-    PUSH32(esp, 0); fn_0004E360_EIterator_ZeroList_K_QAE_AV01_H_Z(); /* call 0x0004E360 */
+    {
+        uint32_t next = cfaction_va_range_is_valid(eax, 0xC) ? MEM32(eax + 8) : 0;
+        if (next == eax || (next != 0 && !cfaction_va_range_is_valid(next, 8))) {
+            next = 0;
+        }
+        MEM32(esp + 8) = next;
+    }
 
 loc_0029F241:
     if (!cfaction_va_range_is_valid(esi, 8)) {
@@ -2019,7 +2043,12 @@ loc_0029FB3D:
     PUSH32(esp, 0); fn_0029F210_CFactionManager_GetFaction(); /* call 0x0029F210 */
 
 loc_0029FB46:
+    if (!cfaction_va_range_is_valid(eax, 8)) {
+        ecx = 0;
+        goto loc_0029FB4A;
+    }
     ecx = MEM32(eax + 4);
+loc_0029FB4A:
     POP32(esp, edi);
     POP32(esp, esi);
     MEM32(ebp) = ecx;

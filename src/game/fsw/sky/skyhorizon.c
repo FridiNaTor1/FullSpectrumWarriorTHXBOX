@@ -1077,6 +1077,7 @@ loc_001D4893:
 void fn_001D48A0_Load_Sky(void)
 {
     uint32_t ebp;
+    uint32_t saved_path;
     ebp = g_seh_ebp; /* fpo_leaf: inherit caller's frame */
 
 loc_001D48A0:
@@ -1088,6 +1089,7 @@ loc_001D48A0:
     PUSH32(esp, 0x5F30E8);
     PUSH32(esp, 0);
     esi = eax;
+    saved_path = esi;
     PUSH32(esp, 0);
     PUSH32(esp, esi);
     PUSH32(esp, 0); fn_0009C350_splitpath(); /* call 0x0009C350 */
@@ -1111,6 +1113,7 @@ loc_001D48CE:
     PUSH32(esp, 0); fn_001D6700_CSkyDomeEnvironment_patchScatterObjects(); /* call 0x001D6700 */
 
 loc_001D48D5:
+    esi = saved_path;
     fprintf(stderr, "[FSW/SkyHorizon] Load_Sky before ProcessConfig path=%08X callback=%08X esp=%08X\n",
             (unsigned)esi, (unsigned)0x1D4450, (unsigned)esp);
     PUSH32(esp, esi);

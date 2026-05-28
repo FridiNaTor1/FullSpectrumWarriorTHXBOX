@@ -9,12 +9,15 @@
 #include "xinput_xbox.h"
 #include <math.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 static int fsw_cstate_xbox_va_is_valid(uint32_t va)
 {
     return va >= 0x00010000u && va < 0x04000000u;
 }
+
+static uint32_t fsw_profile_create_updater_snapshot;
 
 static void fsw_cstate_xbox_set_action_bit(uint32_t action_va, int active)
 {
@@ -28,14 +31,81 @@ static void fsw_cstate_xbox_set_action_bit(uint32_t action_va, int active)
     }
 }
 
+static void fsw_cstate_xbox_mark_controller_connected(uint32_t port)
+{
+    if (port >= 4) {
+        return;
+    }
+    MEM32(0x5FA870) = MEM32(0x5FA870) | (1u << port);
+}
+
+static void fsw_cstate_xbox_apply_profile_name_script(void)
+{
+    static int applied = 0;
+    const char *name;
+    uint32_t mgr;
+    uint32_t i;
+
+    if (applied) {
+        return;
+    }
+
+    name = getenv("FSW_TH_CREATE_PROFILE_NAME");
+    if (name == NULL || name[0] == '\0') {
+        return;
+    }
+
+    mgr = MEM32(0x5FA358);
+    if (!fsw_cstate_xbox_va_is_valid(mgr)) {
+        return;
+    }
+
+    for (i = 0; i < 16 && name[i] != '\0'; ++i) {
+        uint8_t ch = (uint8_t)name[i];
+        MEM16(0x5D92F8 + i * 2) = (ch >= 0x20 && ch < 0x7F) ? ch : (uint16_t)'_';
+    }
+    MEM16(0x5D92F8 + i * 2) = 0;
+    MEM8(mgr + 0x5700) = 1;
+    applied = 1;
+    fprintf(stderr, "[FSW/Profile] scripted profile name '%.*s'\n", (int)i, name);
+}
+
+static void fsw_cstate_xbox_ensure_shell_input_globals(void)
+{
+    if (fsw_cstate_xbox_va_is_valid(MEM32(0x601F60) + 0x220)) {
+        return;
+    }
+
+    MEM32(0x601F60) = 0x6021E8;
+    MEM32(0x601F64) = 0x57;
+    MEM32(0x601F68) = 0x57;
+    MEM32(0x601F6C) = 0x6028B4;
+    MEM32(0x601F70) = 0x12;
+    MEM32(0x601F74) = 0x12;
+    MEM32(0x601F78) = 0x60298C;
+    MEM32(0x601F7C) = 0x18;
+    MEM32(0x601F80) = 0x18;
+    MEM32(0x601F84) = 0x602B6C;
+    MEM32(0x601F88) = 9;
+    MEM32(0x601F8C) = 9;
+    MEM8(0x602DFE) = 1;
+}
+
 static void fsw_cstate_xbox_bridge_start_input(void)
 {
     static uint32_t bridge_log_count;
     static const uint32_t start_offsets[4] = { 0x1B8, 0x1CC, 0x1E0, 0x1F4 };
-    uint32_t input_base = MEM32(0x601F60);
+    uint32_t input_base;
     int any_skip = 0;
 
+    fsw_cstate_xbox_ensure_shell_input_globals();
+    input_base = MEM32(0x601F60);
+
     if (!fsw_cstate_xbox_va_is_valid(input_base + 0x220)) {
+        if (getenv("XBOXRECOMP_INPUT_DEBUG") != NULL && bridge_log_count < 12) {
+            fprintf(stderr, "[FSW/Input] start bridge missing input base=%08X\n", input_base);
+            bridge_log_count++;
+        }
         return;
     }
 
@@ -45,12 +115,17 @@ static void fsw_cstate_xbox_bridge_start_input(void)
 
         memset(&state, 0, sizeof(state));
         if (xbox_InputGetState(port, &state) == ERROR_SUCCESS) {
+            fsw_cstate_xbox_mark_controller_connected(port);
             active = (state.Gamepad.wButtons & XBOX_GAMEPAD_START) != 0 ||
                      state.Gamepad.bAnalogButtons[XBOX_BUTTON_A] >= XBOX_ANALOG_BUTTON_THRESHOLD;
             if (active && bridge_log_count < 12) {
                 fprintf(stderr, "[FSW/Input] start action port=%u buttons=%04X A=%u base=%08X\n",
                         port, state.Gamepad.wButtons, state.Gamepad.bAnalogButtons[XBOX_BUTTON_A], input_base);
                 bridge_log_count++;
+            }
+            if (active) {
+                MEM32(0x602F28) = port;
+                MEM8(0x602F2C) = MEM8(0x602F2C) | 1;
             }
         }
         fsw_cstate_xbox_set_action_bit(input_base + start_offsets[port], active);
@@ -2393,6 +2468,8 @@ loc_001AFF10:
     PUSH32(esp, ebx);
     PUSH32(esp, esi);
     esi = ecx;
+    fsw_profile_create_updater_snapshot = esi;
+    fsw_cstate_xbox_apply_profile_name_script();
     ecx = MEM32(0x5FA358);
     SET_LO8(eax, MEM8(ecx + 0x5700));
     ebx = 0; /* xor self */
@@ -2429,6 +2506,7 @@ loc_001AFF48:
     PUSH32(esp, 0); fn_002B5960_CProfileManager_AddNewProfile(); /* call 0x002B5960 */
 
 loc_001AFF54:
+    esi = fsw_profile_create_updater_snapshot;
     MEM32(esi + 0x96C) = 1;
     MEM32(esi + 0x968) = 2;
     POP32(esp, esi);
@@ -2952,10 +3030,11 @@ loc_001B024E:
 
 }
 
-/* Fallback for unresolved generated target 0x001B025B. */
 void sub_001B025B(void)
 {
-    recomp_missing_target(0x001B025Bu);
+loc_001B025B:
+    POP32(esp, esi);
+    esp += 4; return; /* ret */
 }
 
 /**
@@ -3074,10 +3153,25 @@ loc_001B02E6:
 
 }
 
-/* Fallback for unresolved generated target 0x001B02F8. */
 void sub_001B02F8(void)
 {
-    recomp_missing_target(0x001B02F8u);
+    int _flags = 0; /* fallback flag var */
+
+loc_001B02F8:
+    edx = MEM32(0x5FA89C);
+    ecx = 4;
+    PUSH32(esp, 0); fn_00132F90_CUIInputSystem_QueryAndClearEvent(); /* call 0x00132F90 */
+
+loc_001B0308:
+    if (TEST_Z(LO8(eax), LO8(eax))) goto loc_001B0319; /* je: equal / zero */
+
+loc_001B030C:
+    MEM32(esi + 0x96C) = ecx;
+    MEM32(esi + 0x968) = 2;
+
+loc_001B0319:
+    POP32(esp, esi);
+    esp += 4; return; /* ret */
 }
 
 /**
@@ -3258,6 +3352,7 @@ loc_001B0458:
 void fn_001B0480_CStateUpdateXbox_XBStartMenuUpdate(void)
 {
     uint32_t ebp;
+    uint32_t fsw_callback_esp;
     int _flags = 0; /* fallback flag var */
     ebp = g_seh_ebp; /* fpo_leaf: inherit caller's frame */
 
@@ -3281,9 +3376,19 @@ loc_001B049C:
 
 loc_001B04AD:
     eax = MEM32(ecx);
+    fsw_callback_esp = esp;
     { uint32_t _icall_esp = g_esp;
     PUSH32(esp, 0);
     PUSH32(esp, 0); RECOMP_ICALL_SAFE(MEM32(eax + 0xC), _icall_esp); /* indirect call */
+    }
+    if (esp != fsw_callback_esp) {
+        static uint32_t fsw_startmenu_bg0_stack_repairs = 0;
+        if (fsw_startmenu_bg0_stack_repairs < 8) {
+            fprintf(stderr, "[FSW/Menu] repaired start background callback stack before=%08X after=%08X count=%u\n",
+                    fsw_callback_esp, esp, fsw_startmenu_bg0_stack_repairs + 1);
+        }
+        fsw_startmenu_bg0_stack_repairs++;
+        esp = fsw_callback_esp;
     }
 
 loc_001B04B4:
@@ -3292,9 +3397,19 @@ loc_001B04B4:
 
 loc_001B04BE:
     edx = MEM32(ecx);
+    fsw_callback_esp = esp;
     { uint32_t _icall_esp = g_esp;
     PUSH32(esp, 0);
     PUSH32(esp, 0); RECOMP_ICALL_SAFE(MEM32(edx + 0xC), _icall_esp); /* indirect call */
+    }
+    if (esp != fsw_callback_esp) {
+        static uint32_t fsw_startmenu_bg1_stack_repairs = 0;
+        if (fsw_startmenu_bg1_stack_repairs < 8) {
+            fprintf(stderr, "[FSW/Menu] repaired start foreground callback stack before=%08X after=%08X count=%u\n",
+                    fsw_callback_esp, esp, fsw_startmenu_bg1_stack_repairs + 1);
+        }
+        fsw_startmenu_bg1_stack_repairs++;
+        esp = fsw_callback_esp;
     }
 
 loc_001B04C5:
@@ -3505,6 +3620,14 @@ loc_001B068B:
     if (TEST_Z(MEM8(eax + 0x218), 1)) goto loc_001B0790; /* je: equal / zero */
 
 loc_001B0691:
+#ifdef XBOXRECOMP_VULKAN_GRAPHICS
+    if (getenv("FSW_TH_BINK_DEBUG") != NULL) {
+        fprintf(stderr, "[FSW/Bink] VideoUpdate complete state=%08X done=%u input=%02X\n",
+                (unsigned)ebp,
+                (unsigned)MEM8(0x60F0BC),
+                (unsigned)MEM8(MEM32(0x601F60) + 0x218));
+    }
+#endif
     PUSH32(esp, ebx);
     ebx = 0x60F060;
     PUSH32(esp, 0); fn_001BACC0_CVideoObject_Cleanup(); /* call 0x001BACC0 */
@@ -3656,6 +3779,36 @@ void fn_001B07A0_CStateUpdateXbox_XBControllerLost(void)
     int _cf = 0; /* carry flag */
 
 loc_001B07A0:
+#ifdef XBOXRECOMP_VULKAN_GRAPHICS
+    {
+        static const uint32_t allowed_states[] = {
+            0xAE, 0x54, 0x53, 0x3A, 0x3B, 0x3C, 0x59, 6, 7, 0x27,
+            0x29, 0x21, 0x4A, 0x6B, 0xA7, 0xAC, 0xAD, 0, 0x70
+        };
+        uint32_t net = MEM32(0x6971E8);
+        uint32_t state = fsw_cstate_xbox_va_is_valid(net + 0xFA8) ? MEM32(net + 0xFA8) : 0;
+        uint32_t primary = MEM32(0x602F28);
+        uint32_t primary_valid = (MEM8(0x602F2C) & 1) != 0 && primary < 4;
+        uint32_t connected = primary_valid && ((MEM32(0x5FA870) & (1u << primary)) != 0);
+
+        for (uint32_t i = 0; i < sizeof(allowed_states) / sizeof(allowed_states[0]); i++) {
+            if (state == allowed_states[i]) {
+                SET_LO8(eax, 0);
+                esp += 4; return; /* ret */
+            }
+        }
+
+        if (!primary_valid || connected) {
+            SET_LO8(eax, 0);
+            esp += 4; return; /* ret */
+        }
+
+        MEM32(ecx + 0x968) = 4;
+        MEM32(ecx + 0x96C) = 1;
+        SET_LO8(eax, 1);
+        esp += 4; return; /* ret */
+    }
+#endif
     esp = esp - 0x50;
     PUSH32(esp, esi);
     PUSH32(esp, edi);

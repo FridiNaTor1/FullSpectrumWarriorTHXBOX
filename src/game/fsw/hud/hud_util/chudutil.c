@@ -7,6 +7,8 @@
 #define RECOMP_GENERATED_CODE
 #include "recomp_funcs.h"
 #include <math.h>
+#include <stdio.h>
+#include <stdlib.h>
 
 /**
  * fn_002C74E0_UpdateHUDFlash
@@ -1387,10 +1389,22 @@ loc_002C7EAF:
 void fn_002C7EE0_HUDUtil_CreateTexGroup(void)
 {
     int _flags = 0; /* fallback flag var */
+    uint32_t requested_crc;
+    uint32_t resource_manager;
+    uint32_t resource_vtbl;
 
 loc_002C7EE0:
+	requested_crc = MEM32(esp + 4);
+	if (requested_crc == 0) {
+	    if (getenv("FSW_TH_HUD_DEBUG") != NULL) {
+	        fprintf(stderr, "[FSW/HUD] CreateTexGroup empty crc, returning null esp=%08X\n", esp);
+	    }
+	    eax = 0;
+	    esp += 4; return; /* ret */
+	}
     esp = esp - 0x38;
     ecx = MEM32(0x5FA8E8);
+    resource_manager = ecx;
     eax = MEM32(ecx + 0xF0);
     { uint32_t _icall_esp = g_esp;
     PUSH32(esp, esi);
@@ -1412,11 +1426,23 @@ loc_002C7EE0:
     MEM32(esp + 0x40) = esi;
     MEM32(esp + 0x44) = esi;
     MEM32(eax) = edx;
-    eax = MEM32(ecx);
+	eax = MEM32(ecx);
+	resource_vtbl = eax;
+	if (getenv("FSW_TH_HUD_DEBUG") != NULL) {
+	    fprintf(stderr,
+	            "[FSW/HUD] CreateTexGroup request crc=%08X manager=%08X vtbl=%08X find=%08X esp=%08X\n",
+	            (unsigned)requested_crc, (unsigned)resource_manager, (unsigned)resource_vtbl,
+	            (unsigned)(resource_vtbl ? MEM32(resource_vtbl + 0x34) : 0), (unsigned)esp);
+	}
     PUSH32(esp, 0); RECOMP_ICALL_SAFE(MEM32(eax + 0x34), _icall_esp); /* indirect call */
     }
 
 loc_002C7F33:
+    if (getenv("FSW_TH_HUD_DEBUG") != NULL) {
+        fprintf(stderr,
+                "[FSW/HUD] CreateTexGroup resource result crc=%08X resource=%08X esp=%08X\n",
+                (unsigned)requested_crc, (unsigned)eax, (unsigned)esp);
+    }
     edi = eax;
     if (CMP_NE(edi, esi)) { sub_002C7F41(); return; } /* jne: not equal / not zero */
 

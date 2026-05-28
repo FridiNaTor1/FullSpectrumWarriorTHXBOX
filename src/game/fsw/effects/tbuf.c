@@ -176,6 +176,7 @@ loc_0015F610:
     PUSH32(esp, ebx);
     PUSH32(esp, esi);
     esi = eax;
+    sub_0015F614(); return; /* fallthrough 0x0015F614 */
 
 }
 
@@ -240,6 +241,7 @@ loc_0015F659:
 
 loc_0015F65E:
     MEM32(esi + 0x20) = MEM32(esi + 0x20) + 1;
+    sub_0015F661(); return; /* fallthrough 0x0015F661 */
 
 }
 
@@ -457,6 +459,7 @@ void sub_0015F754(void)
 loc_0015F754:
     eax = _cf ? 0xFFFFFFFF : 0; /* sbb self (CF extend) */
     eax = eax - 0xFFFFFFFFu - _cf; /* sbb */
+    sub_0015F759(); return; /* fallthrough 0x0015F759 */
 
 }
 
@@ -601,6 +604,7 @@ loc_0015F800:
     MEM8(edx + eax) = LO8(ecx);
     eax++;
     if (CMP_NE(LO8(ecx), LO8(ebx))) goto loc_0015F800; /* jne: not equal / not zero */
+    g_seh_ebp = ebp; sub_0015F80A(); return; /* fallthrough 0x0015F80A */
 
 }
 

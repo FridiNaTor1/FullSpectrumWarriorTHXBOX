@@ -89,7 +89,7 @@ loc_0009C350:
             MEM8(fname_va + name_len) = 0;
         }
 
-        esp += 24; return; /* ret 20 */
+        esp += 4; return; /* ret */
     }
     PUSH32(esp, ebp);
     ebp = esp;

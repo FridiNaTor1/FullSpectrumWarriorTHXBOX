@@ -1006,6 +1006,55 @@ static uint32_t bridge_store_handle(HANDLE h)
     return 0;
 }
 
+uint32_t xbox_kernel_bridge_create_file_handle(
+    const char* xbox_path,
+    DWORD desired_access,
+    DWORD share_mode,
+    DWORD creation_disposition,
+    DWORD flags_and_attributes,
+    DWORD* error_out)
+{
+    WCHAR win_path[MAX_PATH];
+    HANDLE h;
+    uint32_t xbox_handle;
+
+    if (error_out) {
+        *error_out = ERROR_INVALID_PARAMETER;
+    }
+    if (!xbox_path || !xbox_path[0]) {
+        return 0;
+    }
+    if (!xbox_translate_path(xbox_path, win_path, MAX_PATH)) {
+        if (error_out) {
+            *error_out = ERROR_PATH_NOT_FOUND;
+        }
+        return 0;
+    }
+
+    h = CreateFileW(win_path, desired_access, share_mode, NULL,
+                    creation_disposition, flags_and_attributes, NULL);
+    if (h == INVALID_HANDLE_VALUE) {
+        if (error_out) {
+            *error_out = GetLastError();
+        }
+        return 0;
+    }
+
+    xbox_handle = bridge_store_handle(h);
+    if (!xbox_handle) {
+        CloseHandle(h);
+        if (error_out) {
+            *error_out = ERROR_NOT_ENOUGH_MEMORY;
+        }
+        return 0;
+    }
+
+    if (error_out) {
+        *error_out = ERROR_SUCCESS;
+    }
+    return xbox_handle;
+}
+
 static HANDLE bridge_lookup_handle_value(uint32_t xbox_handle)
 {
     if (xbox_handle < BRIDGE_HANDLE_BASE) {
@@ -1037,6 +1086,31 @@ static BOOL bridge_close_handle_value(uint32_t xbox_handle)
     }
 
     return FALSE;
+}
+
+BOOL xbox_kernel_bridge_get_file_size32(uint32_t xbox_handle, uint32_t* size_out)
+{
+    HANDLE h = bridge_lookup_handle_value(xbox_handle);
+    LARGE_INTEGER zero;
+    LARGE_INTEGER cur;
+    LARGE_INTEGER end;
+
+    if (!h || !size_out) {
+        return FALSE;
+    }
+
+    zero.QuadPart = 0;
+    if (!SetFilePointerEx(h, zero, &cur, FILE_CURRENT)) {
+        return FALSE;
+    }
+
+    if (!SetFilePointerEx(h, zero, &end, FILE_END)) {
+        return FALSE;
+    }
+    SetFilePointerEx(h, cur, NULL, FILE_BEGIN);
+
+    *size_out = (uint32_t)end.QuadPart;
+    return TRUE;
 }
 
 /* Write a synthetic 32-bit Xbox handle into Xbox memory. */
@@ -1815,6 +1889,43 @@ static void bridge_MmPersistContiguousMemory(void)
     g_eax = 0;
 }
 
+static void bridge_WRITE_PORT_BUFFER_USHORT(void)
+{
+    g_eax = 0;
+}
+
+static void bridge_WRITE_PORT_BUFFER_ULONG(void)
+{
+    g_eax = 0;
+}
+
+static void bridge_XcSHAInit(void)
+{
+    uint32_t ctx_va = STACK_ARG(0);
+    xbox_XcSHAInit((PXBOX_SHA_CONTEXT)XBOX_TO_NATIVE(ctx_va));
+    g_eax = 0;
+}
+
+static void bridge_XcSHAUpdate(void)
+{
+    uint32_t ctx_va = STACK_ARG(0);
+    uint32_t input_va = STACK_ARG(1);
+    uint32_t input_len = STACK_ARG(2);
+    xbox_XcSHAUpdate((PXBOX_SHA_CONTEXT)XBOX_TO_NATIVE(ctx_va),
+                     (const UCHAR*)XBOX_TO_NATIVE(input_va),
+                     input_len);
+    g_eax = 0;
+}
+
+static void bridge_XcSHAFinal(void)
+{
+    uint32_t ctx_va = STACK_ARG(0);
+    uint32_t digest_va = STACK_ARG(1);
+    xbox_XcSHAFinal((PXBOX_SHA_CONTEXT)XBOX_TO_NATIVE(ctx_va),
+                    (UCHAR*)XBOX_TO_NATIVE(digest_va));
+    g_eax = 0;
+}
+
 /* ── Generic fallback for simple value-only functions ────── */
 static void bridge_generic_stub(void)
 {
@@ -2107,6 +2218,15 @@ static bridge_func_t bridge_for_ordinal(ULONG ordinal)
     /* Memory - I/O mapping */
     case 177: return bridge_MmMapIoSpace;
     case 178: return bridge_MmPersistContiguousMemory;
+
+    /* Port I/O */
+    case 335: return bridge_WRITE_PORT_BUFFER_USHORT;
+    case 336: return bridge_WRITE_PORT_BUFFER_ULONG;
+
+    /* Crypto */
+    case 337: return bridge_XcSHAInit;
+    case 338: return bridge_XcSHAUpdate;
+    case 339: return bridge_XcSHAFinal;
 
     /* RTL */
     case 301: return bridge_RtlNtStatusToDosError;

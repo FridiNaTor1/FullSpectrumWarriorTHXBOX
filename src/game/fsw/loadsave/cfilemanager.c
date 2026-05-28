@@ -7,6 +7,7 @@
 #define RECOMP_GENERATED_CODE
 #include "recomp_funcs.h"
 #include <math.h>
+#include <stdio.h>
 
 /**
  * fn_002B6F00_CFileManager_DeleteSave
@@ -831,11 +832,14 @@ loc_002B736B:
 
 loc_002B7377:
     (void)0; /* cmp eax, ebx - flags set for next jcc */
+    fprintf(stderr, "[FSW/File] Write direct returned bytes=%08X expected=%08X handle=%08X esp=%08X\n",
+            eax, ebx, esi, esp);
     PUSH32(esp, esi);
     SET_LO8(ebx, (CMP_EQ(eax, ebx)) ? 1 : 0); /* sete */
     PUSH32(esp, 0); fn_0005E4F0_CloseHandle_4(); /* call 0x0005E4F0 */
 
 loc_002B7382:
+    fprintf(stderr, "[FSW/File] Write closed handle ok=%u esp=%08X\n", LO8(ebx), esp);
     POP32(esp, esi);
     POP32(esp, ebp);
     SET_LO8(eax, LO8(ebx));

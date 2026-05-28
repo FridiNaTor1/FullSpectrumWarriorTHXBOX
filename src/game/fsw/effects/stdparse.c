@@ -7,6 +7,12 @@
 #define RECOMP_GENERATED_CODE
 #include "recomp_funcs.h"
 #include <math.h>
+#include <stdio.h>
+#include <stdlib.h>
+
+static uint32_t g_stdparse_atomic_log_count;
+static uint32_t g_stdparse_numeric_log_count;
+static uint32_t g_stdparse_numeric_int_log_count;
 
 /**
  * fn_003F2D30_StdParse_ParseStringVNode
@@ -83,7 +89,9 @@ loc_003F2D94:
  */
 void sub_003F2D99(void)
 {
+    uint32_t ebp;
     int _flags = 0; /* fallback flag var */
+    ebp = g_seh_ebp; /* fpo_leaf: inherit caller's frame */
 
 loc_003F2D99:
     eax = MEM32(0x6135C8);
@@ -95,7 +103,7 @@ loc_003F2D99:
     }
 
 loc_003F2DA8:
-    if (CMP_NE(eax, ebx)) { sub_003F2DB6(); return; } /* jne: not equal / not zero */
+    if (CMP_NE(eax, ebx)) { g_seh_ebp = ebp; sub_003F2DB6(); return; } /* jne: not equal / not zero */
 
 loc_003F2DAC:
     MEM32(eax) = 0x12345678;
@@ -110,10 +118,13 @@ loc_003F2DAC:
  */
 void sub_003F2DB2(void)
 {
+    uint32_t ebp;
     int _flags = 0; /* fallback flag var */
+    ebp = g_seh_ebp; /* fpo_leaf: inherit caller's frame */
 
 loc_003F2DB2:
-    if (CMP_EQ(eax, ebx)) { sub_003F2DBD(); return; } /* je: equal / zero */
+    if (CMP_EQ(eax, ebx)) { g_seh_ebp = ebp; sub_003F2DBD(); return; } /* je: equal / zero */
+    g_seh_ebp = ebp; sub_003F2DB6(); return; /* fallthrough 0x003F2DB6 */
 
 }
 
@@ -125,11 +136,14 @@ loc_003F2DB2:
  */
 void sub_003F2DB6(void)
 {
+    uint32_t ebp;
+    ebp = g_seh_ebp; /* fpo_leaf: inherit caller's frame */
 
 loc_003F2DB6:
     MEM32(eax) = ebx;
     MEM32(eax + 4) = ebx;
     ebx = eax;
+    g_seh_ebp = ebp; sub_003F2DBD(); return; /* fallthrough 0x003F2DBD */
 
 }
 
@@ -177,6 +191,10 @@ void fn_003F2DE0_StdParse_ParseNumericVNode(void)
     ebp = g_seh_ebp; /* fpo_leaf: inherit caller's frame */
 
 loc_003F2DE0:
+    if (g_stdparse_numeric_log_count < 16) {
+        fprintf(stderr, "[FSW/StdParse] ParseNumeric entry esp=%08X arg=%08X eax=%08X esi=%08X\n",
+                (unsigned)esp, (unsigned)MEM32(esp + 4), (unsigned)eax, (unsigned)esi);
+    }
     esp = esp - 0x10;
     PUSH32(esp, ebx);
     PUSH32(esp, ebp);
@@ -237,7 +255,9 @@ loc_003F2E39:
  */
 void sub_003F2E3E(void)
 {
+    uint32_t ebp;
     int _flags = 0; /* fallback flag var */
+    ebp = g_seh_ebp; /* fpo_leaf: inherit caller's frame */
 
 loc_003F2E3E:
     eax = MEM32(0x6135C8);
@@ -249,7 +269,7 @@ loc_003F2E3E:
     }
 
 loc_003F2E4D:
-    if (CMP_NE(eax, edi)) { sub_003F2E5B(); return; } /* jne: not equal / not zero */
+    if (CMP_NE(eax, edi)) { g_seh_ebp = ebp; sub_003F2E5B(); return; } /* jne: not equal / not zero */
 
 loc_003F2E51:
     MEM32(eax) = 0x12345678;
@@ -264,10 +284,13 @@ loc_003F2E51:
  */
 void sub_003F2E57(void)
 {
+    uint32_t ebp;
     int _flags = 0; /* fallback flag var */
+    ebp = g_seh_ebp; /* fpo_leaf: inherit caller's frame */
 
 loc_003F2E57:
-    if (CMP_EQ(eax, edi)) { sub_003F2E62(); return; } /* je: equal / zero */
+    if (CMP_EQ(eax, edi)) { g_seh_ebp = ebp; sub_003F2E62(); return; } /* je: equal / zero */
+    g_seh_ebp = ebp; sub_003F2E5B(); return; /* fallthrough 0x003F2E5B */
 
 }
 
@@ -279,11 +302,14 @@ loc_003F2E57:
  */
 void sub_003F2E5B(void)
 {
+    uint32_t ebp;
+    ebp = g_seh_ebp; /* fpo_leaf: inherit caller's frame */
 
 loc_003F2E5B:
     MEM32(eax) = edi;
     MEM32(eax + 4) = edi;
     edi = eax;
+    g_seh_ebp = ebp; sub_003F2E62(); return; /* fallthrough 0x003F2E62 */
 
 }
 
@@ -314,12 +340,12 @@ loc_003F2E71:
 loc_003F2E78:
     eax = eax - edx;
     esi = eax;
-    if (CMP_LE(esi, 1)) { sub_003F30C0(); return; } /* jle: less or equal (signed <=) */
+    if (CMP_LE(esi, 1)) { g_seh_ebp = ebp; sub_003F30C0(); return; } /* jle: less or equal (signed <=) */
 
 loc_003F2E85:
     eax = (uint32_t)(int32_t)SMEM8(esi + ebp + -1);
     eax = eax + 0xFFFFFFDBu;
-    if (CMP_A(eax, 0x50)) { sub_003F30C0(); return; } /* ja: above (unsigned >) */
+    if (CMP_A(eax, 0x50)) { g_seh_ebp = ebp; sub_003F30C0(); return; } /* ja: above (unsigned >) */
 
 loc_003F2E96:
     ecx = ZX8(MEM8(eax + 0x3F32CC));
@@ -348,13 +374,40 @@ void sub_003F30C0(void)
     ebp = g_seh_ebp; /* fpo_leaf: inherit caller's frame */
 
 loc_003F30C0:
+    {
+        const char *text = (const char *)XBOX_PTR(ebp);
+        double parsed = strtod(text, NULL);
+        float value;
+        union {
+            float f;
+            uint32_t u;
+        } bits;
+
+        if (MEM8(esp + 0x13) != 0) {
+            parsed = -parsed;
+        }
+        value = (float)parsed;
+        bits.f = value;
+
+        MEM32(edi) = 2;
+        MEM32(edi + 4) = 2;
+        MEM32(edi + 8) = bits.u;
+        eax = edi;
+        POP32(esp, edi);
+        POP32(esp, esi);
+        POP32(esp, ebp);
+        POP32(esp, ebx);
+        esp = esp + 0x10;
+        esp += 4; return; /* ret */
+    }
+
     PUSH32(esp, 0x2E);
     PUSH32(esp, ebp);
     PUSH32(esp, 0); fn_0009C0C0_strchr(); /* call 0x0009C0C0 */
 
 loc_003F30C8:
     esp = esp + 8;
-    if (TEST_Z(eax, eax)) { sub_003F3114(); return; } /* je: equal / zero */
+    if (TEST_Z(eax, eax)) { g_seh_ebp = ebp; sub_003F3114(); return; } /* je: equal / zero */
 
 loc_003F30CF:
     PUSH32(esp, ebp);
@@ -373,6 +426,11 @@ loc_003F30D5:
     PUSH32(esp, 0); fn_0015F1D0_VNode_Clear(); /* call 0x0015F1D0 */
 
 loc_003F30F6:
+    if (g_stdparse_numeric_log_count < 16) {
+        fprintf(stderr, "[FSW/StdParse] ParseNumeric float epilogue esp=%08X out=%08X\n",
+                (unsigned)esp, (unsigned)edi);
+        g_stdparse_numeric_log_count++;
+    }
     edx = MEM32(esp + 0x24);
     MEM32(edi) = 2;
     MEM32(edi + 4) = 2;
@@ -407,7 +465,7 @@ void sub_003F3114(void)
 loc_003F3114:
     (void)0; /* cmp esi, 2 - flags set for next jcc */
     MEM32(esp + 0x14) = 0;
-    if (CMP_LE(esi, 2)) { sub_003F3268(); return; } /* jle: less or equal (signed <=) */
+    if (CMP_LE(esi, 2)) { g_seh_ebp = ebp; sub_003F3268(); return; } /* jle: less or equal (signed <=) */
 
 loc_003F3125:
     eax = (uint32_t)(int32_t)SMEM8(ebp + 1);
@@ -416,7 +474,7 @@ loc_003F3125:
 
 loc_003F312F:
     esp = esp + 4;
-    if (CMP_NE(eax, 0x42)) { sub_003F31BA(); return; } /* jne: not equal / not zero */
+    if (CMP_NE(eax, 0x42)) { g_seh_ebp = ebp; sub_003F31BA(); return; } /* jne: not equal / not zero */
 
 loc_003F313B:
     edx = esi + -2;
@@ -463,6 +521,11 @@ loc_003F3185:
     PUSH32(esp, 0); fn_0015F1D0_VNode_Clear(); /* call 0x0015F1D0 */
 
 loc_003F3190:
+    if (g_stdparse_numeric_log_count < 16) {
+        fprintf(stderr, "[FSW/StdParse] ParseNumeric binary epilogue esp=%08X out=%08X\n",
+                (unsigned)esp, (unsigned)edi);
+        g_stdparse_numeric_log_count++;
+    }
     eax = 0; /* xor self */
     (void)0; /* test LO8(ebx), LO8(ebx) - flags set for next jcc */
     SET_LO8(eax, (TEST_Z(LO8(ebx), LO8(ebx))) ? 1 : 0); /* sete */
@@ -481,16 +544,52 @@ loc_003F3190:
 
 }
 
-/* Fallback for unresolved generated target 0x003F3189. */
 void sub_003F3189(void)
 {
-    recomp_missing_target(0x003F3189u);
+    uint32_t ebp;
+    if (g_stdparse_numeric_int_log_count < 16) {
+        fprintf(stderr, "[FSW/StdParse] ParseNumeric int epilogue esp=%08X out=%08X\n",
+                (unsigned)esp, (unsigned)edi);
+        g_stdparse_numeric_int_log_count++;
+    }
+    SET_LO8(ebx, MEM8(esp + 0x13));
+    ecx = edi;
+    PUSH32(esp, 0); fn_0015F1D0_VNode_Clear(); /* call 0x0015F1D0 */
+    eax = 0; /* xor self */
+    SET_LO8(eax, (TEST_Z(LO8(ebx), LO8(ebx))) ? 1 : 0); /* sete */
+    MEM32(edi) = 1;
+    MEM32(edi + 4) = 1;
+    eax = eax + eax + -1;
+    eax = (uint32_t)((int32_t)eax * (int32_t)MEM32(esp + 0x14));
+    MEM32(edi + 8) = eax;
+    eax = edi;
+    POP32(esp, edi);
+    POP32(esp, esi);
+    POP32(esp, ebp);
+    POP32(esp, ebx);
+    esp = esp + 0x10;
+    esp += 4; return; /* ret */
 }
 
-/* Fallback for unresolved generated target 0x003F31BA. */
 void sub_003F31BA(void)
 {
-    recomp_missing_target(0x003F31BAu);
+    uint32_t saved_ebp = g_seh_ebp;
+    const char *text = (const char *)XBOX_PTR(saved_ebp);
+    char *end = NULL;
+    long value = strtol(text, &end, 0);
+
+    if (end == text) {
+        uint32_t tbuf = MEM32(esp + 0x24);
+        PUSH32(esp, 0x55F9B0);
+        if (tbuf != 0) {
+            esi = tbuf;
+        }
+        PUSH32(esp, 0); fn_0015F550_TBuf_TokenError();
+        esp += 4;
+    }
+
+    MEM32(esp + 0x14) = (uint32_t)value;
+    g_seh_ebp = saved_ebp; sub_003F3189(); return;
 }
 
 /**
@@ -547,6 +646,14 @@ void fn_003F3320_StdParse_ParseAtomicVNode(void)
     ebp = g_seh_ebp; /* fpo_leaf: inherit caller's frame */
 
 loc_003F3320:
+    if (g_stdparse_atomic_log_count < 24) {
+        uint32_t tbuf = eax;
+        fprintf(stderr, "[FSW/StdParse] ParseAtomic entry esp=%08X tbuf=%08X state=%08X token='%s' punct='%s'\n",
+                (unsigned)esp, (unsigned)tbuf,
+                (unsigned)(tbuf ? MEM32(tbuf + 4) : 0xFFFFFFFFu),
+                tbuf ? (const char *)XBOX_PTR(tbuf + 0x430) : "<null>",
+                tbuf ? (const char *)XBOX_PTR(tbuf + 0x630) : "<null>");
+    }
     PUSH32(esp, esi);
     esi = eax;
     eax = MEM32(esi + 4);
@@ -588,6 +695,11 @@ loc_003F3367:
     PUSH32(esp, 0); fn_003F2D30_StdParse_ParseStringVNode(); /* call 0x003F2D30 */
 
 loc_003F336C:
+    if (g_stdparse_atomic_log_count < 24) {
+        fprintf(stderr, "[FSW/StdParse] ParseAtomic string epilogue esp=%08X out=%08X\n",
+                (unsigned)esp, (unsigned)eax);
+        g_stdparse_atomic_log_count++;
+    }
     edi = eax;
     POP32(esp, edi);
     POP32(esp, esi);
@@ -606,14 +718,27 @@ loc_003F3385:
     if (CMP_NE(MEM8(esi + 0x630), 0x2E)) goto loc_003F3399; /* jne: not equal / not zero */
 
 loc_003F338E:
+    if (g_stdparse_atomic_log_count < 24) {
+        fprintf(stderr, "[FSW/StdParse] ParseAtomic before numeric esp=%08X tbuf=%08X\n",
+                (unsigned)esp, (unsigned)esi);
+    }
     PUSH32(esp, esi);
     PUSH32(esp, 0); fn_003F2DE0_StdParse_ParseNumericVNode(); /* call 0x003F2DE0 */
 
 loc_003F3394:
+    if (g_stdparse_atomic_log_count < 24) {
+        fprintf(stderr, "[FSW/StdParse] ParseAtomic after numeric before cleanup esp=%08X out=%08X\n",
+                (unsigned)esp, (unsigned)eax);
+    }
     esp = esp + 4;
     edi = eax;
 
 loc_003F3399:
+    if (g_stdparse_atomic_log_count < 24) {
+        fprintf(stderr, "[FSW/StdParse] ParseAtomic epilogue esp=%08X out=%08X\n",
+                (unsigned)esp, (unsigned)edi);
+        g_stdparse_atomic_log_count++;
+    }
     eax = edi;
     POP32(esp, edi);
     POP32(esp, esi);

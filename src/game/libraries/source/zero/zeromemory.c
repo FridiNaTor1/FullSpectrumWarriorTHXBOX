@@ -7,6 +7,7 @@
 #define RECOMP_GENERATED_CODE
 #include "recomp_funcs.h"
 #include <math.h>
+#include <stdio.h>
 
 extern uint32_t xbox_HeapAlloc(uint32_t size, uint32_t alignment);
 
@@ -1268,6 +1269,28 @@ void fn_00129450_2_YAPAXI_Z(void)
     int _flags = 0; /* fallback flag var */
 
 loc_00129450:
+    if (MEM32(esp + 4) == 0xCu) {
+        static uint32_t small_new_logs = 0;
+        if (small_new_logs < 32 || (small_new_logs % 8192) == 0) {
+            fprintf(stderr,
+                    "[FSW/ZeroMemory] operator new size=12 esp=%08X stack=%08X %08X %08X %08X ecx=%08X eax=%08X count=%u\n",
+                    (unsigned)esp, (unsigned)MEM32(esp + 0), (unsigned)MEM32(esp + 4),
+                    (unsigned)MEM32(esp + 8), (unsigned)MEM32(esp + 0xC),
+                    (unsigned)ecx, (unsigned)eax, (unsigned)(small_new_logs + 1));
+        }
+        small_new_logs++;
+    }
+    if (MEM32(esp + 4) > 0x100000u) {
+        static uint32_t large_alloc_logs = 0;
+        if (large_alloc_logs++ < 32) {
+            fprintf(stderr,
+                    "[FSW/ZeroMemory] large operator new size=%u esp=%08X stack=%08X %08X %08X %08X %08X %08X\n",
+                    (unsigned)MEM32(esp + 4), (unsigned)esp,
+                    (unsigned)MEM32(esp + 0), (unsigned)MEM32(esp + 4),
+                    (unsigned)MEM32(esp + 8), (unsigned)MEM32(esp + 0xC),
+                    (unsigned)MEM32(esp + 0x10), (unsigned)MEM32(esp + 0x14));
+        }
+    }
     eax = xbox_HeapAlloc(MEM32(esp + 4), 16);
     esp += 4; return; /* ret */
 

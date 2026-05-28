@@ -8,6 +8,8 @@
 #include "recomp_funcs.h"
 #include <math.h>
 
+extern void xbox_HeapFree(uint32_t xbox_va);
+
 /**
  * fn_000587AF_VirtualAlloc_16
  * Symbol: _VirtualAlloc@16
@@ -93,6 +95,10 @@ void fn_000587DD_VirtualFree_12(void)
     int _flags = 0; /* fallback flag var */
 
 loc_000587DD:
+    xbox_HeapFree(MEM32(esp + 4));
+    eax = 1;
+    esp += 16; return; /* ret 12 */
+
     PUSH32(esp, ebp);
     ebp = esp;
     if (TEST_Z(MEM8(ebp + 0x11), 0x80)) { sub_000587F3(); return; } /* je: equal / zero */

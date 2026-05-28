@@ -9,6 +9,7 @@
 #include <math.h>
 
 extern uint32_t xbox_HeapAlloc(uint32_t size, uint32_t alignment);
+extern void xbox_HeapFree(uint32_t xbox_va);
 
 /**
  * fn_0005AE8A_XPhysicalAlloc_16
@@ -171,6 +172,9 @@ void fn_0005AF00_XPhysicalFree_4(void)
     ebp = g_seh_ebp; /* fpo_leaf: inherit caller's frame */
 
 loc_0005AF00:
+    xbox_HeapFree(MEM32(esp + 4));
+    esp += 8; return; /* ret 4 */
+
     g_seh_ebp = ebp; RECOMP_ITAIL(MEM32(0x50B06C)); return; /* indirect tail jmp */
 
 }

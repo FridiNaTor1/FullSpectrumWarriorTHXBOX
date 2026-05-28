@@ -119,6 +119,7 @@ extern volatile uint64_t g_icall_count;
 void recomp_icall_fail_log(uint32_t va);
 
 uint32_t xbox_HeapAlloc(uint32_t size, uint32_t alignment);
+void xbox_HeapFree(uint32_t xbox_va);
 
 /* ================================================================
  * Memory access helpers
@@ -131,7 +132,14 @@ uint32_t xbox_HeapAlloc(uint32_t size, uint32_t alignment);
  * uintptr_t cast preserves the overflow bits, landing us 4GB+ past
  * our mapping and causing access violations.
  */
-#define XBOX_PTR(addr) ((uintptr_t)(uint32_t)(addr) + g_xbox_mem_offset)
+static inline uintptr_t recomp_xbox_ptr(uint32_t addr) {
+    if (addr >= 0x80010000u && addr < 0x80011000u) {
+        return (uintptr_t)addr + g_xbox_mem_offset;
+    }
+    return (uintptr_t)(addr & 0x03FFFFFFu) + g_xbox_mem_offset;
+}
+
+#define XBOX_PTR(addr) recomp_xbox_ptr((uint32_t)(addr))
 
 /** Read/write N bytes at a flat Xbox memory address. */
 #define MEM8(addr)   (*(volatile uint8_t  *)XBOX_PTR(addr))
@@ -147,14 +155,84 @@ uint32_t xbox_HeapAlloc(uint32_t size, uint32_t alignment);
 #define MEMF(addr)   (*(volatile float    *)XBOX_PTR(addr))
 #define MEMD(addr)   (*(volatile double   *)XBOX_PTR(addr))
 
-static inline int recomp_try_global_allocator_fallback(uint32_t saved_esp)
+static inline int recomp_va_is_mapped(uint32_t va)
+{
+    return va >= 0x00010000u && va < 0x04000000u;
+}
+
+static inline int recomp_try_global_allocator_fallback(uint32_t saved_esp, uint32_t method_va)
 {
     if (g_ecx != 0x6135C8u) {
         return 0;
     }
 
+    uint32_t allocator_vtbl = MEM32(0x6135C8);
+    int method_is_alloc = 0;
+    int method_is_free = 0;
+    if (recomp_va_is_mapped(allocator_vtbl)) {
+        method_is_alloc = method_va == MEM32(allocator_vtbl);
+        method_is_free = method_va == MEM32(allocator_vtbl + 4);
+    }
+
+    if (method_is_free) {
+        uint32_t ptr = MEM32(g_esp + 4);
+        if (!recomp_va_is_mapped(ptr)) {
+            g_esp = saved_esp;
+            g_eax = 0;
+            return 1;
+        }
+
+        static uint32_t fallback_free_logs = 0;
+        if (fallback_free_logs < 32 || (fallback_free_logs % 8192) == 0) {
+            fprintf(stderr,
+                    "[recomp] allocator free fallback ptr=%08X saved_esp=%08X g_esp=%08X method=%08X count=%u\n",
+                    (unsigned)ptr, (unsigned)saved_esp, (unsigned)g_esp,
+                    (unsigned)method_va, (unsigned)(fallback_free_logs + 1));
+        }
+        fallback_free_logs++;
+
+        xbox_HeapFree(ptr);
+        g_eax = 1;
+        g_esp = saved_esp;
+        return 1;
+    }
+
+    if (!method_is_alloc && recomp_va_is_mapped(allocator_vtbl)) {
+        return 0;
+    }
+
     uint32_t size = MEM32(g_esp + 4);
     uint32_t out_ptr = MEM32(g_esp + 8);
+    if (size > 0x01000000u ||
+        (out_ptr != 0 && (out_ptr < 0x00010000u || out_ptr >= 0x04000000u))) {
+        return 0;
+    }
+    if (size > 0x100000u) {
+        static uint32_t fallback_alloc_logs = 0;
+        if (fallback_alloc_logs++ < 32) {
+            fprintf(stderr,
+                    "[recomp] large allocator fallback size=%u saved_esp=%08X g_esp=%08X out=%08X stack=%08X %08X %08X %08X\n",
+                    (unsigned)size, (unsigned)saved_esp, (unsigned)g_esp,
+                    (unsigned)out_ptr, (unsigned)MEM32(g_esp + 0),
+                    (unsigned)MEM32(g_esp + 4), (unsigned)MEM32(g_esp + 8),
+                    (unsigned)MEM32(g_esp + 0xC));
+        }
+    }
+    if (size == 0xCu) {
+        static uint32_t fallback_small_alloc_logs = 0;
+        if (fallback_small_alloc_logs < 32 || (fallback_small_alloc_logs % 8192) == 0) {
+            fprintf(stderr,
+                    "[recomp] allocator fallback size=12 saved_esp=%08X g_esp=%08X out=%08X stack=%08X %08X %08X %08X icall=%08X/%08X/%08X ecx=%08X count=%u\n",
+                    (unsigned)saved_esp, (unsigned)g_esp, (unsigned)out_ptr,
+                    (unsigned)MEM32(g_esp + 0), (unsigned)MEM32(g_esp + 4),
+                    (unsigned)MEM32(g_esp + 8), (unsigned)MEM32(g_esp + 0xC),
+                    (unsigned)g_icall_trace[(g_icall_trace_idx - 1) & (ICALL_TRACE_SIZE - 1)],
+                    (unsigned)g_icall_trace[(g_icall_trace_idx - 2) & (ICALL_TRACE_SIZE - 1)],
+                    (unsigned)g_icall_trace[(g_icall_trace_idx - 3) & (ICALL_TRACE_SIZE - 1)],
+                    (unsigned)g_ecx, (unsigned)(fallback_small_alloc_logs + 1));
+        }
+        fallback_small_alloc_logs++;
+    }
     uint32_t allocated = xbox_HeapAlloc(size, 16);
 
     if (out_ptr >= 0x00010000u && out_ptr < 0x04000000u) {
@@ -380,7 +458,7 @@ recomp_func_t recomp_lookup_manual(uint32_t xbox_va);
     g_icall_trace_idx++; \
     g_icall_count++; \
     if (_va >= 0x00400000 && _va < 0xFE000000) { \
-        if (recomp_try_global_allocator_fallback(saved_esp)) break; \
+        if (recomp_try_global_allocator_fallback(saved_esp, _va)) break; \
         g_esp = (saved_esp); eax = 0; break; \
     } \
     recomp_func_t _fn = recomp_lookup_manual(_va); \

@@ -41,6 +41,22 @@ static int cdeadguy_list_node_is_valid(uint32_t node)
     return 1;
 }
 
+static void cdeadguy_updateall_log(const char *phase, uint32_t frame_ebp, uint32_t arg)
+{
+    static uint32_t updateall_log_count;
+
+    if (updateall_log_count < 24 || (updateall_log_count % 256) == 0) {
+        fprintf(stderr,
+                "[FSW/DeadGuy] UpdateAll %s esp=%08X ebp=%08X arg=%08X head=%08X tail=%08X ebx=%08X esi=%08X edi=%08X eax=%08X ecx=%08X edx=%08X count=%u\n",
+                phase, (unsigned)esp, (unsigned)frame_ebp, (unsigned)arg,
+                (unsigned)MEM32(0x612EA4), (unsigned)MEM32(0x612EAC),
+                (unsigned)ebx, (unsigned)esi, (unsigned)edi,
+                (unsigned)eax, (unsigned)ecx, (unsigned)edx,
+                (unsigned)(updateall_log_count + 1));
+    }
+    updateall_log_count++;
+}
+
 /**
  * fn_0004ED70_GCDeadGuy_UAEPAXI_Z
  * Symbol: ??_GCDeadGuy@@UAEPAXI@Z
@@ -710,6 +726,7 @@ void fn_0037D430_CDeadGuy_UpdateAll(void)
 loc_0037D430:
     PUSH32(esp, ebp);
     ebp = esp;
+    cdeadguy_updateall_log("entry", ebp, MEM32(ebp + 8));
     esp = esp & 0xFFFFFFF8u;
     esp = esp - 0x1C;
     eax = MEM32(0x612EA4);
@@ -788,6 +805,7 @@ loc_0037D4CF:
 	    if (cdeadguy_list_node_is_valid(ecx)) goto loc_0037D460;
 
 loc_0037D4DC:
+    cdeadguy_updateall_log("exit", ebp, MEM32(ebp + 8));
     POP32(esp, edi);
     POP32(esp, esi);
     POP32(esp, ebx);

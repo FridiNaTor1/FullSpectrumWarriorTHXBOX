@@ -517,13 +517,15 @@ ptrdiff_t xbox_GetMemoryOffset(void)
  *
  * Simple bump allocator for MmAllocateContiguousMemory and similar.
  * Returns Xbox VAs within the mapped region so MEM32() works correctly.
- * No free support (bump-only for now).
+ * Bump allocator with a small free-list layered on top. Several games
+ * release their shell/UI level before reserving the mission level; keeping
+ * those blocks reusable is required to stay inside the Xbox's 64 MB window.
  */
 static uint32_t g_heap_next = XBOX_HEAP_BASE;
 
 static int g_heap_alloc_count = 0;
 
-#define XBOX_HEAP_RECORD_MAX 16384
+#define XBOX_HEAP_RECORD_MAX 65536
 
 typedef struct XboxHeapRecord {
     uint32_t addr;
@@ -533,6 +535,106 @@ typedef struct XboxHeapRecord {
 
 static XboxHeapRecord g_heap_records[XBOX_HEAP_RECORD_MAX];
 static uint32_t g_heap_record_count = 0;
+
+static void xbox_heap_add_record(uint32_t addr, uint32_t size, int free)
+{
+    if (size == 0 || g_heap_record_count >= XBOX_HEAP_RECORD_MAX) {
+        return;
+    }
+    g_heap_records[g_heap_record_count].addr = addr;
+    g_heap_records[g_heap_record_count].size = size;
+    g_heap_records[g_heap_record_count].free = free;
+    g_heap_record_count++;
+}
+
+static void xbox_heap_remove_record(uint32_t index)
+{
+    if (index >= g_heap_record_count) {
+        return;
+    }
+    g_heap_record_count--;
+    if (index != g_heap_record_count) {
+        g_heap_records[index] = g_heap_records[g_heap_record_count];
+    }
+}
+
+static void xbox_heap_coalesce_free_records(void)
+{
+    int merged;
+
+    do {
+        merged = 0;
+        for (uint32_t i = 0; i < g_heap_record_count && !merged; i++) {
+            XboxHeapRecord *a = &g_heap_records[i];
+            uint32_t a_end;
+            if (!a->free || a->size == 0) {
+                continue;
+            }
+            a_end = a->addr + a->size;
+            for (uint32_t j = i + 1; j < g_heap_record_count; j++) {
+                XboxHeapRecord *b = &g_heap_records[j];
+                uint32_t b_end;
+                if (!b->free || b->size == 0) {
+                    continue;
+                }
+                b_end = b->addr + b->size;
+                if (a_end == b->addr) {
+                    a->size += b->size;
+                    xbox_heap_remove_record(j);
+                    merged = 1;
+                    break;
+                }
+                if (b_end == a->addr) {
+                    a->addr = b->addr;
+                    a->size += b->size;
+                    xbox_heap_remove_record(j);
+                    merged = 1;
+                    break;
+                }
+            }
+        }
+    } while (merged);
+}
+
+static void xbox_heap_get_free_summary(uint32_t alignment,
+                                       uint32_t *free_total,
+                                       uint32_t *free_largest,
+                                       uint32_t *free_records)
+{
+    uint32_t total = 0;
+    uint32_t largest = 0;
+    uint32_t records = 0;
+
+    for (uint32_t i = 0; i < g_heap_record_count; i++) {
+        const XboxHeapRecord *record = &g_heap_records[i];
+        uint32_t aligned;
+        uint32_t available;
+        uint32_t record_end;
+        if (!record->free || record->size == 0) {
+            continue;
+        }
+        records++;
+        total += record->size;
+        aligned = (record->addr + alignment - 1) & ~(alignment - 1);
+        record_end = record->addr + record->size;
+        available = (aligned >= record->addr && aligned < record_end) ? record_end - aligned : 0;
+        if (available > largest) {
+            largest = available;
+        }
+    }
+
+    *free_total = total;
+    *free_largest = largest;
+    *free_records = records;
+}
+
+static int xbox_heap_ranges_overlap(uint32_t a_addr, uint32_t a_size,
+                                    uint32_t b_addr, uint32_t b_size)
+{
+    uint32_t a_end = a_addr + a_size;
+    uint32_t b_end = b_addr + b_size;
+    return a_size != 0 && b_size != 0 && a_addr < b_end && b_addr < a_end;
+}
 
 uint32_t xbox_HeapAlloc(uint32_t size, uint32_t alignment)
 {
@@ -548,13 +650,31 @@ uint32_t xbox_HeapAlloc(uint32_t size, uint32_t alignment)
     /* Align the next pointer */
     for (uint32_t i = 0; i < g_heap_record_count; i++) {
         uint32_t aligned;
+        uint32_t original_addr;
+        uint32_t original_size;
+        uint32_t original_end;
+        uint32_t allocated_end;
         XboxHeapRecord *record = &g_heap_records[i];
-        if (!record->free) {
+        if (!record->free || record->size == 0) {
             continue;
         }
         aligned = (record->addr + alignment - 1) & ~(alignment - 1);
-        if (aligned >= record->addr && aligned + size <= record->addr + record->size) {
+        if (aligned >= record->addr &&
+            aligned <= record->addr + record->size &&
+            size <= (record->addr + record->size) - aligned) {
+            original_addr = record->addr;
+            original_size = record->size;
+            original_end = original_addr + original_size;
+            allocated_end = aligned + size;
+            record->addr = aligned;
+            record->size = size;
             record->free = 0;
+            if (aligned > original_addr) {
+                xbox_heap_add_record(original_addr, aligned - original_addr, 1);
+            }
+            if (allocated_end < original_end) {
+                xbox_heap_add_record(allocated_end, original_end - allocated_end, 1);
+            }
             memset((void *)((uintptr_t)aligned + g_memory_offset), 0, size);
             g_heap_alloc_count++;
             if (g_heap_alloc_count <= 16 || (g_heap_alloc_count % 256) == 0) {
@@ -567,15 +687,80 @@ uint32_t xbox_HeapAlloc(uint32_t size, uint32_t alignment)
         }
     }
 
+    if (size >= 0x100000u) {
+        for (uint32_t i = 0; i < g_heap_record_count; i++) {
+            XboxHeapRecord *record = &g_heap_records[i];
+            uint32_t aligned;
+            uint32_t end;
+            uint32_t blocker = XBOX_HEAP_BASE + XBOX_HEAP_SIZE;
+            if (!record->free || record->size == 0) {
+                continue;
+            }
+            aligned = (record->addr + alignment - 1) & ~(alignment - 1);
+            if (aligned < record->addr || size > (XBOX_HEAP_BASE + XBOX_HEAP_SIZE) - aligned) {
+                continue;
+            }
+            end = aligned + size;
+            for (uint32_t j = 0; j < g_heap_record_count; j++) {
+                XboxHeapRecord *other = &g_heap_records[j];
+                if (other->free || other->size == 0) {
+                    continue;
+                }
+                if (other->addr >= aligned && other->addr < blocker) {
+                    blocker = other->addr;
+                }
+            }
+            if (end > blocker) {
+                continue;
+            }
+            for (uint32_t j = 0; j < g_heap_record_count; j++) {
+                XboxHeapRecord *other = &g_heap_records[j];
+                if (!other->free || other->size == 0) {
+                    continue;
+                }
+                if (xbox_heap_ranges_overlap(other->addr, other->size, aligned, size)) {
+                    other->free = 0;
+                    other->size = 0;
+                }
+            }
+            if (g_heap_record_count < XBOX_HEAP_RECORD_MAX) {
+                g_heap_records[g_heap_record_count].addr = aligned;
+                g_heap_records[g_heap_record_count].size = size;
+                g_heap_records[g_heap_record_count].free = 0;
+                g_heap_record_count++;
+            }
+            memset((void *)((uintptr_t)aligned + g_memory_offset), 0, size);
+            g_heap_alloc_count++;
+            if (g_heap_alloc_count <= 16 || (g_heap_alloc_count % 256) == 0) {
+                fprintf(stderr, "  [HEAP] #%d: size=%u align=%u -> 0x%08X..0x%08X (coalesced, used %u/%u)\n",
+                        g_heap_alloc_count, size, alignment, aligned, aligned + size,
+                        g_heap_next - XBOX_HEAP_BASE, XBOX_HEAP_SIZE);
+                fflush(stderr);
+            }
+            return aligned;
+        }
+    }
+
     result = (g_heap_next + alignment - 1) & ~(alignment - 1);
 
-    if (result + size > XBOX_HEAP_BASE + XBOX_HEAP_SIZE) {
+    if (size > (XBOX_HEAP_BASE + XBOX_HEAP_SIZE) - result) {
+        static uint32_t oom_logs = 0;
         uint32_t guest_ret = 0;
+        uint32_t free_total = 0;
+        uint32_t free_largest = 0;
+        uint32_t free_records = 0;
+        xbox_heap_get_free_summary(alignment, &free_total, &free_largest, &free_records);
         if (g_memory_base && g_esp <= XBOX_TOTAL_RAM - 4) {
             guest_ret = *(volatile uint32_t *)((uintptr_t)g_esp + g_memory_offset);
         }
-        fprintf(stderr, "xbox_HeapAlloc: out of memory (requested %u, used %u/%u, esp=0x%08X ret=0x%08X)\n",
-                size, g_heap_next - XBOX_HEAP_BASE, XBOX_HEAP_SIZE, g_esp, guest_ret);
+        if (oom_logs < 32 || (oom_logs % 8192) == 0) {
+            fprintf(stderr,
+                    "xbox_HeapAlloc: out of memory (requested %u, used %u/%u, free_total=%u, free_largest=%u, free_records=%u, records=%u, esp=0x%08X ret=0x%08X count=%u)\n",
+                    size, g_heap_next - XBOX_HEAP_BASE, XBOX_HEAP_SIZE,
+                    free_total, free_largest, free_records, g_heap_record_count,
+                    g_esp, guest_ret, oom_logs + 1);
+        }
+        oom_logs++;
         return 0;
     }
 
@@ -604,8 +789,9 @@ uint32_t xbox_HeapAlloc(uint32_t size, uint32_t alignment)
 void xbox_HeapFree(uint32_t xbox_va)
 {
     for (uint32_t i = 0; i < g_heap_record_count; i++) {
-        if (g_heap_records[i].addr == xbox_va) {
+        if (g_heap_records[i].size != 0 && g_heap_records[i].addr == xbox_va) {
             g_heap_records[i].free = 1;
+            xbox_heap_coalesce_free_records();
             return;
         }
     }

@@ -7,6 +7,7 @@
 #define RECOMP_GENERATED_CODE
 #include "recomp_funcs.h"
 #include <math.h>
+#include <stdio.h>
 
 extern uint32_t xbox_HeapAlloc(uint32_t size, uint32_t alignment);
 
@@ -103,6 +104,17 @@ void fn_0009E3F2_malloc(void)
 {
 
 loc_0009E3F2:
+    if (MEM32(esp + 4) == 0xCu) {
+        static uint32_t small_malloc_logs = 0;
+        if (small_malloc_logs < 32 || (small_malloc_logs % 8192) == 0) {
+            fprintf(stderr,
+                    "[FSW/malloc] size=12 esp=%08X stack=%08X %08X %08X %08X ecx=%08X eax=%08X count=%u\n",
+                    (unsigned)esp, (unsigned)MEM32(esp + 0), (unsigned)MEM32(esp + 4),
+                    (unsigned)MEM32(esp + 8), (unsigned)MEM32(esp + 0xC),
+                    (unsigned)ecx, (unsigned)eax, (unsigned)(small_malloc_logs + 1));
+        }
+        small_malloc_logs++;
+    }
     eax = xbox_HeapAlloc(MEM32(esp + 4), 16);
     esp += 4; return; /* ret */
 

@@ -367,7 +367,10 @@ static int fsw_cuiimagecontrol_draw_real_texture(uint32_t control, uint32_t matr
     v0 = MEMF(control + 0x100 + 0x18);
     u1 = MEMF(control + 0x100 + 0x1C);
     v1 = MEMF(control + 0x100 + 0x20);
-    if (u1 <= u0 || v1 <= v0 || u1 > 8.0f || v1 > 8.0f) {
+    if (!isfinite(u0) || !isfinite(v0) || !isfinite(u1) || !isfinite(v1) ||
+        fabsf(u0) > 8.0f || fabsf(v0) > 8.0f ||
+        fabsf(u1) > 8.0f || fabsf(v1) > 8.0f ||
+        (fabsf(u1 - u0) < 0.0001f && fabsf(v1 - v0) < 0.0001f)) {
         u0 = 0.0f; v0 = 0.0f; u1 = 1.0f; v1 = 1.0f;
     }
 
@@ -452,8 +455,9 @@ static int fsw_cuiimagecontrol_draw_real_texture(uint32_t control, uint32_t matr
     return 1;
 }
 
-int fsw_cuiimagecontrol_draw_texture_crc(uint32_t crc, float x, float y,
-                                         float w, float h, uint32_t color)
+static int fsw_cuiimagecontrol_draw_texture_crc_ex(uint32_t crc, float x, float y,
+                                                   float w, float h, uint32_t color,
+                                                   float u0, float v0, float u1, float v1)
 {
     static uint32_t draw_log_count;
     static uint32_t miss_log_count;
@@ -461,10 +465,6 @@ int fsw_cuiimagecontrol_draw_texture_crc(uint32_t crc, float x, float y,
     uint32_t tex_w = 0;
     uint32_t tex_h = 0;
     const uint32_t *bgra;
-    float u0 = 0.0f;
-    float v0 = 0.0f;
-    float u1 = 1.0f;
-    float v1 = 1.0f;
     float a;
     float r;
     float g;
@@ -490,11 +490,16 @@ int fsw_cuiimagecontrol_draw_texture_crc(uint32_t crc, float x, float y,
     if ((color & 0x00FFFFFFu) == 0) {
         r = g = b = 1.0f;
     }
+    if (!isfinite(u0) || !isfinite(v0) || !isfinite(u1) || !isfinite(v1) ||
+        fabsf(u0) > 8.0f || fabsf(v0) > 8.0f ||
+        fabsf(u1) > 8.0f || fabsf(v1) > 8.0f) {
+        u0 = 0.0f; v0 = 0.0f; u1 = 1.0f; v1 = 1.0f;
+    }
 
     if (draw_log_count < 64) {
         fprintf(stderr,
-                "[FSW/Menu] draw texture direct crc=%08X pos=%.2f,%.2f size=%.2f,%.2f tex=%ux%u color=%08X\n",
-                crc, x, y, w, h, tex_w, tex_h, color);
+                "[FSW/Menu] draw texture direct crc=%08X pos=%.2f,%.2f size=%.2f,%.2f tex=%ux%u uv=%.3f,%.3f..%.3f,%.3f color=%08X\n",
+                crc, x, y, w, h, tex_w, tex_h, u0, v0, u1, v1, color);
         draw_log_count++;
     }
 
@@ -508,6 +513,21 @@ int fsw_cuiimagecontrol_draw_texture_crc(uint32_t crc, float x, float y,
     };
     d3d8_vulkan_host_draw_rhw(rect, 6, bgra, tex_w, tex_h, 0, 0);
     return 1;
+}
+
+int fsw_cuiimagecontrol_draw_texture_crc(uint32_t crc, float x, float y,
+                                         float w, float h, uint32_t color)
+{
+    return fsw_cuiimagecontrol_draw_texture_crc_ex(crc, x, y, w, h, color,
+                                                   0.0f, 0.0f, 1.0f, 1.0f);
+}
+
+int fsw_cuiimagecontrol_draw_texture_crc_uv(uint32_t crc, float x, float y,
+                                            float w, float h, uint32_t color,
+                                            float u0, float v0, float u1, float v1)
+{
+    return fsw_cuiimagecontrol_draw_texture_crc_ex(crc, x, y, w, h, color,
+                                                   u0, v0, u1, v1);
 }
 
 #endif

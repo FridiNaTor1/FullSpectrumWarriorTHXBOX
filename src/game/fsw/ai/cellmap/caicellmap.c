@@ -20,6 +20,102 @@ static int caicellmap_va_range_is_valid(uint32_t va, uint32_t size)
     return va + size <= 0x04000000u;
 }
 
+static void caicellmap_log_file_state(const char *label, uint32_t file)
+{
+    static uint32_t log_count = 0;
+    uint32_t data;
+    uint32_t current;
+    uint32_t stream;
+
+    if (log_count++ >= 16) {
+        return;
+    }
+
+    if (!caicellmap_va_range_is_valid(file, 0x28)) {
+        fprintf(stderr, "[FSW/CAICellmap] %s invalid file=%08X esp=%08X\n",
+                label, (unsigned)file, (unsigned)esp);
+        return;
+    }
+
+    data = MEM32(file + 8);
+    current = MEM32(file + 0x14);
+    stream = MEM32(file + 0x24);
+    fprintf(stderr,
+            "[FSW/CAICellmap] %s file=%08X status=%08X data=%08X current=%08X stream=%08X esp=%08X\n",
+            label, (unsigned)file, (unsigned)MEM32(file + 4), (unsigned)data,
+            (unsigned)current, (unsigned)stream, (unsigned)esp);
+
+    if (caicellmap_va_range_is_valid(stream, 0x10)) {
+        fprintf(stderr,
+                "[FSW/CAICellmap] %s stream vtbl=%08X base=%08X size=%u cursor=%08X\n",
+                label, (unsigned)MEM32(stream), (unsigned)MEM32(stream + 4),
+                (unsigned)MEM32(stream + 8), (unsigned)MEM32(stream + 0xC));
+    }
+
+    if (caicellmap_va_range_is_valid(data, 0x20)) {
+        fprintf(stderr,
+                "[FSW/CAICellmap] %s data %08X: %08X %08X %08X %08X %08X %08X %08X %08X\n",
+                label, (unsigned)data, (unsigned)MEM32(data + 0),
+                (unsigned)MEM32(data + 4), (unsigned)MEM32(data + 8),
+                (unsigned)MEM32(data + 0xC), (unsigned)MEM32(data + 0x10),
+                (unsigned)MEM32(data + 0x14), (unsigned)MEM32(data + 0x18),
+                (unsigned)MEM32(data + 0x1C));
+    }
+}
+
+static void caicellmap_log_parse_state(const char *label, uint32_t cursor)
+{
+    static uint32_t log_count = 0;
+
+    if (log_count++ >= 16) {
+        return;
+    }
+
+    if (!caicellmap_va_range_is_valid(cursor, 0x20)) {
+        fprintf(stderr, "[FSW/CAICellmap] %s invalid cursor=%08X esp=%08X\n",
+                label, (unsigned)cursor, (unsigned)esp);
+        return;
+    }
+
+    fprintf(stderr,
+            "[FSW/CAICellmap] %s cursor=%08X s16=%d,%d,%d,%d u32=%08X %08X %08X %08X esp=%08X\n",
+            label, (unsigned)cursor, (int)SMEM16(cursor), (int)SMEM16(cursor + 2),
+            (int)SMEM16(cursor + 4), (int)SMEM16(cursor + 6),
+            (unsigned)MEM32(cursor + 0), (unsigned)MEM32(cursor + 4),
+            (unsigned)MEM32(cursor + 8), (unsigned)MEM32(cursor + 0xC),
+            (unsigned)esp);
+}
+
+static void caicellmap_log_edge_pass_start(uint32_t cursor, int32_t cell_count, int32_t edge_count)
+{
+    fprintf(stderr,
+            "[FSW/CAICellmap] edge pass start cursor=%08X cell_count=%d edge_count=%d bytes=%02X %02X %02X %02X %02X %02X %02X %02X esp=%08X\n",
+            (unsigned)cursor, (int)cell_count, (int)edge_count,
+            caicellmap_va_range_is_valid(cursor, 8) ? (unsigned)MEM8(cursor + 0) : 0u,
+            caicellmap_va_range_is_valid(cursor, 8) ? (unsigned)MEM8(cursor + 1) : 0u,
+            caicellmap_va_range_is_valid(cursor, 8) ? (unsigned)MEM8(cursor + 2) : 0u,
+            caicellmap_va_range_is_valid(cursor, 8) ? (unsigned)MEM8(cursor + 3) : 0u,
+            caicellmap_va_range_is_valid(cursor, 8) ? (unsigned)MEM8(cursor + 4) : 0u,
+            caicellmap_va_range_is_valid(cursor, 8) ? (unsigned)MEM8(cursor + 5) : 0u,
+            caicellmap_va_range_is_valid(cursor, 8) ? (unsigned)MEM8(cursor + 6) : 0u,
+            caicellmap_va_range_is_valid(cursor, 8) ? (unsigned)MEM8(cursor + 7) : 0u,
+            (unsigned)esp);
+}
+
+static void caicellmap_log_edge_count(uint32_t cell_index, uint32_t cursor, int32_t count)
+{
+    static uint32_t log_count = 0;
+
+    if (log_count < 32 || count > 16 || (log_count % 256) == 0) {
+        fprintf(stderr,
+                "[FSW/CAICellmap] edge count cell=%u cursor=%08X count=%d raw=%02X esp=%08X\n",
+                (unsigned)cell_index, (unsigned)cursor, (int)count,
+                caicellmap_va_range_is_valid(cursor, 1) ? (unsigned)MEM8(cursor) : 0u,
+                (unsigned)esp);
+    }
+    log_count++;
+}
+
 /**
  * sub_00012651
  * Original: 0x00012651 - 0x0001266B (26 bytes, 8 insns)
@@ -3554,6 +3650,7 @@ loc_00316300:
     PUSH32(esp, 0); fn_00123A20_ZeroFile_OpenFile(); /* call 0x00123A20 */
 
 loc_00316365:
+    caicellmap_log_file_state("after-open", esp + 0x28);
     MEM32(esp + 0xA4) = ebx;
     if (CMP_GE(MEM32(esp + 0x2C), ebx)) { sub_00316396(); return; } /* jge: greater or equal (signed >=) */
 
@@ -3586,6 +3683,7 @@ void sub_00316396(void)
 
 loc_00316396:
     edi = MEM32(esp + 0x30);
+    caicellmap_log_parse_state("magic", edi);
     eax = MEM32(edi);
     edi = edi + 4;
     if (CMP_EQ(eax, 0x4C4543)) { sub_003163C4(); return; } /* je: equal / zero */
@@ -3735,6 +3833,7 @@ loc_0031641D:
     if (CMP_EQ(eax, ebx)) goto loc_003164E2; /* je: equal / zero */
 
 loc_00316428:
+    caicellmap_log_parse_state("counts", edi);
     esi = (uint32_t)(int32_t)SMEM16(edi);
     ecx = (uint32_t)(int32_t)SMEM16(edi + 2);
     edi = edi + 2;
@@ -3824,10 +3923,401 @@ loc_003164FE:
 
 }
 
-/* Fallback for unresolved generated target 0x00316508. */
+/* Recovered continuation for CAICellmap::Load, 0x00316508 - 0x00316866. */
 void sub_00316508(void)
 {
-    recomp_missing_target(0x00316508u);
+    uint32_t ebp;
+    uint32_t saved_ebx;
+    uint32_t saved_esi;
+    uint32_t saved_edi;
+    uint32_t saved_ebp;
+    int _flags = 0; /* fallback flag var */
+    float xmm0, xmm1;
+    ebp = g_seh_ebp; /* fpo_leaf: inherit caller's frame */
+
+loc_00316508:
+    if (CMP_LE(esi, ebx)) goto loc_003165BA; /* jle: less or equal (signed <=) */
+
+loc_00316510:
+    ebp = 0; /* xor self */
+    MEM32(esp + 0x10) = esi;
+    goto loc_00316520;
+
+loc_00316518:
+    ebx = 0; /* xor self */
+    (void)ebx; /* lea ebx, [ebx] */
+
+loc_00316520:
+    eax = (uint32_t)(int32_t)SMEM16(edi + 0x20);
+    edx = MEM32(esp + 0xAC);
+    esi = MEM32(edx + 4);
+    ecx = edi;
+    edi = edi + 0x20;
+    xmm0 = MEMF(edi + 2); /* movss */
+    esi = esi + ebp;
+    edi = edi + 2;
+    eax = eax | 1;
+    PUSH32(esp, ecx);
+    edi = edi + 4;
+    MEM32(esi + 0x40) = ebx;
+    MEM32(esi + 0x44) = ebx;
+    MEM16(esi + 0x14) = LO16(ebx);
+    MEM32(esp + 0x1C) = esi;
+    MEM32(esi + 0x10) = eax;
+    MEMF(esi + 0x3C) = xmm0; /* movss */
+    MEM32(esp + 0x24) = esp;
+    ebx = esp;
+    if (TEST_NZ(ecx, ecx)) goto loc_00316568; /* jne: not equal / not zero */
+
+loc_00316564:
+    MEM32(ebx) = ecx;
+    goto loc_00316571;
+
+loc_00316568:
+    eax = 0; /* xor self */
+    PUSH32(esp, 0); fn_00128D90_CalcLowerCRC(); /* call 0x00128D90 */
+
+loc_0031656F:
+    MEM32(ebx) = eax;
+
+loc_00316571:
+    eax = MEM32(esi);
+    ecx = esi;
+    { uint32_t _icall_esp = esp + 4;
+    saved_ebx = ebx;
+    saved_esi = esi;
+    saved_edi = edi;
+    saved_ebp = ebp;
+    PUSH32(esp, 0); RECOMP_ICALL_SAFE(MEM32(eax + 0x74), _icall_esp); /* indirect call */
+    ebx = saved_ebx;
+    esi = saved_esi;
+    edi = saved_edi;
+    ebp = saved_ebp;
+    }
+
+loc_00316578:
+    edx = MEM32(esi);
+    ecx = esi;
+    { uint32_t _icall_esp = g_esp;
+    saved_ebx = ebx;
+    saved_esi = esi;
+    saved_edi = edi;
+    saved_ebp = ebp;
+    PUSH32(esp, 0); RECOMP_ICALL_SAFE(MEM32(edx + 0x58), _icall_esp); /* indirect call */
+    ebx = saved_ebx;
+    esi = saved_esi;
+    edi = saved_edi;
+    ebp = saved_ebp;
+    }
+
+loc_0031657F:
+    if (TEST_NZ(LO8(eax), LO8(eax))) goto loc_0031658E; /* jne: not equal / not zero */
+
+loc_00316583:
+    eax = MEM32(esi);
+    ecx = esi;
+    { uint32_t _icall_esp = g_esp;
+    saved_ebx = ebx;
+    saved_esi = esi;
+    saved_edi = edi;
+    saved_ebp = ebp;
+    PUSH32(esp, 0); RECOMP_ICALL_SAFE(MEM32(eax + 0x54), _icall_esp); /* indirect call */
+    ebx = saved_ebx;
+    esi = saved_esi;
+    edi = saved_edi;
+    ebp = saved_ebp;
+    }
+
+loc_0031658A:
+    if (TEST_Z(LO8(eax), LO8(eax))) goto loc_00316592; /* je: equal / zero */
+
+loc_0031658E:
+    MEM32(esi + 0x10) = MEM32(esi + 0x10) | 2;
+
+loc_00316592:
+    ecx = MEM32(esp + 0xAC);
+    esi = MEM32(ecx);
+    ebx = esp + 0x18;
+    PUSH32(esp, 0); fn_0002F9A0_PAVCParticleEmitter_ZeroList_Prepend(); /* call 0x0002F9A0 */
+
+loc_003165A4:
+    eax = MEM32(esp + 0x10);
+    ebp = ebp + 0x48;
+    eax--;
+    MEM32(esp + 0x10) = eax;
+    if (TEST_NZ(eax, eax)) goto loc_00316518; /* jne: not equal / not zero */
+
+loc_003165B6:
+    esi = MEM32(esp + 0x14);
+
+loc_003165BA:
+    (void)0; /* test esi, esi - flags set for next jcc */
+    edx = MEM32(esp + 0xAC);
+    ebx = MEM32(edx + 8);
+    caicellmap_log_edge_pass_start(edi, esi, MEM32(esp + 0x14));
+    if (CMP_LE(esi, 0)) goto loc_003167D5; /* jle: less or equal (signed <=) */
+
+loc_003165CC:
+    MEM32(esp + 0x10) = 0;
+    MEM32(esp + 0x18) = esi;
+    goto loc_003165E0;
+
+loc_003165DA:
+    (void)ebx; /* lea ebx, [ebx] */
+
+loc_003165E0:
+    eax = MEM32(esp + 0xAC);
+    esi = MEM32(eax + 4);
+    SET_LO16(eax, (uint16_t)(int16_t)SMEM8(edi));
+    ebp = MEM32(esp + 0x10);
+    eax = (uint32_t)(int32_t)(int16_t)LO16(eax);
+    caicellmap_log_edge_count(ebp / 0x48, edi, (int32_t)eax);
+    esi = esi + ebp;
+    edi++;
+    MEM32(esp + 0x14) = 0;
+    MEM32(esp + 0x20) = eax;
+    if (CMP_LE(eax, 0)) goto loc_003167BB; /* jle: less or equal (signed <=) */
+
+loc_00316610:
+    edx = MEM32(esi);
+    eax = esp + 0x1C;
+    PUSH32(esp, eax);
+    ecx = esi;
+    { uint32_t _icall_esp = esp + 4;
+    saved_ebx = ebx;
+    saved_esi = esi;
+    saved_edi = edi;
+    saved_ebp = ebp;
+    PUSH32(esp, 0); RECOMP_ICALL_SAFE(MEM32(edx + 0x78), _icall_esp); /* indirect call */
+    ebx = saved_ebx;
+    esi = saved_esi;
+    edi = saved_edi;
+    ebp = saved_ebp;
+    }
+
+loc_0031661C:
+    ecx = MEM32(esp + 0x14);
+    PUSH32(esp, ecx);
+    edx = esp + 0x88;
+    PUSH32(esp, 0x53C16C);
+    PUSH32(esp, edx);
+    PUSH32(esp, 0); fn_0009B794_sprintf(); /* call 0x0009B794 */
+
+loc_00316633:
+    SET_LO8(ecx, MEM8(esp + 0x90));
+    eax = MEM32(esp + 0x28);
+    esp = esp + 0xC;
+    eax = ~eax;
+    ebp = esp + 0x84;
+    if (TEST_Z(LO8(ecx), LO8(ecx))) goto loc_00316675; /* je: equal / zero */
+
+loc_00316650:
+    ecx = ZX8(LO8(ecx));
+    edx = ZX8(MEM8(ecx + 0x5CE110));
+    ecx = eax;
+    ecx = ecx >> 0x18;
+    edx = edx ^ ecx;
+    ecx = MEM32(0x5CDD10 + edx * 4);
+    eax = eax << 8;
+    eax = eax ^ ecx;
+    SET_LO8(ecx, MEM8(ebp + 1));
+    ebp++;
+    if (TEST_NZ(LO8(ecx), LO8(ecx))) goto loc_00316650; /* jne: not equal / not zero */
+
+loc_00316675:
+    ebp = (uint32_t)(int32_t)SMEM16(edi);
+    edx = (uint32_t)(int32_t)SMEM16(edi + 2);
+    edi = edi + 2;
+    xmm0 = MEMF(edi + 2); /* movss */
+    edi = edi + 2;
+    edi = edi + 4;
+    MEMF(esp + 0x58) = xmm0; /* movss */
+    xmm0 = MEMF(edi); /* movss */
+    edi = edi + 4;
+    MEMF(esp + 0x54) = xmm0; /* movss */
+    xmm0 = MEMF(edi); /* movss */
+    edi = edi + 4;
+    MEMF(esp + 0x50) = xmm0; /* movss */
+    xmm0 = MEMF(edi); /* movss */
+    eax = ~eax;
+    edi = edi + 4;
+    MEM32(esp + 0x1C) = eax;
+    eax = MEM32(esi);
+    MEMF(esp + 0x78) = xmm0; /* movss */
+    xmm0 = MEMF(edi); /* movss */
+    ecx = esi;
+    MEM32(esp + 0x80) = edx;
+    MEMF(esp + 0x68) = xmm0; /* movss */
+    edi = edi + 4;
+    MEMF(esp + 0x7C) = MEMF(esi + 0x3C); /* CAICell::GetPlane */
+    edx = MEM32(esi);
+    ecx = esi;
+    MEMF(esp + 0x70) = MEMF(esi + 0x3C); /* CAICell::GetPlane */
+    xmm1 = MEMF(esp + 0x54); /* movss */
+    SET_LO16(ecx, MEM16(esp + 0x80));
+    xmm0 = MEMF(esp + 0x58); /* movss */
+    eax = MEM32(esp + 0x7C);
+    edx = MEM32(esp + 0x1C);
+    MEMF(esp + 0x5C) = xmm1; /* movss */
+    xmm1 = MEMF(esp + 0x50); /* movss */
+    MEM16(ebx + 0x34) = LO16(ecx);
+    MEMF(ebx + 0x38) = xmm0; /* movss */
+    MEM8(ebx + 0x24) = 0;
+    MEM32(ebx + 0x1C) = esi;
+    MEMF(esp + 0x64) = xmm1; /* movss */
+    xmm1 = MEMF(esp + 0x78); /* movss */
+    MEM32(ebx + 0x3C) = 0;
+    MEM32(esp + 0x60) = eax;
+    MEMF(esp + 0x6C) = xmm1; /* movss */
+    xmm1 = MEMF(esp + 0x68); /* movss */
+    MEM32(ebx + 0x2C) = edx;
+    eax = MEM32(esi);
+    PUSH32(esp, ebx);
+    ecx = esi;
+    MEMF(esp + 0x78) = xmm1; /* movss */
+    { uint32_t _icall_esp = esp + 4;
+    saved_ebx = ebx;
+    saved_esi = esi;
+    saved_edi = edi;
+    saved_ebp = ebp;
+    PUSH32(esp, 0); RECOMP_ICALL_SAFE(MEM32(eax + 0xC), _icall_esp); /* indirect call */
+    ebx = saved_ebx;
+    esi = saved_esi;
+    edi = saved_edi;
+    ebp = saved_ebp;
+    }
+
+loc_00316759:
+    if (CMP_L(ebp, 0)) goto loc_00316770; /* jl: less (signed <) */
+
+loc_0031675D:
+    edx = MEM32(esp + 0xAC);
+    eax = MEM32(edx + 4);
+    ecx = ebp + ebp * 8;
+    eax = eax + ecx * 8;
+    goto loc_00316772;
+
+loc_00316770:
+    eax = 0; /* xor self */
+
+loc_00316772:
+    edx = MEM32(esp + 0x5C);
+    MEM32(ebx + 0x20) = eax;
+    eax = MEM32(esp + 0x60);
+    ecx = ebx + 4;
+    MEM32(ecx) = edx;
+    edx = MEM32(esp + 0x64);
+    MEM32(ecx + 4) = eax;
+    MEM32(ecx + 8) = edx;
+    ecx = MEM32(esp + 0x6C);
+    edx = MEM32(esp + 0x70);
+    eax = ebx + 0x10;
+    MEM32(eax) = ecx;
+    ecx = MEM32(esp + 0x74);
+    MEM32(eax + 4) = edx;
+    MEM32(eax + 8) = ecx;
+    eax = MEM32(esp + 0x14);
+    ecx = MEM32(esp + 0x20);
+    eax++;
+    ebx = ebx + 0x40;
+    MEM32(esp + 0x14) = eax;
+    if (CMP_L(eax, ecx)) goto loc_00316610; /* jl: less (signed <) */
+
+loc_003167BB:
+    ecx = MEM32(esp + 0x10);
+    eax = MEM32(esp + 0x18);
+    ecx = ecx + 0x48;
+    eax--;
+    MEM32(esp + 0x10) = ecx;
+    MEM32(esp + 0x18) = eax;
+    if (TEST_NZ(eax, eax)) goto loc_003165E0; /* jne: not equal / not zero */
+
+loc_003167D5:
+    edx = MEM32(esp + 0xAC);
+    ecx = MEM32(edx);
+    eax = esp + 0x20;
+    PUSH32(esp, 0); fn_00024630_PAVCDeadGuy_ZeroList_GetHead(); /* call 0x00024630 */
+
+loc_003167E7:
+    ebx = MEM32(esp + 0x20);
+    if (TEST_Z(ebx, ebx)) goto loc_0031682A; /* je: equal / zero */
+
+loc_003167F0:
+    esi = MEM32(ebx);
+    edi = 0; /* xor self */
+    if (CMP_LE(MEM16(esi + 0x2C), LO16(edi))) goto loc_00316823; /* jle: less or equal (signed <=) */
+
+loc_00316800:
+    eax = MEM32(esi + 0x28);
+    ecx = MEM32(eax + edi * 4);
+    eax = MEM32(ecx + 0x20);
+    if (TEST_Z(eax, eax)) goto loc_0031681A; /* je: equal / zero */
+
+loc_0031680D:
+    if (CMP_LE(eax, esi)) goto loc_0031681A; /* jle: less or equal (signed <=) */
+
+loc_00316811:
+    edx = MEM32(esi);
+    PUSH32(esp, ecx);
+    PUSH32(esp, eax);
+    ecx = esi;
+    { uint32_t _icall_esp = esp + 8;
+    saved_ebx = ebx;
+    saved_esi = esi;
+    saved_edi = edi;
+    saved_ebp = ebp;
+    PUSH32(esp, 0); RECOMP_ICALL_SAFE(MEM32(edx + 4), _icall_esp); /* indirect call */
+    ebx = saved_ebx;
+    esi = saved_esi;
+    edi = saved_edi;
+    ebp = saved_ebp;
+    }
+
+loc_0031681A:
+    eax = (uint32_t)(int32_t)SMEM16(esi + 0x2C);
+    edi++;
+    if (CMP_L(edi, eax)) goto loc_00316800; /* jl: less (signed <) */
+
+loc_00316823:
+    ebx = MEM32(ebx + 4);
+    if (TEST_NZ(ebx, ebx)) goto loc_003167F0; /* jne: not equal / not zero */
+
+loc_0031682A:
+    MEM32(esp + 0xA4) = 0xFFFFFFFFu;
+    eax = MEM32(esp + 0x2C);
+    if (CMP_L(eax, 0)) goto loc_00316846; /* jl: less (signed <) */
+
+loc_0031683D:
+    PUSH32(esp, eax);
+    PUSH32(esp, 0); fn_0009E795_close(); /* call 0x0009E795 */
+
+loc_00316843:
+    esp = esp + 4;
+
+loc_00316846:
+    ecx = MEM32(esp + 0x4C);
+    if (TEST_Z(ecx, ecx)) goto loc_00316853; /* je: equal / zero */
+
+loc_0031684E:
+    edx = MEM32(ecx);
+    { uint32_t _icall_esp = g_esp;
+    PUSH32(esp, 0); RECOMP_ICALL_SAFE(MEM32(edx + 4), _icall_esp); /* indirect call */
+    }
+
+loc_00316853:
+    eax = MEM32(esp + 0x34);
+    if (TEST_Z(eax, eax)) goto loc_00316864; /* je: equal / zero */
+
+loc_0031685B:
+    PUSH32(esp, eax);
+    PUSH32(esp, 0); fn_001293F0_3_YAXPAX_Z(); /* call 0x001293F0 */
+
+loc_00316861:
+    esp = esp + 4;
+
+loc_00316864:
+    eax = 0; /* xor self */
+    g_seh_ebp = ebp; sub_00316866(); return; /* tail jmp 0x00316866 */
 }
 
 /**

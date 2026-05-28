@@ -15,6 +15,25 @@ static int wavebank_va_is_valid(uint32_t va)
     return va >= 0x00010000u && va < 0x04000000u;
 }
 
+static uint32_t wavebank_zero_alloc_base(uint32_t user_va)
+{
+    if (user_va < 0x00010010u || user_va >= 0x04000000u) {
+        return 0;
+    }
+
+    uint32_t base = user_va - 0x10u;
+    uint32_t checksum = MEM32(base);
+    uint32_t header_a = MEM32(base + 4);
+    uint32_t header_b = MEM32(base + 8);
+    uint32_t expected = header_a ^ header_b ^ base ^ 0xC0DECAFEu;
+
+    if (checksum != 0 && checksum == expected && header_b <= 0x01000000u) {
+        return base;
+    }
+
+    return 0;
+}
+
 /**
  * fn_001293F0_3_YAXPAX_Z
  * Symbol: ??3@YAXPAX@Z
@@ -31,7 +50,16 @@ void fn_001293F0_3_YAXPAX_Z(void)
 loc_001293F0:
     edx = MEM32(esp + 4);
     if (wavebank_va_is_valid(edx)) {
-        xbox_HeapFree(edx);
+        uint32_t base = wavebank_zero_alloc_base(edx);
+        if (base != 0) {
+            MEM32(base) = 0;
+            xbox_HeapFree(base);
+            if (MEM32(0x5FA8C4) >= 0x10u) {
+                MEM32(0x5FA8C4) = MEM32(0x5FA8C4) - 0x10u;
+            }
+        } else {
+            xbox_HeapFree(edx);
+        }
     }
     eax = 0;
     esp += 4; return; /* ret */

@@ -35,6 +35,71 @@ static int cpropmanager_zero_object_is_valid(uint32_t object)
     return vtable >= 0x00400000u && vtable < 0x00700000u;
 }
 
+static int cpropmanager_scene_manager_has_objects(void)
+{
+    uint32_t entries = MEM32(0x643B60u + 0xDC);
+    uint32_t count = MEM32(0x643B60u + 0xE0);
+
+    return cpropmanager_va_range_is_valid(entries, 0x4C) &&
+           count > 0 &&
+           count <= 0x2000u;
+}
+
+static uint32_t cpropmanager_translate_virtual_ptr(uint32_t value)
+{
+    uint32_t base = MEM32(0x5FA374);
+    uint32_t size = MEM32(0x6081E4);
+
+    if (value == 0) {
+        return 0;
+    }
+    if (base != 0 && value < base && value < size && cpropmanager_va_range_is_valid(base + value, 4)) {
+        return base + value;
+    }
+    if (cpropmanager_va_range_is_valid(value, 4)) {
+        return value;
+    }
+    return value;
+}
+
+static uint32_t cpropmanager_relocate_static_descriptor_object(uint32_t descriptor)
+{
+    uint32_t object;
+    uint32_t relocated;
+    uint32_t translated_vtable;
+
+    if (!cpropmanager_va_range_is_valid(descriptor, 4)) {
+        return 0;
+    }
+    object = MEM32(descriptor);
+    relocated = cpropmanager_translate_virtual_ptr(object);
+    if (relocated != object && cpropmanager_zero_object_is_valid(relocated)) {
+        static uint32_t log_count;
+        MEM32(descriptor) = relocated;
+        if (log_count < 16 || (log_count % 256) == 0) {
+            fprintf(stderr,
+                    "[FSW/Prop] relocated static prop descriptor object def=%08X object=%08X -> %08X count=%u\n",
+                    (unsigned)descriptor, (unsigned)object, (unsigned)relocated,
+                    (unsigned)(log_count + 1));
+        }
+        log_count++;
+    } else if (relocated != object) {
+        static uint32_t fail_log_count;
+        if (fail_log_count < 32 || (fail_log_count % 256) == 0) {
+            translated_vtable = cpropmanager_va_range_is_valid(relocated, 4) ? MEM32(relocated) : 0;
+            fprintf(stderr,
+                    "[FSW/Prop] static descriptor translation invalid def=%08X object=%08X -> %08X vtbl=%08X base=%08X size=%08X count=%u\n",
+                    (unsigned)descriptor, (unsigned)object, (unsigned)relocated,
+                    (unsigned)translated_vtable,
+                    (unsigned)MEM32(0x5FA374), (unsigned)MEM32(0x6081E4),
+                    (unsigned)(fail_log_count + 1));
+        }
+        fail_log_count++;
+        relocated = object;
+    }
+    return relocated;
+}
+
 /**
  * fn_0002ED70_1_ZeroList_VCPropDamage_QAE_XZ
  * Symbol: ??1?$ZeroList@VCPropDamage@@@@QAE@XZ
@@ -3213,7 +3278,7 @@ loc_0029A26B:
     MEM32(esp + 0x10) = ecx;
 
 loc_0029A275:
-    edi = MEM32(ebx);
+    edi = cpropmanager_relocate_static_descriptor_object(ebx);
     (void)0; /* cmp edi, eax - flags set for next jcc */
     MEM32(esp + 0x18) = edi;
     if (CMP_EQ(edi, eax)) goto loc_0029A636; /* je: equal / zero */
@@ -3351,6 +3416,20 @@ loc_0029A334:
         goto loc_0029A636;
     }
     if (TEST_NZ(MEM8(0x643E20), 1)) goto loc_0029A365; /* jne: not equal / not zero */
+    if (cpropmanager_scene_manager_has_objects()) {
+        static uint32_t preserve_scene_manager_logs;
+        if (preserve_scene_manager_logs < 8 || (preserve_scene_manager_logs % 120) == 0) {
+            fprintf(stderr,
+                    "[FSW/Prop] preserving populated SceneManager before static prop add entries=%08X count=%u guard=%08X repair=%u\n",
+                    (unsigned)MEM32(0x643B60u + 0xDC),
+                    (unsigned)MEM32(0x643B60u + 0xE0),
+                    (unsigned)MEM32(0x643E20),
+                    (unsigned)(preserve_scene_manager_logs + 1));
+        }
+        preserve_scene_manager_logs++;
+        MEM32(0x643E20) = MEM32(0x643E20) | 1;
+        goto loc_0029A365;
+    }
 
 loc_0029A33D:
     MEM32(0x643E20) = MEM32(0x643E20) | 1;
