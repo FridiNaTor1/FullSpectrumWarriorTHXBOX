@@ -9,6 +9,7 @@
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 static int cmenusystem_va_is_valid(uint32_t va)
 {
@@ -846,6 +847,15 @@ loc_001B9D59:
             }
         }
         loadmenus_log_count++;
+    }
+    if (getenv("FSW_TH_LEVEL") != NULL &&
+        cmenusystem_va_is_valid(edi) &&
+        strstr((const char *)XBOX_PTR(edi), "menu.ui") != NULL) {
+        fprintf(stderr,
+                "[FSW/Menu] direct level skipping shell menu controls path=%s file=%08X\n",
+                (const char *)XBOX_PTR(edi),
+                (unsigned)esi);
+        goto loc_001B9D66;
     }
     PUSH32(esp, eax);
     edi = esi;

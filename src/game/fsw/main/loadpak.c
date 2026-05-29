@@ -1484,9 +1484,216 @@ static uint32_t fsw_loadpak_repair_zero_object_table(uint32_t table,
     return repaired;
 }
 
+static uint32_t fsw_loadpak_repair_mesh_ptr_array(uint32_t mesh,
+                                                  uint32_t array_offset,
+                                                  uint32_t count_offset,
+                                                  const char *name)
+{
+    uint32_t repaired = 0;
+    uint32_t array;
+    uint32_t count;
+    uint32_t translated_array;
+
+    if (!fsw_loadpak_va_range_is_valid(mesh + array_offset, 8)) {
+        return 0;
+    }
+
+    array = MEM32(mesh + array_offset);
+    count = MEM16(mesh + count_offset);
+    if (array == 0 || count == 0 || count > 0x4000u) {
+        return 0;
+    }
+
+    translated_array = fsw_loadpak_resolve_loaded_value(array);
+    if (translated_array != 0 &&
+        translated_array != array &&
+        fsw_loadpak_va_range_is_valid(translated_array, count * 4u)) {
+        MEM32(mesh + array_offset) = translated_array;
+        array = translated_array;
+        repaired++;
+    }
+
+    if (!fsw_loadpak_va_range_is_valid(array, count * 4u)) {
+        return repaired;
+    }
+
+    for (uint32_t i = 0; i < count; i++) {
+        uint32_t field = array + i * 4u;
+        uint32_t value = MEM32(field);
+        uint32_t translated;
+
+        if (value == 0) {
+            continue;
+        }
+        translated = fsw_loadpak_translate_possible_object_ptr(value);
+        if (translated != value && fsw_loadpak_object_vtable_is_valid(translated, 0x0C)) {
+            MEM32(field) = translated;
+            repaired++;
+            continue;
+        }
+
+        translated = fsw_loadpak_resolve_loaded_value(value);
+        if (translated != 0 &&
+            translated != value &&
+            fsw_loadpak_loaded_range_contains(MEM32(0x5FA374), MEM32(0x6081E4), translated, 4)) {
+            MEM32(field) = translated;
+            repaired++;
+        }
+    }
+
+    if (repaired != 0 && getenv("FSW_TH_LEVEL") != NULL) {
+        static uint32_t mesh_array_log_count;
+        if (mesh_array_log_count < 48) {
+            uint32_t first = MEM32(array);
+            fprintf(stderr,
+                    "[FSW/Load] repaired mesh %s array mesh=%08X array=%08X count=%u first=%08X first_vtbl=%08X repaired=%u\n",
+                    name,
+                    (unsigned)mesh,
+                    (unsigned)array,
+                    (unsigned)count,
+                    (unsigned)first,
+                    (unsigned)(fsw_loadpak_va_range_is_valid(first, 4) ? MEM32(first) : 0),
+                    (unsigned)repaired);
+            mesh_array_log_count++;
+        }
+    }
+    return repaired;
+}
+
+static uint32_t fsw_loadpak_repair_mesh_table(uint32_t table,
+                                              uint32_t count,
+                                              uint32_t stride,
+                                              const char *name)
+{
+    uint32_t repaired = 0;
+    uint32_t visited = 0;
+
+    if (count == 0 || count > 0x10000u ||
+        !fsw_loadpak_va_range_is_valid(table, count * stride)) {
+        return 0;
+    }
+
+    for (uint32_t i = 0; i < count; i++) {
+        uint32_t mesh = table + i * stride;
+        if (!fsw_loadpak_object_vtable_is_valid(mesh, 0x34)) {
+            continue;
+        }
+        visited++;
+        repaired += fsw_loadpak_repair_mesh_ptr_array(mesh, 0x10, 0x14, "materials");
+        repaired += fsw_loadpak_repair_mesh_ptr_array(mesh, 0x18, 0x1C, "descriptors");
+    }
+
+    if (repaired != 0) {
+        fprintf(stderr,
+                "[FSW/Load] repaired mesh table %s table=%08X count=%u stride=%u visited=%u fields=%u\n",
+                name, (unsigned)table, (unsigned)count, (unsigned)stride,
+                (unsigned)visited, (unsigned)repaired);
+    }
+    return repaired;
+}
+
+static uint32_t fsw_loadpak_repair_render_descriptor_table(uint32_t table, uint32_t count)
+{
+    uint32_t repaired = 0;
+    uint32_t visited = 0;
+
+    if (count == 0 || count > 0x20000u ||
+        !fsw_loadpak_va_range_is_valid(table, count * 0x2Cu)) {
+        return 0;
+    }
+
+    for (uint32_t i = 0; i < count; i++) {
+        uint32_t descriptor = table + i * 0x2Cu;
+        uint32_t cookie;
+        uint32_t translated;
+
+        if (MEM32(descriptor) != 0x53C2FCu) {
+            continue;
+        }
+
+        visited++;
+        cookie = MEM32(descriptor + 0x28);
+        translated = fsw_loadpak_translate_possible_object_ptr(cookie);
+        if (translated != cookie && fsw_loadpak_object_vtable_is_valid(translated, 0x0C)) {
+            MEM32(descriptor + 0x28) = translated;
+            repaired++;
+        }
+    }
+
+    if (visited != 0 || repaired != 0) {
+        fprintf(stderr,
+                "[FSW/Load] repaired render descriptors table=%08X count=%u visited=%u cookies=%u first=%08X first_cookie=%08X first_cookie_vtbl=%08X\n",
+                (unsigned)table,
+                (unsigned)count,
+                (unsigned)visited,
+                (unsigned)repaired,
+                (unsigned)table,
+                (unsigned)(fsw_loadpak_va_range_is_valid(table + 0x28, 4) ? MEM32(table + 0x28) : 0),
+                (unsigned)(fsw_loadpak_va_range_is_valid(MEM32(table + 0x28), 4) ? MEM32(MEM32(table + 0x28)) : 0));
+    }
+    return repaired;
+}
+
+static uint32_t fsw_loadpak_repair_render_cookie_table(uint32_t table, uint32_t count)
+{
+    static const uint32_t pointer_offsets[] = {
+        0x14, 0x18, 0x24, 0x28, 0x2C, 0x38, 0x3C, 0x40
+    };
+    uint32_t repaired = 0;
+    uint32_t visited = 0;
+
+    if (count == 0 || count > 0x20000u ||
+        !fsw_loadpak_va_range_is_valid(table, count * 0x4Cu)) {
+        return 0;
+    }
+
+    for (uint32_t i = 0; i < count; i++) {
+        uint32_t cookie = table + i * 0x4Cu;
+        if (MEM32(cookie) != 0x55FF84u) {
+            continue;
+        }
+        visited++;
+        for (uint32_t j = 0; j < (uint32_t)(sizeof(pointer_offsets) / sizeof(pointer_offsets[0])); j++) {
+            uint32_t field = cookie + pointer_offsets[j];
+            uint32_t value = MEM32(field);
+            uint32_t translated;
+            if (value == 0 || value >= MEM32(0x6081E4)) {
+                continue;
+            }
+            translated = fsw_loadpak_resolve_loaded_value(value);
+            if (translated != 0 && translated != value && fsw_loadpak_va_range_is_valid(translated, 4)) {
+                MEM32(field) = translated;
+                repaired++;
+            }
+        }
+    }
+
+    if (visited != 0 || repaired != 0) {
+        fprintf(stderr,
+                "[FSW/Load] repaired render cookies table=%08X count=%u visited=%u fields=%u first=%08X first_vtbl=%08X first_04=%08X first_14=%08X first_40=%08X\n",
+                (unsigned)table,
+                (unsigned)count,
+                (unsigned)visited,
+                (unsigned)repaired,
+                (unsigned)table,
+                (unsigned)(fsw_loadpak_va_range_is_valid(table, 4) ? MEM32(table) : 0),
+                (unsigned)(fsw_loadpak_va_range_is_valid(table + 4, 4) ? MEM32(table + 4) : 0),
+                (unsigned)(fsw_loadpak_va_range_is_valid(table + 0x14, 4) ? MEM32(table + 0x14) : 0),
+                (unsigned)(fsw_loadpak_va_range_is_valid(table + 0x40, 4) ? MEM32(table + 0x40) : 0));
+    }
+    return repaired;
+}
+
 static void fsw_loadpak_repair_constructed_object_graph(const char *phase)
 {
     uint32_t repaired = 0;
+
+    repaired += fsw_loadpak_repair_render_cookie_table(MEM32(0x6080F8), MEM32(0x60817C));
+    repaired += fsw_loadpak_repair_render_descriptor_table(MEM32(0x6080F4), MEM32(0x608178));
+
+    repaired += fsw_loadpak_repair_mesh_table(MEM32(0x6080E0), MEM32(0x608164), 0x40, "ZeroMesh");
+    repaired += fsw_loadpak_repair_mesh_table(MEM32(0x6080E4), MEM32(0x608168), 0x50, "ZeroSkinMesh");
+    repaired += fsw_loadpak_repair_mesh_table(MEM32(0x6080EC), MEM32(0x608170), 0x74, "ZeroPaletteMesh");
 
     repaired += fsw_loadpak_repair_zero_object_table(MEM32(0x608108), MEM32(0x60818C), 0xD0, "ZeroObject");
     repaired += fsw_loadpak_repair_zero_object_table(MEM32(0x60810C), MEM32(0x608190), 0xF0, "LoadSave");
@@ -4506,9 +4713,14 @@ loc_002AAC1C:
     edi = edi;
 
 loc_002AAC20:
+    fsw_loadpak_restore_construct_stack(construct_local_esp, "XBMaterial construct");
     ecx = MEM32(0x5FA8E8);
     eax = MEM32(ecx);
     edx = esp + 0x14;
+    saved_ebx = ebx;
+    saved_ebp = ebp;
+    saved_esi = esi;
+    saved_edi = edi;
     { uint32_t _icall_esp = g_esp;
     PUSH32(esp, edx);
     edx = MEM32(0x608100);
@@ -4518,6 +4730,21 @@ loc_002AAC20:
     }
 
 loc_002AAC3C:
+    if (esp != construct_local_esp) {
+        static uint32_t material_stack_repair_count;
+        if (material_stack_repair_count < 16 || (material_stack_repair_count % 128) == 0) {
+            fprintf(stderr,
+                    "[FSW/Load] ConstructObjects restored XBMaterial esp %08X -> %08X warn=%u\n",
+                    (unsigned)esp, (unsigned)construct_local_esp,
+                    (unsigned)(material_stack_repair_count + 1));
+        }
+        material_stack_repair_count++;
+        esp = construct_local_esp;
+    }
+    ebx = saved_ebx;
+    ebp = saved_ebp;
+    esi = saved_esi;
+    edi = saved_edi;
     eax = MEM32(0x608184);
     edi++;
     esi = esi + 0x11C;
@@ -4533,9 +4760,14 @@ loc_002AAC57:
     /* nop */
 
 loc_002AAC60:
+    fsw_loadpak_restore_construct_stack(construct_local_esp, "XBScrollingMaterial construct");
     ecx = MEM32(0x5FA8E8);
     eax = MEM32(ecx);
     edx = esp + 0x14;
+    saved_ebx = ebx;
+    saved_ebp = ebp;
+    saved_esi = esi;
+    saved_edi = edi;
     { uint32_t _icall_esp = g_esp;
     PUSH32(esp, edx);
     edx = MEM32(0x608104);
@@ -4545,6 +4777,21 @@ loc_002AAC60:
     }
 
 loc_002AAC7C:
+    if (esp != construct_local_esp) {
+        static uint32_t scrolling_material_stack_repair_count;
+        if (scrolling_material_stack_repair_count < 16 || (scrolling_material_stack_repair_count % 128) == 0) {
+            fprintf(stderr,
+                    "[FSW/Load] ConstructObjects restored XBScrollingMaterial esp %08X -> %08X warn=%u\n",
+                    (unsigned)esp, (unsigned)construct_local_esp,
+                    (unsigned)(scrolling_material_stack_repair_count + 1));
+        }
+        scrolling_material_stack_repair_count++;
+        esp = construct_local_esp;
+    }
+    ebx = saved_ebx;
+    ebp = saved_ebp;
+    esi = saved_esi;
+    edi = saved_edi;
     eax = MEM32(0x608188);
     edi++;
     esi = esi + 0x128;

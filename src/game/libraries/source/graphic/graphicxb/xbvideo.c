@@ -27,6 +27,8 @@ static uint32_t g_fsw_xbvideo_default_depth_surface;
 uint32_t g_fsw_xbvideo_global_video;
 uint32_t g_fsw_xbvideo_global_vtable;
 
+#define FSW_ZERO_RENDER_ITEM_CAPACITY 0x4000u
+
 void fsw_xbvideo_ensure_default_render_surfaces(uint32_t video, const char *reason);
 
 static int fsw_xbvideo_texture_debug_enabled(void)
@@ -96,12 +98,12 @@ static int fsw_xbvideo_should_log_crc(uint32_t crc)
 
 static int fsw_xbvideo_va_is_valid(uint32_t va)
 {
-    return va >= 0x00010000u && va < 0x04000000u;
+    return va >= 0x00010000u && va < RECOMP_GUEST_RAM_LIMIT;
 }
 
 static int fsw_xbvideo_va_range_is_valid(uint32_t va, uint32_t size)
 {
-    return va > 0x00010000u && va < 0x04000000u && size <= 0x04000000u - va;
+    return va > 0x00010000u && va < RECOMP_GUEST_RAM_LIMIT && size <= RECOMP_GUEST_RAM_LIMIT - va;
 }
 
 static int fsw_xbvideo_vtable_is_valid(uint32_t vtable)
@@ -111,6 +113,9 @@ static int fsw_xbvideo_vtable_is_valid(uint32_t vtable)
 
 static int fsw_xbvideo_video_is_valid(uint32_t video)
 {
+    if (g_fsw_xbvideo_global_video != 0 && video != g_fsw_xbvideo_global_video) {
+        return 0;
+    }
     return fsw_xbvideo_va_range_is_valid(video, 0x7140) &&
            fsw_xbvideo_vtable_is_valid(MEM32(video));
 }
@@ -2331,7 +2336,7 @@ loc_000512F0:
                     (unsigned)array, (unsigned)target);
             esp += 8; return; /* ret 4 */
         }
-        if (target > 0x200u) {
+        if (target > FSW_ZERO_RENDER_ITEM_CAPACITY) {
             fprintf(stderr, "[FSW/D3D] RenderItem SetCount refused oversize array=%08X target=%u\n",
                     (unsigned)array, (unsigned)target);
             esp += 8; return; /* ret 4 */
@@ -2340,7 +2345,7 @@ loc_000512F0:
         current_count = (uint32_t)(uint16_t)MEM16(array + 4);
         capacity = (uint32_t)(uint16_t)MEM16(array + 6);
         data = MEM32(array);
-        if (current_count > capacity || capacity > 0x200u ||
+        if (current_count > capacity || capacity > FSW_ZERO_RENDER_ITEM_CAPACITY ||
             (current_count != 0 && !fsw_xbvideo_va_range_is_valid(data, current_count * 0x24u))) {
             fprintf(stderr, "[FSW/D3D] RenderItem SetCount reset corrupt array=%08X data=%08X count=%u cap=%u target=%u\n",
                     (unsigned)array, (unsigned)data, (unsigned)current_count,
@@ -2358,8 +2363,8 @@ loc_000512F0:
             uint32_t new_data;
             uint32_t copy_bytes;
 
-            if (new_capacity > 0x200u) {
-                new_capacity = 0x200u;
+            if (new_capacity > FSW_ZERO_RENDER_ITEM_CAPACITY) {
+                new_capacity = FSW_ZERO_RENDER_ITEM_CAPACITY;
             }
             new_data = xbox_HeapAlloc(new_capacity * 0x24u, 16);
             if (!fsw_xbvideo_va_range_is_valid(new_data, new_capacity * 0x24u)) {
@@ -2408,15 +2413,15 @@ loc_000512F0:
         int32_t current_count = (int32_t)(int16_t)MEM16(esi + 4);
         int32_t capacity = (int32_t)(int16_t)MEM16(esi + 6);
         uint32_t data = MEM32(esi);
-        if (edi > 0x200u || current_count < 0 || current_count > 0x200 ||
-            capacity < 0 || capacity > 0x200 ||
+        if (edi > FSW_ZERO_RENDER_ITEM_CAPACITY || current_count < 0 || current_count > (int32_t)FSW_ZERO_RENDER_ITEM_CAPACITY ||
+            capacity < 0 || capacity > (int32_t)FSW_ZERO_RENDER_ITEM_CAPACITY ||
             (current_count > 0 && !fsw_xbvideo_va_range_is_valid(data, (uint32_t)current_count * 0x24u))) {
             fprintf(stderr, "[FSW/D3D] RenderItem SetCount reset corrupt array=%08X data=%08X count=%d cap=%d target=%u\n",
                     (unsigned)esi, (unsigned)data, current_count, capacity, (unsigned)edi);
             MEM32(esi) = 0;
             MEM16(esi + 4) = 0;
             MEM16(esi + 6) = 0;
-            if (edi == 0 || edi > 0x200u) {
+            if (edi == 0 || edi > FSW_ZERO_RENDER_ITEM_CAPACITY) {
                 esp += 8; return; /* ret 4 */
             }
         }
@@ -2548,7 +2553,7 @@ loc_000513B0:
         if (requested <= current_capacity) {
             esp += 12; return; /* ret 8 */
         }
-        if (requested > 0x200u) {
+        if (requested > FSW_ZERO_RENDER_ITEM_CAPACITY) {
             fprintf(stderr, "[FSW/D3D] RenderItem Grow refused oversize array=%08X target=%u count=%u cap=%u\n",
                     (unsigned)array, (unsigned)requested, (unsigned)current_count,
                     (unsigned)current_capacity);
@@ -2556,8 +2561,8 @@ loc_000513B0:
         }
 
         new_capacity = (requested + 0x1FFu) & ~0x1FFu;
-        if (new_capacity > 0x200u) {
-            new_capacity = 0x200u;
+        if (new_capacity > FSW_ZERO_RENDER_ITEM_CAPACITY) {
+            new_capacity = FSW_ZERO_RENDER_ITEM_CAPACITY;
         }
         new_data = xbox_HeapAlloc(new_capacity * 0x24u, 16);
         if (!fsw_xbvideo_va_range_is_valid(new_data, new_capacity * 0x24u)) {
@@ -6903,6 +6908,22 @@ void fn_0013A870_XBVideo_SubmitCallback(void)
     uint32_t sort_key;
 
 loc_0013A870:
+    {
+        static uint32_t xb_submit_callback_logs;
+        uint32_t object_arg = fsw_xbvideo_va_range_is_valid(esp + 4, 4) ? MEM32(esp + 4) : 0;
+        uint32_t flags_arg = fsw_xbvideo_va_range_is_valid(esp + 8, 4) ? MEM32(esp + 8) : 0;
+        if (xb_submit_callback_logs < 96 || (flags_arg & 4)) {
+            fprintf(stderr,
+                    "[FSW/XBVideo] SubmitCallback entry #%u video=%08X object=%08X flags=%08X bucket6=%u items=%u\n",
+                    (unsigned)(xb_submit_callback_logs + 1),
+                    (unsigned)ecx,
+                    (unsigned)object_arg,
+                    (unsigned)flags_arg,
+                    (unsigned)(fsw_xbvideo_va_range_is_valid(ecx + 0x4A64, 2) ? MEM16(ecx + 0x4A64) : 0),
+                    (unsigned)(fsw_xbvideo_va_range_is_valid(0x613EA4, 2) ? MEM16(0x613EA4) : 0));
+        }
+        xb_submit_callback_logs++;
+    }
     { uint32_t _icall_esp = g_esp;
     PUSH32(esp, esi);
     PUSH32(esp, edi);
@@ -9277,6 +9298,23 @@ loc_0013BF30:
     esp = esp - 0x30;
     PUSH32(esp, esi);
     esi = MEM32(esp + 0x38);
+    {
+        static uint32_t construct_material_logs;
+        if ((getenv("FSW_TH_LEVEL") != NULL || getenv("FSW_D3D_DEBUG") != NULL) &&
+            construct_material_logs < 96) {
+            fprintf(stderr,
+                    "[FSW/XBVideo] ConstructMaterial begin #%u raw=%08X raw_vtbl=%08X type=%08X flags=%08X surface0=%08X out=%08X esp=%08X\n",
+                    (unsigned)(construct_material_logs + 1),
+                    (unsigned)esi,
+                    (unsigned)((esi != 0 && esi < 0x04000000u) ? MEM32(esi) : 0),
+                    (unsigned)((esi != 0 && esi < 0x04000000u) ? MEM32(esi + 0x98) : 0),
+                    (unsigned)((esi != 0 && esi < 0x04000000u) ? MEM32(esi + 0x9C) : 0),
+                    (unsigned)((esi != 0 && esi < 0x04000000u) ? MEM32(esi + 0x50) : 0),
+                    (unsigned)MEM32(esp + 0x3C),
+                    (unsigned)esp);
+            construct_material_logs++;
+        }
+    }
     eax = MEM32(esi + 0x9C);
     edx = MEM32(esi + 0x98);
     ecx = MEM32(esi + 0xA4);
@@ -9332,6 +9370,23 @@ loc_0013BF9A:
     PUSH32(esp, 0); fn_00147150_0XBGenericMaterial_QAE_PAVCLoadData_Z(); /* call 0x00147150 */
 
 loc_0013BFA1:
+    {
+        static uint32_t construct_generic_logs;
+        if ((getenv("FSW_TH_LEVEL") != NULL || getenv("FSW_D3D_DEBUG") != NULL) &&
+            construct_generic_logs < 96) {
+            fprintf(stderr,
+                    "[FSW/XBVideo] ConstructMaterial generic #%u raw=%08X raw_vtbl=%08X material=%08X material_vtbl=%08X out_slot=%08X out_value=%08X esp=%08X\n",
+                    (unsigned)(construct_generic_logs + 1),
+                    (unsigned)esi,
+                    (unsigned)((esi != 0 && esi < 0x04000000u) ? MEM32(esi) : 0),
+                    (unsigned)eax,
+                    (unsigned)((eax != 0 && eax < 0x04000000u) ? MEM32(eax) : 0),
+                    (unsigned)(esp + 8),
+                    (unsigned)MEM32(esp + 8),
+                    (unsigned)esp);
+            construct_generic_logs++;
+        }
+    }
     edx = MEM32(esi);
     eax = esp + 8;
     { uint32_t _icall_esp = g_esp;
@@ -16215,25 +16270,63 @@ loc_00140021:
  */
 void fn_00140030_XBVideo_Render(void)
 {
+    uint32_t desc;
+    uint32_t material;
+    uint32_t video;
 
 loc_00140030:
+    desc = fsw_xbvideo_va_range_is_valid(esp + 4, 4) ? MEM32(esp + 4) : 0;
+    material = fsw_xbvideo_va_range_is_valid(esp + 8, 4) ? MEM32(esp + 8) : 0;
+    video = ecx;
+    {
+        static uint32_t xb_render_logs;
+        if (xb_render_logs < 64) {
+            fprintf(stderr,
+                    "[FSW/XBVideo] Render primitive #%u video=%08X desc=%08X desc_count=%08X desc_flags=%08X desc_prim=%08X material=%08X material_vtbl=%08X esp=%08X\n",
+                    (unsigned)(xb_render_logs + 1),
+                    (unsigned)video,
+                    (unsigned)desc,
+                    (unsigned)(fsw_xbvideo_va_range_is_valid(desc + 0x18, 4) ? MEM32(desc + 0x18) : 0),
+                    (unsigned)(fsw_xbvideo_va_range_is_valid(desc + 0x0C, 4) ? MEM32(desc + 0x0C) : 0),
+                    (unsigned)(fsw_xbvideo_va_range_is_valid(desc + 0x14, 4) ? MEM32(desc + 0x14) : 0),
+                    (unsigned)material,
+                    (unsigned)(fsw_xbvideo_va_range_is_valid(material, 4) ? MEM32(material) : 0),
+                    (unsigned)esp);
+        }
+        xb_render_logs++;
+    }
     PUSH32(esp, esi);
-    esi = MEM32(esp + 0xC);
+    esi = material;
     PUSH32(esp, edi);
-    edi = MEM32(esp + 0xC);
+    edi = desc;
     PUSH32(esp, 0);
-    PUSH32(esp, esi);
-    PUSH32(esp, edi);
-    PUSH32(esp, ecx);
+    PUSH32(esp, material);
+    PUSH32(esp, desc);
+    PUSH32(esp, video);
     PUSH32(esp, 0); fn_0013F490_XBVideo_Update(); /* call 0x0013F490 */
 
 loc_00140044:
-    eax = MEM32(esi);
-    { uint32_t _icall_esp = g_esp;
-    PUSH32(esp, edi);
-    ecx = esi;
-    PUSH32(esp, 0); RECOMP_ICALL_SAFE(MEM32(eax + 0x3C), _icall_esp); /* indirect call */
-    }
+    eax = MEM32(material);
+	    { uint32_t _icall_esp = g_esp;
+	    {
+	        static uint32_t xb_render_target_logs;
+	        if (xb_render_target_logs < 64) {
+	            fprintf(stderr,
+	                    "[FSW/XBVideo] Render primitive call #%u material=%08X vtbl=%08X target=%08X desc=%08X saved_esp=%08X esp=%08X\n",
+	                    (unsigned)(xb_render_target_logs + 1),
+	                    (unsigned)material,
+	                    (unsigned)eax,
+	                    (unsigned)(fsw_xbvideo_va_range_is_valid(eax + 0x3C, 4) ? MEM32(eax + 0x3C) : 0),
+	                    (unsigned)desc,
+	                    (unsigned)_icall_esp,
+	                    (unsigned)esp);
+	        }
+	        xb_render_target_logs++;
+	    }
+	    PUSH32(esp, desc);
+	    ecx = material;
+	    PUSH32(esp, 0); RECOMP_ICALL_SAFE(MEM32(eax + 0x3C), _icall_esp); /* indirect call */
+	    }
 
 loc_0014004C:
     POP32(esp, edi);
@@ -17561,6 +17654,29 @@ void fn_00140DF0_XBVideo_RenderLitItem(void)
     ebp = g_seh_ebp; /* fpo_leaf: inherit caller's frame */
 
 loc_00140DF0:
+    {
+        static uint32_t render_lit_entry_logs;
+        if (render_lit_entry_logs < 96) {
+            uint32_t item = esi;
+            uint32_t object = fsw_xbvideo_va_range_is_valid(item, 4) ? MEM32(item) : 0;
+            uint32_t mesh = fsw_xbvideo_va_range_is_valid(object + 0xC0, 4) ? MEM32(object + 0xC0) : 0;
+            uint32_t mesh_vtbl = fsw_xbvideo_va_range_is_valid(mesh, 4) ? MEM32(mesh) : 0;
+            uint32_t prim = fsw_xbvideo_va_range_is_valid(item + 0x18, 2) ? MEM16(item + 0x18) : 0;
+            uint32_t bucket_slot = fsw_xbvideo_va_range_is_valid(item + 0x1A, 2) ? MEM16(item + 0x1A) : 0;
+            fprintf(stderr,
+                    "[FSW/XBVideo] RenderLitItem entry #%u item=%08X object=%08X mesh=%08X mesh_vtbl=%08X prim=%u slot=%u video_arg=%08X esp=%08X\n",
+                    (unsigned)(render_lit_entry_logs + 1),
+                    (unsigned)item,
+                    (unsigned)object,
+                    (unsigned)mesh,
+                    (unsigned)mesh_vtbl,
+                    (unsigned)prim,
+                    (unsigned)bucket_slot,
+                    (unsigned)(fsw_xbvideo_va_range_is_valid(esp + 4, 4) ? MEM32(esp + 4) : 0),
+                    (unsigned)esp);
+        }
+        render_lit_entry_logs++;
+    }
     eax = ZX16(MEM16(esi + 0x1A));
     ecx = MEM32(esp + 4);
     eax = eax + eax * 8;
@@ -17588,6 +17704,22 @@ loc_00140E1F:
     ebp = eax;
     eax = MEM32(ebx + 0x10);
     ebx = MEM32(eax + edx * 4);
+    {
+        static uint32_t render_lit_resolved_logs;
+        if (render_lit_resolved_logs < 96) {
+            fprintf(stderr,
+                    "[FSW/XBVideo] RenderLitItem resolved #%u desc=%08X desc_vtbl=%08X material=%08X material_vtbl=%08X material_flags=%08X video=%08X mode=%u\n",
+                    (unsigned)(render_lit_resolved_logs + 1),
+                    (unsigned)ebp,
+                    (unsigned)(fsw_xbvideo_va_range_is_valid(ebp, 4) ? MEM32(ebp) : 0),
+                    (unsigned)ebx,
+                    (unsigned)(fsw_xbvideo_va_range_is_valid(ebx, 4) ? MEM32(ebx) : 0),
+                    (unsigned)(fsw_xbvideo_va_range_is_valid(ebx + 0x9C, 4) ? MEM32(ebx + 0x9C) : 0),
+                    (unsigned)ecx,
+                    (unsigned)(fsw_xbvideo_va_range_is_valid(ecx + 0x4A28, 4) ? MEM32(ecx + 0x4A28) : 0));
+        }
+        render_lit_resolved_logs++;
+    }
     eax = MEM32(ecx + 0x4A28);
     edx = edi + eax * 4;
     eax = ZX8(MEM8(eax + edx + 0x5CD920));
@@ -17634,12 +17766,41 @@ void fn_00140E70_XBVideo_RenderItem(void)
     int _flags = 0; /* fallback flag var */
     ebp = g_seh_ebp; /* fpo_leaf: inherit caller's frame */
 
-loc_00140E70:
-    PUSH32(esp, ecx);
-    PUSH32(esp, ebp);
-    ebp = MEM32(esp + 0xC);
-    PUSH32(esp, esi);
-    esi = eax;
+	loc_00140E70:
+	    PUSH32(esp, ecx);
+	    PUSH32(esp, ebp);
+	    ebp = MEM32(esp + 0xC);
+	    ebp = fsw_xbvideo_restore_video(ebp, "RenderItem");
+	    PUSH32(esp, esi);
+	    esi = eax;
+	    if (!fsw_xbvideo_video_is_valid(ebp) ||
+	        !fsw_xbvideo_va_range_is_valid(esi, 0x24)) {
+	        static uint32_t render_item_repair_logs;
+	        if (render_item_repair_logs < 32) {
+	            fprintf(stderr, "[FSW/XBVideo] RenderItem skipped invalid video=%08X item=%08X\n",
+	                    (unsigned)ebp, (unsigned)esi);
+	        }
+	        render_item_repair_logs++;
+	        POP32(esp, esi);
+	        POP32(esp, ebp);
+	        POP32(esp, ecx);
+	        esp += 12; return; /* ret 8 */
+	    }
+	    {
+	        static uint32_t render_item_logs;
+	        if (render_item_logs < 48) {
+            fprintf(stderr,
+                    "[FSW/XBVideo] RenderItem #%u item=%08X segment=%08X bucket_arg=%08X material_index=%04X mesh_index=%04X flags=%02X\n",
+                    (unsigned)(render_item_logs + 1),
+                    (unsigned)esi,
+                    (unsigned)(fsw_xbvideo_va_range_is_valid(esi, 4) ? MEM32(esi) : 0),
+                    (unsigned)ebp,
+                    (unsigned)(fsw_xbvideo_va_range_is_valid(esi + 0x18, 2) ? MEM16(esi + 0x18) : 0),
+                    (unsigned)(fsw_xbvideo_va_range_is_valid(esi + 0x1A, 2) ? MEM16(esi + 0x1A) : 0),
+                    (unsigned)(fsw_xbvideo_va_range_is_valid(esi + 0x10, 1) ? MEM8(esi + 0x10) : 0));
+        }
+        render_item_logs++;
+    }
     MEM32(esp + 0x10) = esi;
     edx = MEM32(esp + 0x10);
     /* TODO: prefetcht0 byte ptr [edx] */
@@ -17654,13 +17815,29 @@ loc_00140E9B:
     MEM16(ebp + 0x4A26) = LO16(eax);
     MEM32(ebp + 0x184) = MEM32(ebp + 0x184) | 0x3E;
 
-loc_00140EA9:
-    ecx = MEM32(esi);
-    eax = MEM32(ecx);
-    { uint32_t _icall_esp = g_esp;
-    PUSH32(esp, esi);
-    PUSH32(esp, 0); RECOMP_ICALL_SAFE(MEM32(eax + 0x2C), _icall_esp); /* indirect call */
-    }
+	loc_00140EA9:
+	    ecx = MEM32(esi);
+	    eax = MEM32(ecx);
+	    {
+	        static uint32_t render_setup_logs;
+	        if (render_setup_logs < 32) {
+	            fprintf(stderr,
+	                    "[FSW/XBVideo] RenderItem setup #%u object=%08X vtbl=%08X setup=%08X pre_items=%u pre_b0=%u pre_b5=%u pre_b6=%u\n",
+	                    (unsigned)(render_setup_logs + 1),
+	                    (unsigned)ecx,
+	                    (unsigned)eax,
+	                    (unsigned)(fsw_xbvideo_va_range_is_valid(eax + 0x2C, 4) ? MEM32(eax + 0x2C) : 0),
+	                    (unsigned)(fsw_xbvideo_va_range_is_valid(0x613EA4, 2) ? MEM16(0x613EA4) : 0),
+	                    (unsigned)(fsw_xbvideo_va_range_is_valid(ebp + 0x4A30 + 0 * 8 + 4, 2) ? MEM16(ebp + 0x4A30 + 0 * 8 + 4) : 0),
+	                    (unsigned)(fsw_xbvideo_va_range_is_valid(ebp + 0x4A30 + 5 * 8 + 4, 2) ? MEM16(ebp + 0x4A30 + 5 * 8 + 4) : 0),
+	                    (unsigned)(fsw_xbvideo_va_range_is_valid(ebp + 0x4A30 + 6 * 8 + 4, 2) ? MEM16(ebp + 0x4A30 + 6 * 8 + 4) : 0));
+	        }
+	        render_setup_logs++;
+	    }
+	    { uint32_t _icall_esp = g_esp;
+	    PUSH32(esp, esi);
+	    PUSH32(esp, 0); RECOMP_ICALL_SAFE(MEM32(eax + 0x2C), _icall_esp); /* indirect call */
+	    }
 
 loc_00140EB1:
     POP32(esp, esi);
@@ -17668,6 +17845,86 @@ loc_00140EB1:
     POP32(esp, ecx);
     esp += 12; return; /* ret 8 */
 
+}
+
+static void fsw_xbvideo_render_bucket_mode0(uint32_t video,
+                                            uint32_t bucket_key,
+                                            int32_t count,
+                                            uint32_t bucket_flags)
+{
+    uint32_t list;
+    uint32_t item_base;
+    uint32_t item_capacity;
+
+    if (!fsw_xbvideo_video_is_valid(video) ||
+        !fsw_xbvideo_va_range_is_valid(bucket_key, 8) ||
+        count <= 0) {
+        return;
+    }
+
+    list = MEM32(bucket_key);
+    item_base = MEM32(0x613EA0);
+    item_capacity = ZX16(MEM16(0x613EA4));
+    if (count > (int32_t)FSW_ZERO_RENDER_ITEM_CAPACITY) {
+        count = (int32_t)FSW_ZERO_RENDER_ITEM_CAPACITY;
+    }
+    if (!fsw_xbvideo_va_range_is_valid(list, (uint32_t)count * 8u) ||
+        !fsw_xbvideo_va_range_is_valid(item_base, item_capacity * 0x24u)) {
+        static uint32_t invalid_mode0_logs;
+        if (invalid_mode0_logs < 16) {
+            fprintf(stderr,
+                    "[FSW/XBVideo] RenderBucket mode0 skipped invalid list=%08X base=%08X count=%d items=%u video=%08X\n",
+                    (unsigned)list,
+                    (unsigned)item_base,
+                    (int)count,
+                    (unsigned)item_capacity,
+                    (unsigned)video);
+        }
+        invalid_mode0_logs++;
+        return;
+    }
+
+    {
+        static uint32_t mode0_logs;
+        if (mode0_logs < 16) {
+            fprintf(stderr,
+                    "[FSW/XBVideo] RenderBucket mode0 host loop #%u video=%08X count=%d flags=%08X list=%08X base=%08X\n",
+                    (unsigned)(mode0_logs + 1),
+                    (unsigned)video,
+                    (int)count,
+                    (unsigned)bucket_flags,
+                    (unsigned)list,
+                    (unsigned)item_base);
+        }
+        mode0_logs++;
+    }
+
+    for (int32_t i = 0; i < count; i++) {
+        int32_t item_index = (int32_t)SMEM16(list + (uint32_t)i * 8u + 4u);
+        uint32_t item;
+        uint32_t aux_arg = 0;
+
+        if (item_index < 0 || (uint32_t)item_index >= item_capacity) {
+            continue;
+        }
+        item = item_base + (uint32_t)item_index * 0x24u;
+        if (!fsw_xbvideo_va_range_is_valid(item, 0x24)) {
+            continue;
+        }
+
+        if ((bucket_flags & 8u) == 0) {
+            uint32_t mesh_index = ZX16(MEM16(item + 0x1A));
+            uint32_t slot = video + (mesh_index + mesh_index * 8u) * 4u + 0x224u;
+            if (fsw_xbvideo_va_range_is_valid(slot, 4)) {
+                aux_arg = MEM32(slot);
+            }
+        }
+
+        eax = item;
+        PUSH32(esp, aux_arg);
+        PUSH32(esp, video);
+        PUSH32(esp, 0); fn_00140E70_XBVideo_RenderItem();
+    }
 }
 
 /**
@@ -17886,30 +18143,72 @@ loc_00141069:
 void fn_00141080_XBVideo_RenderBucket(void)
 {
     uint32_t ebp;
+    uint32_t bucket_id;
+    uint32_t bucket_flags;
     int _flags = 0; /* fallback flag var */
 
 loc_00141080:
+    bucket_id = eax;
     PUSH32(esp, ebp);
     ebp = esp;
-    esp = esp & 0xFFFFFFF0u;
-    esp = esp - 0x94;
-    PUSH32(esp, ebx);
-    ebx = MEM32(ebp + 8);
-    PUSH32(esp, esi);
+    bucket_flags = MEM32(ebp + 0xC);
+	    esp = esp & 0xFFFFFFF0u;
+	    esp = esp - 0x94;
+	    PUSH32(esp, ebx);
+	    ebx = MEM32(ebp + 8);
+	    ebx = fsw_xbvideo_restore_video(ebx, "RenderBucket");
+	    if (!fsw_xbvideo_video_is_valid(ebx)) {
+	        POP32(esp, ebx);
+	        esp = ebp;
+	        POP32(esp, ebp);
+	        esp += 12; return; /* ret 8 */
+	    }
+	    PUSH32(esp, esi);
     esi = ebx + eax * 8 + 0x4A30;
     SET_LO8(eax, MEM8(ebx + 0xE4));
     (void)0; /* test LO8(eax), LO8(eax) - flags set for next jcc */
     PUSH32(esp, edi);
     edi = (uint32_t)(int32_t)SMEM16(esi + 4);
+    if (edi > (int32_t)MEM32(0x613EA4)) {
+        static uint32_t bucket_count_clamp_logs;
+        if (bucket_count_clamp_logs < 32) {
+            fprintf(stderr,
+                    "[FSW/XBVideo] clamping RenderBucket count bucket=%u count=%d items=%u key=%08X\n",
+                    (unsigned)bucket_id,
+                    (int)edi,
+                    (unsigned)MEM32(0x613EA4),
+                    (unsigned)esi);
+        }
+        bucket_count_clamp_logs++;
+        edi = (int32_t)MEM32(0x613EA4);
+    }
     MEM32(esp + 0x18) = esi;
     MEM32(esp + 0x14) = edi;
+    {
+        static uint32_t render_bucket_logs;
+        if (render_bucket_logs < 48) {
+            fprintf(stderr,
+                    "[FSW/XBVideo] RenderBucket #%u video=%08X bucket=%u key=%08X enabled=%u count=%d flags=%08X mode=%u list=%08X base=%08X\n",
+                    (unsigned)(render_bucket_logs + 1),
+                    (unsigned)ebx,
+                    (unsigned)bucket_id,
+                    (unsigned)esi,
+                    (unsigned)MEM8(ebx + 0xE4),
+                    (int)SMEM16(esi + 4),
+                    (unsigned)bucket_flags,
+                    (unsigned)MEM32(ebx + 0x4A28),
+                    (unsigned)MEM32(esi),
+                    (unsigned)MEM32(0x613EA0));
+        }
+        render_bucket_logs++;
+    }
     if (TEST_Z(LO8(eax), LO8(eax))) goto loc_001414C6; /* je: equal / zero */
 
 loc_001410B3:
     if (CMP_LE(edi & edi, 0)) goto loc_001414C6; /* jle: less or equal (signed <=) */
 
 loc_001410BB:
-    if (TEST_Z(MEM8(ebp + 0xC), 1)) goto loc_001410C8; /* je: equal / zero */
+    if (TEST_Z(LO8(bucket_flags), 1)) goto loc_001410C8; /* je: equal / zero */
 
 loc_001410C1:
     eax = esi;
@@ -17985,7 +18284,7 @@ loc_0014117E:
     MEM32(ebx + 0x6BF4) = MEM32(ebx + 0x6BF4) & 0xFFFFFFFCu;
 
 loc_00141185:
-    SET_LO8(ecx, MEM8(ebp + 0xC));
+    SET_LO8(ecx, LO8(bucket_flags));
     if (TEST_Z(LO8(ecx), 0x10)) goto loc_001411D3; /* je: equal / zero */
 
 loc_0014118D:
@@ -18020,13 +18319,51 @@ loc_001411CE:
     goto loc_001414BC;
 
 loc_001411D3:
+    ebx = fsw_xbvideo_restore_video(ebx, "RenderBucket switch");
+    if (!fsw_xbvideo_video_is_valid(ebx)) goto loc_001414C6;
+    esi = ebx + bucket_id * 8 + 0x4A30;
+    edi = (uint32_t)(int32_t)SMEM16(esi + 4);
+    if (edi > (int32_t)FSW_ZERO_RENDER_ITEM_CAPACITY) {
+        static uint32_t bucket_switch_clamp_logs;
+        if (bucket_switch_clamp_logs < 32) {
+            fprintf(stderr,
+                    "[FSW/XBVideo] clamping RenderBucket switch count bucket=%u count=%d cap=%u key=%08X\n",
+                    (unsigned)bucket_id,
+                    (int)edi,
+                    (unsigned)FSW_ZERO_RENDER_ITEM_CAPACITY,
+                    (unsigned)esi);
+        }
+        bucket_switch_clamp_logs++;
+        edi = (int32_t)FSW_ZERO_RENDER_ITEM_CAPACITY;
+    }
+    MEM32(esp + 0x18) = esi;
+    MEM32(esp + 0x14) = edi;
     eax = MEM32(ebx + 0x4A28);
     if (CMP_A(eax, 6)) goto loc_001414BC; /* ja: above (unsigned >) */
 
 loc_001411E2:
     { uint32_t _jt = MEM32(eax * 4 + 0x141540); /* switch: 7 entries, 5 targets */
+    {
+        static uint32_t bucket_switch_logs;
+        if (bucket_switch_logs < 64) {
+            fprintf(stderr,
+                    "[FSW/XBVideo] RenderBucket switch #%u bucket=%u mode=%u target=%08X count=%d flags=%08X list=%08X items=%u\n",
+                    (unsigned)(bucket_switch_logs + 1),
+                    (unsigned)bucket_id,
+                    (unsigned)eax,
+                    (unsigned)_jt,
+                    (int)edi,
+                    (unsigned)bucket_flags,
+                    (unsigned)MEM32(esi),
+                    (unsigned)MEM32(0x613EA4));
+        }
+        bucket_switch_logs++;
+    }
     if (_jt == 0x001411E9u) goto loc_001411E9;
-    if (_jt == 0x00141232u) goto loc_00141232;
+    if (_jt == 0x00141232u) {
+        fsw_xbvideo_render_bucket_mode0(ebx, esi, (int32_t)edi, bucket_flags);
+        goto loc_001414BC;
+    }
     if (_jt == 0x001412CDu) goto loc_001412CD;
     if (_jt == 0x00141310u) goto loc_00141310;
     if (_jt == 0x00141487u) goto loc_00141487;

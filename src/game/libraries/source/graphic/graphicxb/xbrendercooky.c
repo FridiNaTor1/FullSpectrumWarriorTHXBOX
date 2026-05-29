@@ -29,8 +29,7 @@ static int xbrendercooky_descriptor_is_valid(uint32_t descriptor)
 
     uint32_t vertex_count = MEM32(descriptor + 0x18);
     uint32_t vertex_flags = MEM32(descriptor + 0x0C);
-    uint32_t primitive = MEM32(descriptor + 0x14);
-    if (vertex_count > 0x100000u || vertex_flags > 0x01FFFFFFu || primitive > 8u) {
+    if (vertex_count > 0x4000u || vertex_flags > 0x01FFFFFFu) {
         return 0;
     }
 
@@ -42,6 +41,7 @@ static uint32_t xbrendercooky_lock_cookie;
 static uint32_t xbrendercooky_lock_descriptor;
 static uint32_t xbrendercooky_lock_record;
 static uint32_t xbrendercooky_lock_vertex_size;
+static uint32_t xbrendercooky_lock_video;
 
 static int xbrendercooky_stack_va_is_valid(uint32_t va)
 {
@@ -131,6 +131,7 @@ static void xbrendercooky_lock_capture(uint32_t cookie, uint32_t descriptor, uin
     xbrendercooky_lock_descriptor = descriptor;
     xbrendercooky_lock_record = record;
     xbrendercooky_lock_vertex_size = 0;
+    xbrendercooky_lock_video = MEM32(0x5FA8E8);
 }
 
 static uint32_t xbrendercooky_lock_restore_context(uint32_t current_ebp)
@@ -3853,23 +3854,58 @@ loc_00145812:
     PUSH32(esp, 0); fn_001398C0_XBVideo_GetVertexSize(); /* call 0x001398C0 */
 
 loc_00145821:
-    ecx = MEM32(esp + 0x18);
-    edi = eax;
-    xbrendercooky_lock_vertex_size = edi;
-    MEM32(ebp + 0x10) = 1;
-    MEM32(ebp + 0x30) = esi;
-    eax = MEM32(ebx + 0x18);
-    eax = eax & 0x1FFFF;
-    PUSH32(esp, eax);
-    eax = MEM32(esp + 0x28);
-    PUSH32(esp, edi);
-    PUSH32(esp, eax);
-    ecx = ecx + 0x6750;
-    PUSH32(esp, ecx);
-    PUSH32(esp, 0); fn_001392D0_XBVertexBufferTree_FindBuffer(); /* call 0x001392D0 */
+	edi = eax;
+	xbrendercooky_lock_vertex_size = edi;
+	ebp = xbrendercooky_lock_restore_context(ebp);
+	ecx = MEM32(esp + 0x18);
+	if (xbrendercooky_va_range_is_valid(xbrendercooky_lock_video + 0x6750, 0x30)) {
+	    ecx = xbrendercooky_lock_video;
+	} else if (!xbrendercooky_va_range_is_valid(ecx + 0x6750, 0x30)) {
+	    ecx = 0;
+	}
+	MEM32(ebp + 0x10) = 1;
+	MEM32(ebp + 0x30) = esi;
+	eax = MEM32(ebx + 0x18);
+	eax = eax & 0x1FFFF;
+	PUSH32(esp, eax);
+	eax = MEM32(esp + 0x28);
+	PUSH32(esp, edi);
+	PUSH32(esp, eax);
+	ecx = ecx + 0x6750;
+	{
+	    static uint32_t findbuffer_call_logs;
+	    if (findbuffer_call_logs < 32) {
+	        fprintf(stderr,
+	                "[FSW/RenderCookie] FindBuffer call #%u tree=%08X desc=%08X count=%u stride=%u key_arg=%08X video=%08X cookie=%08X\n",
+	                (unsigned)(findbuffer_call_logs + 1),
+	                (unsigned)ecx,
+	                (unsigned)ebx,
+	                (unsigned)(MEM32(ebx + 0x18) & 0x1FFFFu),
+	                (unsigned)edi,
+	                (unsigned)eax,
+	                (unsigned)xbrendercooky_lock_video,
+	                (unsigned)ebp);
+	    }
+	    findbuffer_call_logs++;
+	}
+	PUSH32(esp, ecx);
+	PUSH32(esp, 0); fn_001392D0_XBVertexBufferTree_FindBuffer(); /* call 0x001392D0 */
 
 loc_0014584C:
-    esi = eax;
+	{
+	    static uint32_t findbuffer_return_logs;
+	    if (findbuffer_return_logs < 32) {
+	        fprintf(stderr,
+	                "[FSW/RenderCookie] FindBuffer return #%u buffer=%08X desc=%08X cookie=%08X esp=%08X\n",
+	                (unsigned)(findbuffer_return_logs + 1),
+	                (unsigned)eax,
+	                (unsigned)ebx,
+	                (unsigned)ebp,
+	                (unsigned)esp);
+	    }
+	    findbuffer_return_logs++;
+	}
+	esi = eax;
     (void)0; /* test esi, esi - flags set for next jcc */
     MEM32(ebp + 0x38) = esi;
     if (TEST_NZ(esi, esi)) { g_seh_ebp = ebp; sub_00145861(); return; } /* jne: not equal / not zero */

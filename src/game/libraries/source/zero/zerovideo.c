@@ -17,12 +17,14 @@
 extern uint32_t xbox_HeapAlloc(uint32_t size, uint32_t alignment);
 extern void xbox_HeapFree(uint32_t xbox_va);
 
+#define FSW_ZERO_RENDER_ITEM_CAPACITY 0x4000u
+
 static int fsw_zero_va_range_is_valid(uint32_t addr, uint32_t size)
 {
-    if (addr == 0 || addr >= 0x04000000u) {
+    if (addr == 0 || addr >= RECOMP_GUEST_RAM_LIMIT) {
         return 0;
     }
-    if (size > 0x04000000u || addr > 0x04000000u - size) {
+    if (size > RECOMP_GUEST_RAM_LIMIT || addr > RECOMP_GUEST_RAM_LIMIT - size) {
         return 0;
     }
     return 1;
@@ -767,9 +769,37 @@ void fn_00053850_ZeroBucket_Add(void)
     }
 
     ebx = bucket;
-    eax = (uint32_t)(insert_index + 1);
-    PUSH32(esp, 1);
-    PUSH32(esp, 0); fn_00051220_ZeroBucket_UBucketKey_ZeroDynArrayBase_Grow(); /* call 0x00051220 */
+    {
+        uint32_t target = (uint32_t)(insert_index + 1);
+        uint32_t capacity = MEM16(bucket + 6);
+        key_array = MEM32(bucket);
+        if (target > capacity ||
+            !fsw_zero_va_range_is_valid(key_array, capacity != 0 ? capacity * 8u : 8u)) {
+            uint32_t new_capacity = (target + 0xFFu) & ~0xFFu;
+            uint32_t new_array = xbox_HeapAlloc(new_capacity * 8u, 16);
+            if (!fsw_zero_va_range_is_valid(new_array, new_capacity * 8u)) {
+                static uint32_t warned_bucket_alloc;
+                if (warned_bucket_alloc < 8) {
+                    fprintf(stderr,
+                            "[FSW/ZeroBucket] Add key allocation failed bucket=%08X target=%u cap=%u old=%08X\n",
+                            (unsigned)bucket, (unsigned)target, (unsigned)new_capacity,
+                            (unsigned)key_array);
+                    warned_bucket_alloc++;
+                }
+                eax = 0;
+                esp += 8; return; /* ret 4 */
+            }
+            if (insert_index > 0 && fsw_zero_va_range_is_valid(key_array, (uint32_t)insert_index * 8u)) {
+                memcpy((void *)XBOX_PTR(new_array), (const void *)XBOX_PTR(key_array),
+                       (uint32_t)insert_index * 8u);
+            }
+            if (capacity != 0 && fsw_zero_va_range_is_valid(key_array, capacity * 8u)) {
+                xbox_HeapFree(key_array);
+            }
+            MEM32(bucket) = new_array;
+            MEM16(bucket + 6) = LO16(new_capacity);
+        }
+    }
 
     key_array = MEM32(bucket);
     key_slot = key_array + (uint32_t)insert_index * 8u;
@@ -916,7 +946,7 @@ loc_000538F0:
         count = (uint32_t)(uint16_t)MEM16(array + 4);
         capacity = (uint32_t)(uint16_t)MEM16(array + 6);
         data = MEM32(array);
-        if (count > capacity || count > 0x200u) {
+        if (count > capacity || count > FSW_ZERO_RENDER_ITEM_CAPACITY) {
             fprintf(stderr, "[FSW/ZeroBucket] AddEmpty reset corrupt array=%08X data=%08X count=%u cap=%u\n",
                     (unsigned)array, (unsigned)data, (unsigned)count, (unsigned)capacity);
             count = 0;
@@ -928,17 +958,22 @@ loc_000538F0:
         }
 
         if (count >= capacity || !fsw_zero_va_range_is_valid(data, (capacity ? capacity : 1u) * 0x24u)) {
-            new_capacity = capacity ? capacity * 2u : 0x200u;
+            new_capacity = capacity ? capacity * 2u : FSW_ZERO_RENDER_ITEM_CAPACITY;
             if (new_capacity < count + 1u) {
                 new_capacity = count + 1u;
             }
             new_capacity = (new_capacity + 0x1FFu) & ~0x1FFu;
-            if (new_capacity > 0x200u) {
-                new_capacity = 0x200u;
+            if (new_capacity > FSW_ZERO_RENDER_ITEM_CAPACITY) {
+                new_capacity = FSW_ZERO_RENDER_ITEM_CAPACITY;
             }
             if (count >= new_capacity) {
-                fprintf(stderr, "[FSW/ZeroBucket] AddEmpty refused full array=%08X count=%u cap=%u\n",
-                        (unsigned)array, (unsigned)count, (unsigned)capacity);
+                static uint32_t refused_full_logs;
+                if (refused_full_logs < 16 || (refused_full_logs % 1024u) == 0) {
+                    fprintf(stderr, "[FSW/ZeroBucket] AddEmpty refused full array=%08X count=%u cap=%u log=%u\n",
+                            (unsigned)array, (unsigned)count, (unsigned)capacity,
+                            (unsigned)(refused_full_logs + 1u));
+                }
+                refused_full_logs++;
                 eax = LO16(count ? count - 1u : 0u);
                 esp += 4; return; /* ret */
             }
@@ -4809,6 +4844,22 @@ void fn_00125B90_ZeroVideo_SubmitCallback(void)
 {
 
 loc_00125B90:
+    {
+        static uint32_t submit_callback_logs;
+        if (submit_callback_logs < 64) {
+            uint32_t object = fsw_zero_va_range_is_valid(esp + 4, 4) ? MEM32(esp + 4) : 0;
+            uint32_t bucket = ecx;
+            fprintf(stderr,
+                    "[FSW/ZeroVideo] SubmitCallback #%u video=%08X object=%08X bucket=%u sort=%08X item_count=%u\n",
+                    (unsigned)(submit_callback_logs + 1),
+                    (unsigned)esi,
+                    (unsigned)object,
+                    (unsigned)bucket,
+                    (unsigned)eax,
+                    (unsigned)(fsw_zero_va_range_is_valid(0x613EA4, 2) ? MEM16(0x613EA4) : 0));
+        }
+        submit_callback_logs++;
+    }
     PUSH32(esp, eax);
     eax = esi + ecx * 8 + 0x4A30;
     PUSH32(esp, 0); fn_00053850_ZeroBucket_Add(); /* call 0x00053850 */
@@ -4844,6 +4895,23 @@ void fn_00125BE0_ZeroVideo_Submit(void)
     ebp = g_seh_ebp; /* fpo_leaf: inherit caller's frame */
 
 loc_00125BE0:
+    {
+        static uint32_t submit_logs;
+        if (submit_logs < 96) {
+            uint32_t object = fsw_zero_va_range_is_valid(esp + 4, 4) ? MEM32(esp + 4) : 0;
+            uint32_t material_index = fsw_zero_va_range_is_valid(esp + 8, 4) ? MEM32(esp + 8) : 0;
+            uint32_t desc = fsw_zero_va_range_is_valid(object + 0xC0, 4) ? MEM32(object + 0xC0) : 0;
+            fprintf(stderr,
+                    "[FSW/ZeroVideo] Submit #%u video=%08X object=%08X desc=%08X desc_vtbl=%08X material=%04X\n",
+                    (unsigned)(submit_logs + 1),
+                    (unsigned)ecx,
+                    (unsigned)object,
+                    (unsigned)desc,
+                    (unsigned)(fsw_zero_va_range_is_valid(desc, 4) ? MEM32(desc) : 0),
+                    (unsigned)(material_index & 0xFFFFu));
+        }
+        submit_logs++;
+    }
     { uint32_t _icall_esp = g_esp;
     PUSH32(esp, ebx);
     ebx = MEM32(esp + 0xC);

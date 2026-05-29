@@ -53,7 +53,7 @@ static uint32_t fsw_bink_alloc_host(uint32_t path_va, uint32_t flags)
 
 static int xbox_va_is_valid(uint32_t va)
 {
-    return va >= 0x00010000u && va < 0x04000000u;
+    return va >= 0x00010000u && va < RECOMP_GUEST_RAM_LIMIT;
 }
 
 static void write_u32_if_valid(uint32_t va, uint32_t value)
@@ -177,6 +177,12 @@ static uint32_t fsw_d3d_buffer_data(uint32_t resource_va, uint32_t min_size)
     if (backing && (!buffer->data_va || min_size <= fsw_d3d_guess_buffer_size(resource_va))) {
         buffer->data_va = backing;
         buffer->size = fsw_d3d_guess_buffer_size(resource_va);
+        return buffer->data_va;
+    }
+
+    if (xbox_va_is_valid(resource_va) && resource_va + min_size <= RECOMP_GUEST_RAM_LIMIT) {
+        buffer->data_va = resource_va;
+        buffer->size = min_size;
         return buffer->data_va;
     }
 
@@ -692,19 +698,26 @@ void fn_004848DF_XNetXnAddrToInAddr_12(void)
 /* Fallback for unresolved generated target 0x00484918. */
 void fn_00484918_XNetQosListen_20(void)
 {
-    recomp_missing_target(0x00484918u);
+    eax = 0;
+    esp += 24; return; /* ret 20 */
 }
 
 /* Fallback for unresolved generated target 0x00484927. */
 void fn_00484927_XNetQosLookup_48(void)
 {
-    recomp_missing_target(0x00484927u);
+    uint32_t out_qos = MEM32(esp + 32);
+    if (xbox_va_is_valid(out_qos)) {
+        MEM32(out_qos) = 0;
+    }
+    eax = 0;
+    esp += 52; return; /* ret 48 */
 }
 
 /* Fallback for unresolved generated target 0x00484943. */
 void fn_00484943_XNetQosRelease_4(void)
 {
-    recomp_missing_target(0x00484943u);
+    eax = 0;
+    esp += 8; return; /* ret 4 */
 }
 
 /* Fallback for unresolved generated target 0x0048494E. */
@@ -759,19 +772,27 @@ void fn_00484994_bind_12(void)
 /* Fallback for unresolved generated target 0x004849E2. */
 void fn_004849E2_recvfrom_24(void)
 {
-    recomp_missing_target(0x004849E2u);
+    eax = 0xFFFFFFFFu;
+    esp += 28; return; /* ret 24 */
 }
 
 /* Fallback for unresolved generated target 0x00484A00. */
 void fn_00484A00_sendto_24(void)
 {
-    recomp_missing_target(0x00484A00u);
+    eax = 0xFFFFFFFFu;
+    esp += 28; return; /* ret 24 */
 }
 
 /* Fallback for unresolved generated target 0x00484A66. */
 void fn_00484A66_XNetInAddrToXnAddr_12(void)
 {
-    recomp_missing_target(0x00484A66u);
+    uint32_t out_addr = MEM32(esp + 12);
+    if (xbox_va_is_valid(out_addr)) {
+        memset((void *)XBOX_PTR(out_addr), 0, 0x24);
+        MEM32(out_addr) = MEM32(esp + 4);
+    }
+    eax = 0;
+    esp += 16; return; /* ret 12 */
 }
 
 /* Fallback for unresolved generated target 0x00484A88. */
@@ -1366,9 +1387,9 @@ void fn_004D3F80_D3DDevice_DrawVertices_12(void)
 /* Fallback for unresolved generated target 0x004D4050. */
 void fn_004D4050_D3DDevice_DrawIndexedVertices_12(void)
 {
-    uint32_t primitive = MEM32(esp + 4) & 0x1FFFFu;
+    uint32_t indices_va = MEM32(esp + 4);
     uint32_t vertex_count = MEM32(esp + 8);
-    uint32_t indices_va = MEM32(esp + 12);
+    uint32_t primitive = MEM32(esp + 12) & 0x1FFFFu;
     g_fsw_d3d.draw_calls++;
     fsw_d3d_emit_indexed_vertices(primitive, vertex_count, indices_va);
     if (fsw_d3d_debug_enabled() && g_fsw_d3d.draw_calls <= 32) {

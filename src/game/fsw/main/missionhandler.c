@@ -2085,10 +2085,12 @@ void sub_002A8140(void)
     uint32_t havok_goaway_esp = 0;
     uint32_t physical_world_esp = 0;
     uint32_t ai_manager_update_esp = 0;
+    uint32_t hud_update_esp = 0;
     static uint32_t havok_active_stack_repairs = 0;
     static uint32_t havok_goaway_stack_repairs = 0;
     static uint32_t physical_world_stack_repairs = 0;
     static uint32_t ai_manager_stack_repairs = 0;
+    static uint32_t hud_update_stack_repairs = 0;
     int _flags = 0; /* fallback flag var */
     float xmm0, xmm1, xmm2;
     ebp = g_seh_ebp; /* fpo_leaf: inherit caller's frame */
@@ -2697,11 +2699,23 @@ loc_002A84C7:
         fprintf(stderr, "[FSW/Mission] before HUDManager_Update #%u esp=%08X hud_dt=%08X\n",
                 (unsigned)missionhandler_process_game_logs, (unsigned)esp, (unsigned)edi);
     }
+    hud_update_esp = esp;
     PUSH32(esp, edi);
     PUSH32(esp, 0); fn_003D46C0_HUDManager_Update(); /* call 0x003D46C0 */
 
 loc_002A84CD:
     esp = esp + 4;
+    if (getenv("FSW_TH_LEVEL") != NULL && esp != hud_update_esp) {
+        if (hud_update_stack_repairs < 8 || (hud_update_stack_repairs % 120) == 0) {
+            fprintf(stderr,
+                    "[FSW/Mission] repaired HUDManager_Update stack %08X -> %08X count=%u\n",
+                    (unsigned)esp,
+                    (unsigned)hud_update_esp,
+                    (unsigned)(hud_update_stack_repairs + 1));
+        }
+        hud_update_stack_repairs++;
+        esp = hud_update_esp;
+    }
     if (missionhandler_process_game_logs <= 4) {
         fprintf(stderr, "[FSW/Mission] after HUDManager_Update #%u esp=%08X\n",
                 (unsigned)missionhandler_process_game_logs, (unsigned)esp);
@@ -2789,6 +2803,13 @@ loc_002A8513:
     if (missionhandler_process_game_logs <= 4) {
         fprintf(stderr, "[FSW/Mission] before CMenuSystem_Update #%u dt=%08X menu=%08X esp=%08X\n",
                 (unsigned)missionhandler_process_game_logs, (unsigned)edx, (unsigned)edi, (unsigned)esp);
+    }
+    if (getenv("FSW_TH_LEVEL") != NULL) {
+        if (missionhandler_process_game_logs <= 4) {
+            fprintf(stderr, "[FSW/Mission] direct level skipping CMenuSystem_Update menu=%08X\n",
+                    (unsigned)edi);
+        }
+        goto loc_002A8522;
     }
     PUSH32(esp, edx);
     PUSH32(esp, 0); fn_001BA940_CMenuSystem_Update(); /* call 0x001BA940 */

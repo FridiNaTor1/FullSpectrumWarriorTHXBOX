@@ -7,6 +7,7 @@
 #define RECOMP_GENERATED_CODE
 #include "recomp_funcs.h"
 #include <math.h>
+#include <stdio.h>
 
 /**
  * fn_00056150_1_ZeroDynArray_UZeroPaletteMeshExtents_00_QAE_XZ
@@ -1137,8 +1138,43 @@ loc_001154C6:
 void fn_001154D0_ZeroPaletteMesh_RenderNow(void)
 {
     int _flags = 0; /* fallback flag var */
+    uint32_t render_material = 0;
 
 loc_001154D0:
+    {
+        static uint32_t rendernow_entry_logs;
+        if (rendernow_entry_logs < 64) {
+            uint32_t mesh = ecx;
+            uint32_t mesh_vtbl = (mesh != 0 && mesh < 0x04000000u) ? MEM32(mesh) : 0;
+            uint32_t material_list = (mesh != 0 && mesh < 0x04000000u) ? MEM32(mesh + 0x10) : 0;
+            uint32_t material_count = (mesh != 0 && mesh < 0x04000000u) ? MEM16(mesh + 0x14) : 0;
+            uint32_t desc_list = (mesh != 0 && mesh < 0x04000000u) ? MEM32(mesh + 0x18) : 0;
+            uint32_t desc_count = (mesh != 0 && mesh < 0x04000000u) ? MEM16(mesh + 0x1C) : 0;
+            uint32_t first_material = (material_list != 0 && material_list < 0x04000000u) ? MEM32(material_list) : 0;
+            uint32_t first_desc = (desc_list != 0 && desc_list < 0x04000000u) ? MEM32(desc_list) : 0;
+            fprintf(stderr,
+                    "[FSW/ZeroPaletteMesh] RenderNow entry #%u mesh=%08X vtbl=%08X slots=%08X/%08X/%08X/%08X/%08X materials=%08X/%u first=%08X first_vtbl=%08X descs=%08X/%u first_desc=%08X desc_vtbl=%08X video=%08X esp=%08X\n",
+                    (unsigned)(rendernow_entry_logs + 1),
+                    (unsigned)mesh,
+                    (unsigned)mesh_vtbl,
+                    (unsigned)((mesh_vtbl != 0 && mesh_vtbl < 0x04000000u) ? MEM32(mesh_vtbl + 0x24) : 0),
+                    (unsigned)((mesh_vtbl != 0 && mesh_vtbl < 0x04000000u) ? MEM32(mesh_vtbl + 0x28) : 0),
+                    (unsigned)((mesh_vtbl != 0 && mesh_vtbl < 0x04000000u) ? MEM32(mesh_vtbl + 0x2C) : 0),
+                    (unsigned)((mesh_vtbl != 0 && mesh_vtbl < 0x04000000u) ? MEM32(mesh_vtbl + 0x30) : 0),
+                    (unsigned)((mesh_vtbl != 0 && mesh_vtbl < 0x04000000u) ? MEM32(mesh_vtbl + 0x34) : 0),
+                    (unsigned)material_list,
+                    (unsigned)material_count,
+                    (unsigned)first_material,
+                    (unsigned)((first_material != 0 && first_material < 0x04000000u) ? MEM32(first_material) : 0),
+                    (unsigned)desc_list,
+                    (unsigned)desc_count,
+                    (unsigned)first_desc,
+                    (unsigned)((first_desc != 0 && first_desc < 0x04000000u) ? MEM32(first_desc) : 0),
+                    (unsigned)MEM32(0x5FA8E8),
+                    (unsigned)esp);
+        }
+        rendernow_entry_logs++;
+    }
     PUSH32(esp, ebx);
     PUSH32(esp, esi);
     PUSH32(esp, edi);
@@ -1149,11 +1185,33 @@ loc_001154D0:
     if (TEST_Z(LO8(eax), LO8(eax))) goto loc_001154EB; /* je: equal / zero */
 
 loc_001154E5:
-    PUSH32(esp, esi);
-    PUSH32(esp, 0); fn_00115040_ZeroPaletteMesh_SkinPrim(); /* call 0x00115040 */
+    {
+        uint32_t saved_esp = esp;
+        uint32_t saved_ebx = ebx;
+        uint32_t saved_esi = esi;
+        uint32_t saved_edi = edi;
+        PUSH32(esp, esi);
+        PUSH32(esp, 0); fn_00115040_ZeroPaletteMesh_SkinPrim(); /* call 0x00115040 */
+        if (esp != saved_esp) {
+            static uint32_t skinprim_stack_repairs;
+            if (skinprim_stack_repairs < 16) {
+                fprintf(stderr,
+                        "[FSW/ZeroPaletteMesh] repaired SkinPrim stack %08X -> %08X count=%u\n",
+                        (unsigned)esp,
+                        (unsigned)saved_esp,
+                        (unsigned)(skinprim_stack_repairs + 1));
+            }
+            skinprim_stack_repairs++;
+            esp = saved_esp;
+        }
+        ebx = saved_ebx;
+        esi = saved_esi;
+        edi = saved_edi;
+    }
 
 loc_001154EB:
     eax = MEM32(esi + 0x10);
+    render_material = MEM32(eax);
     eax = MEM32(eax);
     edx = MEM32(esi);
     ebx = MEM32(edi);
@@ -1165,7 +1223,26 @@ loc_001154EB:
     }
 
 loc_001154FC:
+	    {
+	        static uint32_t rendernow_video_logs;
+	        if (rendernow_video_logs < 64) {
+	            uint32_t video = edi;
+	            uint32_t video_vtbl = (video != 0 && video < 0x04000000u) ? MEM32(video) : 0;
+	            fprintf(stderr,
+	                    "[FSW/ZeroPaletteMesh] RenderNow video call #%u mesh=%08X desc=%08X material=%08X video=%08X vtbl=%08X fn20=%08X esp=%08X\n",
+	                    (unsigned)(rendernow_video_logs + 1),
+                    (unsigned)esi,
+                    (unsigned)eax,
+                    (unsigned)render_material,
+                    (unsigned)video,
+                    (unsigned)video_vtbl,
+                    (unsigned)((video_vtbl != 0 && video_vtbl < 0x04000000u) ? MEM32(video_vtbl + 0x20) : 0),
+                    (unsigned)esp);
+        }
+        rendernow_video_logs++;
+    }
     { uint32_t _icall_esp = g_esp;
+    PUSH32(esp, render_material);
     PUSH32(esp, eax);
     ecx = edi;
     PUSH32(esp, 0); RECOMP_ICALL_SAFE(MEM32(ebx + 0x20), _icall_esp); /* indirect call */
@@ -1190,14 +1267,34 @@ loc_00115502:
 void fn_00115510_ZeroPaletteMesh_Render(void)
 {
     int _flags = 0; /* fallback flag var */
+    uint32_t render_flags;
+    uint32_t render_with_setup;
 
 loc_00115510:
-    (void)0; /* test MEM8(esp + 8), 4 - flags set for next jcc */
+    render_flags = MEM32(esp + 8);
+    render_with_setup = !TEST_Z(LO8(render_flags), 4);
     PUSH32(esp, esi);
     esi = MEM32(0x5FA8E8);
     PUSH32(esp, edi);
     edi = ecx;
-    if (TEST_Z(MEM8(esp + 8), 4)) { sub_00115533(); return; } /* je: equal / zero */
+    {
+        static uint32_t render_entry_logs;
+        if (render_entry_logs < 64) {
+            uint32_t vtbl = (edi != 0 && edi < 0x04000000u) ? MEM32(edi) : 0;
+            fprintf(stderr,
+                    "[FSW/ZeroPaletteMesh] Render entry #%u mesh=%08X vtbl=%08X flags=%08X setup=%u fn1c=%08X video=%08X esp=%08X\n",
+                    (unsigned)(render_entry_logs + 1),
+                    (unsigned)edi,
+                    (unsigned)vtbl,
+                    (unsigned)render_flags,
+                    (unsigned)render_with_setup,
+                    (unsigned)((vtbl != 0 && vtbl < 0x04000000u) ? MEM32(vtbl + 0x1C) : 0),
+                    (unsigned)esi,
+                    (unsigned)esp);
+        }
+        render_entry_logs++;
+    }
+    if (!render_with_setup) { sub_00115533(); return; } /* je: equal / zero */
 
 loc_00115521:
     PUSH32(esp, edi);

@@ -7,6 +7,18 @@
 #define RECOMP_GENERATED_CODE
 #include "recomp_funcs.h"
 #include <math.h>
+#include <stdio.h>
+
+static int fsw_gameobject_va_range_is_valid(uint32_t va, uint32_t size)
+{
+    if (size == 0) {
+        return va >= 0x00010000u && va < RECOMP_GUEST_RAM_LIMIT;
+    }
+    if (va < 0x00010000u || va >= RECOMP_GUEST_RAM_LIMIT || va + size < va) {
+        return 0;
+    }
+    return va + size <= RECOMP_GUEST_RAM_LIMIT;
+}
 
 /**
  * fn_00028250_0hkBool_QAE_N_Z
@@ -1012,6 +1024,29 @@ void fn_002FA5C0_CGameObject_RenderSetup(void)
     ebp = g_seh_ebp; /* fpo_leaf: inherit caller's frame */
 
 loc_002FA5C0:
+    {
+        static uint32_t render_setup_logs;
+        if (render_setup_logs < 64) {
+            fprintf(stderr,
+                    "[FSW/GameObject] RenderSetup #%u object=%08X vtbl=%08X child=%08X child_vtbl=%08X child_child=%08X child_c0=%08X sibling=%08X parent=%08X c0=%08X flags=%08X e0=%04X e2=%04X item=%08X item_mat=%04X\n",
+                    (unsigned)(render_setup_logs + 1),
+                    (unsigned)ecx,
+                    (unsigned)(fsw_gameobject_va_range_is_valid(ecx, 4) ? MEM32(ecx) : 0),
+                    (unsigned)(fsw_gameobject_va_range_is_valid(ecx + 0x14, 4) ? MEM32(ecx + 0x14) : 0),
+                    (unsigned)(fsw_gameobject_va_range_is_valid(MEM32(ecx + 0x14), 4) ? MEM32(MEM32(ecx + 0x14)) : 0),
+                    (unsigned)(fsw_gameobject_va_range_is_valid(MEM32(ecx + 0x14) + 0x14, 4) ? MEM32(MEM32(ecx + 0x14) + 0x14) : 0),
+                    (unsigned)(fsw_gameobject_va_range_is_valid(MEM32(ecx + 0x14) + 0xC0, 4) ? MEM32(MEM32(ecx + 0x14) + 0xC0) : 0),
+                    (unsigned)(fsw_gameobject_va_range_is_valid(ecx + 0x18, 4) ? MEM32(ecx + 0x18) : 0),
+                    (unsigned)(fsw_gameobject_va_range_is_valid(ecx + 0x10, 4) ? MEM32(ecx + 0x10) : 0),
+                    (unsigned)(fsw_gameobject_va_range_is_valid(ecx + 0xC0, 4) ? MEM32(ecx + 0xC0) : 0),
+                    (unsigned)(fsw_gameobject_va_range_is_valid(ecx + 0xC8, 4) ? MEM32(ecx + 0xC8) : 0),
+                    (unsigned)(fsw_gameobject_va_range_is_valid(ecx + 0xE0, 2) ? MEM16(ecx + 0xE0) : 0),
+                    (unsigned)(fsw_gameobject_va_range_is_valid(ecx + 0xE2, 2) ? MEM16(ecx + 0xE2) : 0),
+                    (unsigned)(fsw_gameobject_va_range_is_valid(esp + 4, 4) ? MEM32(esp + 4) : 0),
+                    (unsigned)(fsw_gameobject_va_range_is_valid(MEM32(esp + 4) + 0x18, 2) ? MEM16(MEM32(esp + 4) + 0x18) : 0));
+        }
+        render_setup_logs++;
+    }
     SET_LO16(eax, MEM16(ecx + 0xE0));
     if (CMP_GE(LO16(eax) & LO16(eax), 0)) goto loc_002FA5D3; /* jge: greater or equal (signed >=) */
 
@@ -1023,6 +1058,19 @@ loc_002FA5D3:
     eax = (uint32_t)((int32_t)eax * (int32_t)0x64);
     PUSH32(esp, esi);
     esi = (uint32_t)(int32_t)SMEM16(ecx + 0xE2);
+    if (esi == 0) {
+        static uint32_t zero_divisor_logs;
+        if (zero_divisor_logs < 16) {
+            fprintf(stderr,
+                    "[FSW/GameObject] RenderSetup repaired zero divisor object=%08X item=%08X e0=%04X e2=%04X\n",
+                    (unsigned)ecx,
+                    (unsigned)(fsw_gameobject_va_range_is_valid(esp + 8, 4) ? MEM32(esp + 8) : 0),
+                    (unsigned)(fsw_gameobject_va_range_is_valid(ecx + 0xE0, 2) ? MEM16(ecx + 0xE0) : 0),
+                    (unsigned)(fsw_gameobject_va_range_is_valid(ecx + 0xE2, 2) ? MEM16(ecx + 0xE2) : 0));
+        }
+        zero_divisor_logs++;
+        esi = 1;
+    }
     eax = eax - esi;
     eax++;
     edx = ((int32_t)eax < 0) ? 0xFFFFFFFF : 0; /* cdq */
@@ -1035,7 +1083,7 @@ loc_002FA5D3:
     xmm0 = xmm0 * MEMF(0x537708); /* mulss */
     MEMF(eax + 0x6728) = xmm0; /* movss */
     eax = MEM32(esp + 4);
-    if (CMP_NE(MEM16(eax + 0x18), 0xFFFFFFFFu)) { sub_002FA619(); return; } /* jne: not equal / not zero */
+    if (CMP_NE(MEM16(eax + 0x18), 0xFFFFu)) { sub_002FA619(); return; } /* jne: not equal / not zero */
 
 loc_002FA60C:
     edx = MEM32(ecx);
@@ -1733,17 +1781,25 @@ loc_002FAA38:
  */
 void fn_002FAA80_0CGameObject_IAE_AAV0_Z(void)
 {
+    uint32_t copy_dest;
+    uint32_t copy_source;
 
 loc_002FAA80:
+    copy_dest = esi;
+    copy_source = edi;
     PUSH32(esp, edi);
     PUSH32(esp, esi);
     PUSH32(esp, 0); fn_001273E0_0ZeroObject_QAE_ABV0_Z(); /* call 0x001273E0 */
 
 loc_002FAA87:
+    esi = copy_dest;
+    edi = copy_source;
     edx = esi + 0xD0;
     PUSH32(esp, 0); fn_002B6940_0CLoadSave_IAE_XZ(); /* call 0x002B6940 */
 
 loc_002FAA92:
+    esi = copy_dest;
+    edi = copy_source;
     eax = eax | 0xFFFFFFFFu;
     MEM16(esi + 0xE0) = LO16(eax);
     MEM16(esi + 0xE4) = LO16(eax);

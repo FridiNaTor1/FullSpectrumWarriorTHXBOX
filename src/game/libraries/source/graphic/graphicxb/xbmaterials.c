@@ -7,6 +7,7 @@
 #define RECOMP_GENERATED_CODE
 #include "recomp_funcs.h"
 #include <math.h>
+#include <stdio.h>
 
 /**
  * fn_0002DCA0_GXBCustomMaterial_UAEPAXI_Z
@@ -1862,39 +1863,174 @@ loc_00148992:
 void fn_001489A0_XBMaterial_Render(void)
 {
     uint32_t ebp;
+    uint32_t desc;
+    uint32_t draw_info;
+    uint32_t draw_count;
+    uint32_t video;
     int _flags = 0; /* fallback flag var */
+    float xmm0;
     ebp = g_seh_ebp; /* fpo_leaf: inherit caller's frame */
 
 loc_001489A0:
+    desc = MEM32(esp + 4);
     PUSH32(esp, ebp);
     PUSH32(esp, esi);
     esi = MEM32(0x5FA8E8);
+    video = esi;
     PUSH32(esp, edi);
-    edi = MEM32(esp + 0x10);
+    edi = desc;
     ebp = MEM32(edi + 0x28);
+    draw_info = ebp;
+    {
+        static uint32_t xbmaterial_render_logs;
+        if (xbmaterial_render_logs < 64) {
+            fprintf(stderr,
+                    "[FSW/XBMaterial] Render #%u material=%08X desc=%08X flags=%02X count=%08X draw_info=%08X stream=%08X idx=%08X prim=%08X video=%08X\n",
+                    (unsigned)(xbmaterial_render_logs + 1),
+                    (unsigned)ecx,
+                    (unsigned)desc,
+                    (unsigned)MEM8(desc + 0x10),
+                    (unsigned)MEM32(desc + 0x1C),
+                    (unsigned)draw_info,
+                    (unsigned)MEM32(draw_info + 4),
+                    (unsigned)MEM32(draw_info + 0x14),
+                    (unsigned)(MEM32(draw_info + 0x14) ? MEM32(MEM32(draw_info + 0x14)) : 0),
+                    (unsigned)video);
+        }
+        xbmaterial_render_logs++;
+    }
+    {
+        static uint32_t xbmaterial_cookie_logs;
+        if (xbmaterial_cookie_logs < 16) {
+            fprintf(stderr,
+                    "[FSW/XBMaterial] cookie dump #%u d=%08X d14=%08X d18=%08X d1C=%08X d20=%08X d24=%08X d28=%08X c04=%08X c10=%08X c14=%08X c18=%08X c1C=%08X c24=%08X c28=%08X c2C=%08X c38=%08X c3C=%08X c40=%08X c48=%08X\n",
+                    (unsigned)(xbmaterial_cookie_logs + 1),
+                    (unsigned)desc,
+                    (unsigned)MEM32(desc + 0x14),
+                    (unsigned)MEM32(desc + 0x18),
+                    (unsigned)MEM32(desc + 0x1C),
+                    (unsigned)MEM32(desc + 0x20),
+                    (unsigned)MEM32(desc + 0x24),
+                    (unsigned)MEM32(desc + 0x28),
+                    (unsigned)MEM32(draw_info + 0x04),
+                    (unsigned)MEM32(draw_info + 0x10),
+                    (unsigned)MEM32(draw_info + 0x14),
+                    (unsigned)MEM32(draw_info + 0x18),
+                    (unsigned)MEM32(draw_info + 0x1C),
+                    (unsigned)MEM32(draw_info + 0x24),
+                    (unsigned)MEM32(draw_info + 0x28),
+                    (unsigned)MEM32(draw_info + 0x2C),
+                    (unsigned)MEM32(draw_info + 0x38),
+                    (unsigned)MEM32(draw_info + 0x3C),
+                    (unsigned)MEM32(draw_info + 0x40),
+                    (unsigned)MEM32(draw_info + 0x48));
+        }
+        xbmaterial_cookie_logs++;
+    }
     ecx = MEM32(ebp + 0x14);
     eax = 0; /* xor self */
-    if (CMP_EQ(ecx, eax)) goto loc_001489BF; /* je: equal / zero */
+    if (!CMP_EQ(ecx, eax)) {
+        MEM32(ebp + 0x20) = eax;
+        MEM32(ebp + 0x2C) = eax;
+    }
 
-loc_001489B9:
-    MEM32(ebp + 0x20) = eax;
-    MEM32(ebp + 0x2C) = eax;
-
-loc_001489BF:
     PUSH32(esp, ebx);
     PUSH32(esp, ebp);
-    ebx = esi;
+    ebx = video;
     PUSH32(esp, 0); fn_0013D390_XBVideo_MySetVertexShaderInputDirect(); /* call 0x0013D390 */
 
-loc_001489C8:
-    (void)0; /* test MEM8(edi + 0x10), 0x10 - flags set for next jcc */
-    ebx = 0x20;
-    if (TEST_Z(MEM8(edi + 0x10), 0x10)) { sub_001489DD(); return; } /* je: equal / zero */
+    if (!TEST_Z(MEM8(desc + 0x10), 0x10)) {
+        MEM32(video + 0x6BF4) = MEM32(video + 0x6BF4) | 0x20;
+    } else if (!TEST_Z(MEM8(video + 0x6BF4), 0x20)) {
+        uint32_t push = MEM32(0x4E37B8);
+        eax = MEM32(push);
+        if (!CMP_B(eax, MEM32(push + 4))) {
+            eax = MEM32(0x4E466C);
+            PUSH32(esp, eax);
+            eax = eax >> 1;
+            PUSH32(esp, eax);
+            PUSH32(esp, 0); fn_004D5700_D3D_MakeRequestedSpace(); /* call 0x004D5700 */
+        }
+        xmm0 = MEMF(0x561418); /* movss */
+        MEM32(eax) = 0x101A20;
+        MEMF(eax + 4) = xmm0; /* movss */
+        MEMF(eax + 8) = xmm0; /* movss */
+        MEMF(eax + 0xC) = xmm0; /* movss */
+        MEMF(eax + 0x10) = xmm0; /* movss */
+        MEM32(push) = eax + 0x14;
+        MEM32(video + 0x6BF4) = MEM32(video + 0x6BF4) & 0xFFFFFFDFu;
+    }
 
-loc_001489D3:
-    eax = MEM32(esi + 0x6BF4);
-    eax = eax | ebx;
-    g_seh_ebp = ebp; sub_00148A34(); return; /* tail jmp 0x00148A34 */
+    POP32(esp, ebx);
+
+    if (!TEST_Z(MEM8(desc + 0x10), 0x20)) {
+        MEM32(video + 0x6BF4) = MEM32(video + 0x6BF4) | 0x40;
+    } else if (!TEST_Z(MEM8(video + 0x6BF4), 0x40)) {
+        uint32_t push = MEM32(0x4E37B8);
+        eax = MEM32(push);
+        if (!CMP_B(eax, MEM32(push + 4))) {
+            eax = MEM32(0x4E466C);
+            PUSH32(esp, eax);
+            eax = eax >> 1;
+            PUSH32(esp, eax);
+            PUSH32(esp, 0); fn_004D5700_D3D_MakeRequestedSpace(); /* call 0x004D5700 */
+        }
+        xmm0 = 0.0f; /* xorps self = zero */
+        MEM32(eax) = 0x101A30;
+        MEMF(eax + 4) = xmm0; /* movss */
+        MEMF(eax + 8) = xmm0; /* movss */
+        MEMF(eax + 0xC) = xmm0; /* movss */
+        MEMF(eax + 0x10) = xmm0; /* movss */
+        MEM32(push) = eax + 0x14;
+        MEM32(video + 0x6BF4) = MEM32(video + 0x6BF4) & 0xFFFFFFBFu;
+    }
+
+    draw_count = MEM32(desc + 0x1C);
+    eax = draw_count;
+    if (!TEST_Z(draw_count, draw_count)) {
+        if (MEM32(draw_info + 0x18) != 0 && MEM32(draw_info + 0x1C) > 0 && MEM32(draw_info + 0x1C) <= 512) {
+            ebx = MEM32(draw_info + 0x1C);
+            eax = 0; /* stream 0 */
+            PUSH32(esp, 0);
+            PUSH32(esp, ebx);
+            PUSH32(esp, MEM32(draw_info + 0x18));
+            PUSH32(esp, 0); fn_004D44C0_D3DDevice_SetStreamSource_12(); /* call 0x004D44C0 */
+        }
+        {
+            static uint32_t xbmaterial_draw_logs;
+            if (xbmaterial_draw_logs < 64) {
+                fprintf(stderr,
+                        "[FSW/XBMaterial] DrawIndexed call #%u desc=%08X count=%08X draw_info=%08X stream=%08X index_ptr=%08X prim_ptr=%08X prim=%08X esp=%08X\n",
+                        (unsigned)(xbmaterial_draw_logs + 1),
+                        (unsigned)desc,
+                        (unsigned)draw_count,
+                        (unsigned)draw_info,
+                        (unsigned)MEM32(draw_info + 4),
+                        (unsigned)MEM32(draw_info + 0x14),
+                        (unsigned)MEM32(draw_info + 0x14),
+                        (unsigned)(MEM32(draw_info + 0x14) < RECOMP_GUEST_RAM_LIMIT - 4u ? MEM32(MEM32(draw_info + 0x14)) : 0),
+                        (unsigned)esp);
+            }
+            xbmaterial_draw_logs++;
+        }
+        edx = MEM32(desc + 0x14);
+        PUSH32(esp, edx);
+        PUSH32(esp, draw_count);
+        eax = MEM32(draw_info + 0x14);
+        PUSH32(esp, eax);
+        PUSH32(esp, 0); fn_004D4050_D3DDevice_DrawIndexedVertices_12(); /* call 0x004D4050 */
+    } else {
+        eax = MEM32(desc + 0x18);
+        eax = eax & 0x1FFFF;
+        ecx = 0; /* xor self */
+        PUSH32(esp, MEM32(draw_info + 4));
+        PUSH32(esp, 0); fn_004D3F80_D3DDevice_DrawVertices_12(); /* call 0x004D3F80 */
+    }
+
+    POP32(esp, edi);
+    POP32(esp, esi);
+    POP32(esp, ebp);
+    esp += 8; return; /* ret 4 */
 
 }
 

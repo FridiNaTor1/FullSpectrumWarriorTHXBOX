@@ -7,6 +7,19 @@
 #define RECOMP_GENERATED_CODE
 #include "recomp_funcs.h"
 #include <math.h>
+#include <stdio.h>
+#include <stdlib.h>
+
+static int fsw_cprop_va_range_is_valid(uint32_t va, uint32_t size)
+{
+    if (size == 0) {
+        return va >= 0x00010000u && va < RECOMP_GUEST_RAM_LIMIT;
+    }
+    if (va < 0x00010000u || va >= RECOMP_GUEST_RAM_LIMIT || va + size < va) {
+        return 0;
+    }
+    return va + size <= RECOMP_GUEST_RAM_LIMIT;
+}
 
 /**
  * fn_000349D0_GCProp_MAEPAXI_Z
@@ -988,6 +1001,26 @@ void fn_003A7D60_CProp_Render(void)
 {
 
 loc_003A7D60:
+    {
+        static uint32_t cprop_render_logs;
+        uint32_t arg = fsw_cprop_va_range_is_valid(esp + 4, 4) ? MEM32(esp + 4) : 0;
+        if (cprop_render_logs < 64 || ((arg & 4) && getenv("FSW_RENDER_VERBOSE") != NULL)) {
+            fprintf(stderr,
+                    "[FSW/CProp] Render #%u object=%08X vtbl=%08X child=%08X c0=%08X flags=%08X f0=%04X arg=%08X video=%08X video160=%08X prop164=%08X\n",
+                    (unsigned)(cprop_render_logs + 1),
+                    (unsigned)ecx,
+                    (unsigned)(fsw_cprop_va_range_is_valid(ecx, 4) ? MEM32(ecx) : 0),
+                    (unsigned)(fsw_cprop_va_range_is_valid(ecx + 0x14, 4) ? MEM32(ecx + 0x14) : 0),
+                    (unsigned)(fsw_cprop_va_range_is_valid(ecx + 0xC0, 4) ? MEM32(ecx + 0xC0) : 0),
+                    (unsigned)(fsw_cprop_va_range_is_valid(ecx + 0xC8, 4) ? MEM32(ecx + 0xC8) : 0),
+                    (unsigned)(fsw_cprop_va_range_is_valid(ecx + 0xF0, 2) ? MEM16(ecx + 0xF0) : 0),
+                    (unsigned)arg,
+                    (unsigned)(fsw_cprop_va_range_is_valid(0x5FA8E8, 4) ? MEM32(0x5FA8E8) : 0),
+                    (unsigned)(fsw_cprop_va_range_is_valid(MEM32(0x5FA8E8) + 0x160, 4) ? MEM32(MEM32(0x5FA8E8) + 0x160) : 0),
+                    (unsigned)(fsw_cprop_va_range_is_valid(ecx + 0x164, 4) ? MEM32(ecx + 0x164) : 0));
+        }
+        cprop_render_logs++;
+    }
     eax = MEM32(0x5FA8E8);
     edx = MEM32(ecx + 0x164);
     PUSH32(esp, esi);

@@ -816,6 +816,22 @@ void fn_001392D0_XBVertexBufferTree_FindBuffer(void)
     ebp = g_seh_ebp; /* fpo_leaf: inherit caller's frame */
 
 loc_001392D0:
+    {
+        static uint32_t findbuffer_entry_logs;
+        if (findbuffer_entry_logs < 32) {
+            fprintf(stderr,
+                    "[FSW/XBVertexBuffer] FindBuffer entry #%u esp=%08X tree_arg=%08X key_arg=%08X stride_arg=%08X count_arg=%08X shader_arg=%08X flags_arg=%08X\n",
+                    (unsigned)(findbuffer_entry_logs + 1),
+                    (unsigned)esp,
+                    (unsigned)(xbvertexbuffer_va_range_is_valid(esp + 4, 4) ? MEM32(esp + 4) : 0),
+                    (unsigned)(xbvertexbuffer_va_range_is_valid(esp + 8, 4) ? MEM32(esp + 8) : 0),
+                    (unsigned)(xbvertexbuffer_va_range_is_valid(esp + 0xC, 4) ? MEM32(esp + 0xC) : 0),
+                    (unsigned)(xbvertexbuffer_va_range_is_valid(esp + 0x10, 4) ? MEM32(esp + 0x10) : 0),
+                    (unsigned)(xbvertexbuffer_va_range_is_valid(esp + 0x14, 4) ? MEM32(esp + 0x14) : 0),
+                    (unsigned)(xbvertexbuffer_va_range_is_valid(esp + 0x18, 4) ? MEM32(esp + 0x18) : 0));
+        }
+        findbuffer_entry_logs++;
+    }
     PUSH32(esp, 0xFFFFFFFFu);
     PUSH32(esp, 0x404242);
     eax = MEM32(0);
@@ -1001,6 +1017,21 @@ void sub_001393BF(void)
     ebp = g_seh_ebp; /* fpo_leaf: inherit caller's frame */
 
 loc_001393BF:
+    {
+        static uint32_t findbuffer_alloc_logs;
+        if (findbuffer_alloc_logs < 32) {
+            fprintf(stderr,
+                    "[FSW/XBVertexBuffer] FindBuffer alloc #%u tree=%08X stride=%u bytes_needed=%u segment=%u limit=%08X flags=%08X\n",
+                    (unsigned)(findbuffer_alloc_logs + 1),
+                    (unsigned)ebp,
+                    (unsigned)ebx,
+                    (unsigned)esi,
+                    (unsigned)edi,
+                    (unsigned)MEM32(0x5CDAB0),
+                    (unsigned)MEM8(esp + 0x30));
+        }
+        findbuffer_alloc_logs++;
+    }
     ecx = MEM32(ebp + 0x14);
     edi = (uint32_t)((int32_t)edi * (int32_t)ebx);
     edx = MEM32(ebp + 0x10);

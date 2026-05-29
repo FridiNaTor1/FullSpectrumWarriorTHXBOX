@@ -8,6 +8,7 @@
 #include "recomp_funcs.h"
 #include <math.h>
 #include <stdio.h>
+#include <stdlib.h>
 
 static int zeroobject_va_range_is_valid(uint32_t va, uint32_t size)
 {
@@ -310,7 +311,7 @@ void fn_00126E90_ZeroObject_RenderSetup(void)
 
 loc_00126E90:
     eax = MEM32(esp + 4);
-    if (CMP_NE(MEM16(eax + 0x18), 0xFFFFFFFFu)) { sub_00126EA8(); return; } /* jne: not equal / not zero */
+    if (CMP_NE(MEM16(eax + 0x18), 0xFFFFu)) { sub_00126EA8(); return; } /* jne: not equal / not zero */
 
 loc_00126E9B:
     eax = MEM32(ecx);
@@ -1390,6 +1391,8 @@ loc_001273C1:
 void fn_001273E0_0ZeroObject_QAE_ABV0_Z(void)
 {
     uint32_t ebp;
+    uint32_t copy_dest;
+    uint32_t copy_source;
     int _flags = 0; /* fallback flag var */
     float xmm0;
     ebp = g_seh_ebp; /* fpo_leaf: inherit caller's frame */
@@ -1404,6 +1407,8 @@ loc_001273E0:
     ebx = MEM32(esp + 0x14);
     PUSH32(esp, ebp);
     ebp = MEM32(esp + 0x1C);
+    copy_dest = ebx;
+    copy_source = ebp;
     PUSH32(esp, esi);
     PUSH32(esp, edi);
     PUSH32(esp, ebp);
@@ -1411,6 +1416,8 @@ loc_001273E0:
     PUSH32(esp, 0); fn_001211C0_0ZeroBaseNode_IAE_ABV0_Z(); /* call 0x001211C0 */
 
 loc_00127408:
+    ebx = copy_dest;
+    ebp = copy_source;
     edi = ebx + 0x20;
     eax = 0; /* xor self */
     MEM32(esp + 0x18) = eax;
@@ -1448,7 +1455,11 @@ loc_00127408:
 loc_00127494:
     eax = MEM32(ecx);
     { uint32_t _icall_esp = g_esp;
+    uint32_t _saved_dest = ebx;
+    uint32_t _saved_source = ebp;
     PUSH32(esp, 0); RECOMP_ICALL_SAFE(MEM32(eax), _icall_esp); /* indirect call */
+    ebx = _saved_dest;
+    ebp = _saved_source;
     }
 
 loc_00127498:
@@ -1618,6 +1629,25 @@ void fn_00127570_ZeroObject_Render(void)
     ebp = g_seh_ebp; /* fpo_leaf: inherit caller's frame */
 
 loc_00127570:
+    {
+        static uint32_t zero_render_logs;
+        uint32_t arg = zeroobject_va_range_is_valid(esp + 4, 4) ? MEM32(esp + 4) : 0;
+        if (zero_render_logs < 96 || ((arg & 4) && getenv("FSW_RENDER_VERBOSE") != NULL)) {
+            fprintf(stderr,
+                    "[FSW/ZeroObject] Render #%u object=%08X vtbl=%08X child=%08X sibling=%08X parent=%08X c0=%08X flags=%08X arg=%08X video=%08X\n",
+                    (unsigned)(zero_render_logs + 1),
+                    (unsigned)ecx,
+                    (unsigned)(zeroobject_va_range_is_valid(ecx, 4) ? MEM32(ecx) : 0),
+                    (unsigned)(zeroobject_va_range_is_valid(ecx + 0x14, 4) ? MEM32(ecx + 0x14) : 0),
+                    (unsigned)(zeroobject_va_range_is_valid(ecx + 0x18, 4) ? MEM32(ecx + 0x18) : 0),
+                    (unsigned)(zeroobject_va_range_is_valid(ecx + 0x10, 4) ? MEM32(ecx + 0x10) : 0),
+                    (unsigned)(zeroobject_va_range_is_valid(ecx + 0xC0, 4) ? MEM32(ecx + 0xC0) : 0),
+                    (unsigned)(zeroobject_va_range_is_valid(ecx + 0xC8, 4) ? MEM32(ecx + 0xC8) : 0),
+                    (unsigned)arg,
+                    (unsigned)(zeroobject_va_range_is_valid(0x5FA8E8, 4) ? MEM32(0x5FA8E8) : 0));
+        }
+        zero_render_logs++;
+    }
     PUSH32(esp, ebx);
     PUSH32(esp, esi);
     esi = ecx;
@@ -1672,6 +1702,22 @@ loc_001275D7:
 
 loc_001275DD:
     edx = MEM32(ecx);
+    {
+        static uint32_t descriptor_logs;
+        if (descriptor_logs < 128 || ((ebx & 4) && getenv("FSW_RENDER_VERBOSE") != NULL)) {
+            fprintf(stderr,
+                    "[FSW/ZeroObject] Render descriptor #%u object=%08X desc=%08X desc_vtbl=%08X desc_render=%08X arg=%08X items=%u bucket6=%u\n",
+                    (unsigned)(descriptor_logs + 1),
+                    (unsigned)esi,
+                    (unsigned)ecx,
+                    (unsigned)edx,
+                    (unsigned)(zeroobject_va_range_is_valid(edx + 0x20, 4) ? MEM32(edx + 0x20) : 0),
+                    (unsigned)ebx,
+                    (unsigned)(zeroobject_va_range_is_valid(0x613EA4, 2) ? MEM16(0x613EA4) : 0),
+                    (unsigned)(zeroobject_va_range_is_valid(0x801190 + 0x4A60 + 4, 2) ? MEM16(0x801190 + 0x4A60 + 4) : 0));
+        }
+        descriptor_logs++;
+    }
     { uint32_t _icall_esp = g_esp;
     PUSH32(esp, ebx);
     PUSH32(esp, esi);

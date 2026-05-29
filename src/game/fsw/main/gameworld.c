@@ -1832,6 +1832,7 @@ void sub_002B01A2(void)
     uint32_t saved_ebx;
     uint32_t saved_esi;
     uint32_t saved_edi;
+    uint32_t saved_esp;
     uint32_t prop_object;
     uint32_t prop_desc;
 
@@ -1868,7 +1869,14 @@ void sub_002B01A2(void)
 	    saved_ebx = ebx;
 	    saved_esi = esi;
 	    saved_edi = edi;
+	    saved_esp = esp;
 	    PUSH32(esp, 0); fn_003A92D0_0CProp_QAE_XZ(); /* call 0x003A92D0 */
+	    if (esp != saved_esp) {
+	        fprintf(stderr,
+	                "[FSW/GameWorld] PORP repaired constructor stack object=%08X before=%08X after=%08X\n",
+	                (unsigned)prop_object, (unsigned)saved_esp, (unsigned)esp);
+	        esp = saved_esp;
+	    }
 	    ebx = saved_ebx;
 	    esi = saved_esi;
 	    edi = saved_edi;
@@ -1887,7 +1895,14 @@ void sub_002B01A2(void)
 	    saved_ebx = ebx;
 	    saved_esi = esi;
 	    saved_edi = edi;
+	    saved_esp = esp;
 	    PUSH32(esp, 0); fn_003A8430_CProp_InitInstance(); /* call 0x003A8430 */
+	    if (esp != saved_esp) {
+	        fprintf(stderr,
+	                "[FSW/GameWorld] PORP repaired InitInstance stack object=%08X before=%08X after=%08X\n",
+	                (unsigned)prop_object, (unsigned)saved_esp, (unsigned)esp);
+	        esp = saved_esp;
+	    }
 	    ebx = saved_ebx;
 	    esi = saved_esi;
 	    edi = saved_edi;

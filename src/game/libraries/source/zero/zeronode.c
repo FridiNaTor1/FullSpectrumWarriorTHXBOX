@@ -621,6 +621,7 @@ void fn_001211C0_0ZeroBaseNode_IAE_ABV0_Z(void)
     uint32_t ebp;
     uint32_t clone_count;
     uint32_t next_node;
+    uint32_t copy_source;
     int _flags = 0; /* fallback flag var */
     ebp = g_seh_ebp; /* fpo_leaf: inherit caller's frame */
 
@@ -630,6 +631,7 @@ loc_001211C0:
     PUSH32(esp, 0x401DDC);
     PUSH32(esp, eax);
     eax = MEM32(esp + 0x14);
+    copy_source = eax;
     MEM32(0) = esp;
     PUSH32(esp, ebx);
     PUSH32(esp, ebp);
@@ -650,12 +652,14 @@ loc_001211C0:
     if (CMP_EQ(MEM8(0x5CE222), LO8(ebx))) goto loc_0012123E; /* je: equal / zero */
 
 loc_00121211:
+    eax = copy_source;
     ebp = MEM32(eax + 0x14);
     if (CMP_EQ(ebp, ebx)) goto loc_0012123E; /* je: equal / zero */
 
     clone_count = 0;
 
 loc_00121218:
+    eax = copy_source;
     if (!fsw_zeronode_va_range_is_valid(ebp, 0x1C) || ++clone_count > 4096u) {
         if (g_fsw_zeronode_clone_log_count < 64) {
             fprintf(stderr,
@@ -687,7 +691,13 @@ loc_00121218:
     edx = MEM32(ebp);
     ecx = ebp;
     { uint32_t _icall_esp = g_esp;
+    uint32_t _saved_child = ebp;
+    uint32_t _saved_dest = edi;
+    uint32_t _saved_zero = ebx;
     PUSH32(esp, 0); RECOMP_ICALL_SAFE(MEM32(edx), _icall_esp); /* indirect call */
+    ebp = _saved_child;
+    edi = _saved_dest;
+    ebx = _saved_zero;
     }
 
 loc_0012121F:
@@ -702,9 +712,17 @@ loc_0012121F:
     if (!fsw_zeronode_object_vtable_is_valid(esi, 0x18)) goto loc_00121237;
     eax = MEM32(esi);
     { uint32_t _icall_esp = g_esp;
+    uint32_t _saved_child = ebp;
+    uint32_t _saved_dest = edi;
+    uint32_t _saved_zero = ebx;
+    uint32_t _saved_clone = esi;
     PUSH32(esp, edi);
     ecx = esi;
     PUSH32(esp, 0); RECOMP_ICALL_SAFE(MEM32(eax + 0x14), _icall_esp); /* indirect call */
+    ebp = _saved_child;
+    edi = _saved_dest;
+    ebx = _saved_zero;
+    esi = _saved_clone;
     }
 
 loc_00121229:
@@ -714,9 +732,15 @@ loc_00121229:
 loc_0012122E:
     edx = MEM32(esi);
     { uint32_t _icall_esp = g_esp;
+    uint32_t _saved_child = ebp;
+    uint32_t _saved_dest = edi;
+    uint32_t _saved_zero = ebx;
     PUSH32(esp, 1);
     ecx = esi;
     PUSH32(esp, 0); RECOMP_ICALL_SAFE(MEM32(edx + 0x10), _icall_esp); /* indirect call */
+    ebp = _saved_child;
+    edi = _saved_dest;
+    ebx = _saved_zero;
     }
 
 loc_00121237:

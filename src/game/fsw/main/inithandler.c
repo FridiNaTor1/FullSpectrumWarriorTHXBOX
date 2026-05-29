@@ -2041,17 +2041,16 @@ loc_002AF717:
     eax = eax + 0x10B4;
     if (getenv("FSW_TH_LEVEL") != NULL && MEM32(eax + 0x368) == 0) {
         uint32_t direct_game = eax;
-        uint32_t init_session_esp = esp;
-        fprintf(stderr, "[FSW/Player] direct level boot initializing single-player net session game=%08X\n",
+        fprintf(stderr, "[FSW/Player] direct level boot binding single-player net session game=%08X\n",
                 (unsigned)direct_game);
-        PUSH32(esp, 0);
-        ecx = direct_game;
-        PUSH32(esp, 0); fn_0027C740_CNetGame_InitSession(); /* call 0x0027C740 */
-        esp = init_session_esp;
+        MEM8(direct_game) = 1;
+        MEM32(direct_game + 0x368) = 1;
+        MEM8(direct_game + 0x98) = 0x08;
+        MEM32(direct_game + 0x40) = 0;
         fprintf(stderr,
                 "[FSW/Player] direct level net session ready game=%08X ret=%02X flags368=%08X p0flags=%02X p0uid=%08X\n",
                 (unsigned)direct_game,
-                (unsigned)LO8(eax),
+                1u,
                 (unsigned)MEM32(direct_game + 0x368),
                 (unsigned)MEM8(direct_game + 0x98),
                 (unsigned)MEM32(direct_game + 0x40));
@@ -2351,10 +2350,13 @@ loc_002AF8C6:
     PUSH32(esp, 0); fn_00284E40_CSceneManager_Get(); /* call 0x00284E40 */
 
 loc_002AF8CE:
-	    ebx = eax;
+	    ebx = 0x643B60u;
+	    fsw_scenemanager_restore_entries_from_snapshot(ebx, "before-postload");
 	    PUSH32(esp, 0); fn_00280890_CSceneManager_PostLoad(); /* call 0x00280890 */
 
 loc_002AF8D5:
+	    ebx = 0x643B60u;
+	    fsw_scenemanager_restore_entries_from_snapshot(ebx, "after-postload");
 	    fprintf(stderr, "[FSW/Scene] after CSceneManager_PostLoad esp=%08X scene=%08X\n", esp, ebx);
 	    fsw_inithandler_scene_state("after CSceneManager_PostLoad");
 	    PUSH32(esp, 0); fn_002FC8E0_Debug_Setup(); /* call 0x002FC8E0 */

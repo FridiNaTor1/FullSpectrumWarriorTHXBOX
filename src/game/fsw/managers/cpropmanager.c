@@ -12,12 +12,12 @@
 static int cpropmanager_va_range_is_valid(uint32_t va, uint32_t size)
 {
     if (size == 0) {
-        return va >= 0x00010000u && va < 0x04000000u;
+        return va >= 0x00010000u && va < RECOMP_GUEST_RAM_LIMIT;
     }
-    if (va < 0x00010000u || va >= 0x04000000u || va + size < va) {
+    if (va < 0x00010000u || va >= RECOMP_GUEST_RAM_LIMIT || va + size < va) {
         return 0;
     }
-    return va + size <= 0x04000000u;
+    return va + size <= RECOMP_GUEST_RAM_LIMIT;
 }
 
 static int cpropmanager_zero_object_is_valid(uint32_t object)

@@ -1604,8 +1604,10 @@ loc_00022B81:
  */
 void fn_00022B90_ZeroObject_CreateClone(void)
 {
+    uint32_t source_object;
 
 loc_00022B90:
+    source_object = ecx;
     { uint32_t _icall_esp = g_esp;
     PUSH32(esp, 0xFFFFFFFFu);
     PUSH32(esp, 0x40D8B8);
@@ -1622,6 +1624,7 @@ loc_00022B90:
     ecx = 0x6135C8;
     MEM32(esp + 0xC) = 0;
     PUSH32(esp, 0); RECOMP_ICALL_SAFE(MEM32(edx), _icall_esp); /* indirect call */
+    esi = source_object;
     }
 
 loc_00022BC8:

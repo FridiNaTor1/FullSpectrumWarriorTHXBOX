@@ -8,6 +8,11 @@
 #include "recomp_funcs.h"
 #include <math.h>
 
+static int fsw_zeromesh_va_ok(uint32_t addr, uint32_t size)
+{
+    return addr != 0 && addr < 0x04000000u && size <= 0x04000000u - addr;
+}
+
 /**
  * fn_00054BD0_GZeroMesh_UAEPAXI_Z
  * Symbol: ??_GZeroMesh@@UAEPAXI@Z
@@ -1193,6 +1198,35 @@ loc_00118DD0:
     edi = ecx;
     ebp = edi + 0x10;
     ebx = 0; /* xor self */
+    {
+        static uint32_t attach_logs;
+        if (attach_logs < 96) {
+            uint32_t mesh = edi;
+            uint32_t material_list = MEM32(esp + 0x18);
+            uint32_t desc_list = MEM32(esp + 0x1C);
+            uint32_t material_node = fsw_zeromesh_va_ok(material_list + 8, 4) ? MEM32(material_list + 8) : 0;
+            uint32_t desc_node = fsw_zeromesh_va_ok(desc_list + 8, 4) ? MEM32(desc_list + 8) : 0;
+            uint32_t first_material = fsw_zeromesh_va_ok(material_node, 4) ? MEM32(material_node) : 0;
+            uint32_t first_desc = fsw_zeromesh_va_ok(desc_node, 4) ? MEM32(desc_node) : 0;
+            fprintf(stderr,
+                    "[FSW/ZeroMesh] AttachPrimitives begin #%u mesh=%08X vtbl=%08X mat_list=%08X count=%u head=%08X first=%08X first_vtbl=%08X desc_list=%08X count=%u head=%08X first=%08X first_vtbl=%08X esp=%08X\n",
+                    (unsigned)(attach_logs + 1),
+                    (unsigned)mesh,
+                    (unsigned)(fsw_zeromesh_va_ok(mesh, 4) ? MEM32(mesh) : 0),
+                    (unsigned)material_list,
+                    (unsigned)(fsw_zeromesh_va_ok(material_list, 2) ? MEM16(material_list) : 0),
+                    (unsigned)material_node,
+                    (unsigned)first_material,
+                    (unsigned)(fsw_zeromesh_va_ok(first_material, 4) ? MEM32(first_material) : 0),
+                    (unsigned)desc_list,
+                    (unsigned)(fsw_zeromesh_va_ok(desc_list, 2) ? MEM16(desc_list) : 0),
+                    (unsigned)desc_node,
+                    (unsigned)first_desc,
+                    (unsigned)(fsw_zeromesh_va_ok(first_desc, 4) ? MEM32(first_desc) : 0),
+                    (unsigned)esp);
+            attach_logs++;
+        }
+    }
     PUSH32(esp, 1);
     eax = ebp;
     MEM32(esp + 0x14) = ebx;
@@ -1250,6 +1284,30 @@ loc_00118E35:
     if (TEST_NZ(eax, eax)) goto loc_00118E35; /* jne: not equal / not zero */
 
 loc_00118E56:
+    {
+        static uint32_t attach_done_logs;
+        if (attach_done_logs < 96) {
+            uint32_t mesh = edi - 0x18;
+            uint32_t material_array = fsw_zeromesh_va_ok(mesh + 0x10, 4) ? MEM32(mesh + 0x10) : 0;
+            uint32_t desc_array = fsw_zeromesh_va_ok(mesh + 0x18, 4) ? MEM32(mesh + 0x18) : 0;
+            uint32_t first_material = fsw_zeromesh_va_ok(material_array, 4) ? MEM32(material_array) : 0;
+            uint32_t first_desc = fsw_zeromesh_va_ok(desc_array, 4) ? MEM32(desc_array) : 0;
+            fprintf(stderr,
+                    "[FSW/ZeroMesh] AttachPrimitives done #%u mesh=%08X materials=%08X/%u first=%08X first_vtbl=%08X descs=%08X/%u first=%08X first_vtbl=%08X esp=%08X\n",
+                    (unsigned)(attach_done_logs + 1),
+                    (unsigned)mesh,
+                    (unsigned)material_array,
+                    (unsigned)(fsw_zeromesh_va_ok(mesh + 0x14, 2) ? MEM16(mesh + 0x14) : 0),
+                    (unsigned)first_material,
+                    (unsigned)(fsw_zeromesh_va_ok(first_material, 4) ? MEM32(first_material) : 0),
+                    (unsigned)desc_array,
+                    (unsigned)(fsw_zeromesh_va_ok(mesh + 0x1C, 2) ? MEM16(mesh + 0x1C) : 0),
+                    (unsigned)first_desc,
+                    (unsigned)(fsw_zeromesh_va_ok(first_desc, 4) ? MEM32(first_desc) : 0),
+                    (unsigned)esp);
+            attach_done_logs++;
+        }
+    }
     POP32(esp, edi);
     POP32(esp, esi);
     POP32(esp, ebp);
@@ -1739,6 +1797,33 @@ loc_00119150:
     eax = 0; /* xor self */
     MEM32(edi + 0xC) = eax;
     ebx = ecx;
+    {
+        static uint32_t mesh_copy_logs;
+        if (mesh_copy_logs < 128) {
+            uint32_t src = ebx;
+            uint32_t dst = edi;
+            uint32_t src_material_array = fsw_zeromesh_va_ok(src + 0x10, 4) ? MEM32(src + 0x10) : 0;
+            uint32_t src_desc_array = fsw_zeromesh_va_ok(src + 0x18, 4) ? MEM32(src + 0x18) : 0;
+            uint32_t src_first_material = fsw_zeromesh_va_ok(src_material_array, 4) ? MEM32(src_material_array) : 0;
+            uint32_t src_first_desc = fsw_zeromesh_va_ok(src_desc_array, 4) ? MEM32(src_desc_array) : 0;
+            fprintf(stderr,
+                    "[FSW/ZeroMesh] copy begin #%u src=%08X src_vtbl=%08X dst=%08X src_materials=%08X/%u first=%08X first_vtbl=%08X src_descs=%08X/%u first=%08X first_vtbl=%08X esp=%08X\n",
+                    (unsigned)(mesh_copy_logs + 1),
+                    (unsigned)src,
+                    (unsigned)(fsw_zeromesh_va_ok(src, 4) ? MEM32(src) : 0),
+                    (unsigned)dst,
+                    (unsigned)src_material_array,
+                    (unsigned)(fsw_zeromesh_va_ok(src + 0x14, 2) ? MEM16(src + 0x14) : 0),
+                    (unsigned)src_first_material,
+                    (unsigned)(fsw_zeromesh_va_ok(src_first_material, 4) ? MEM32(src_first_material) : 0),
+                    (unsigned)src_desc_array,
+                    (unsigned)(fsw_zeromesh_va_ok(src + 0x1C, 2) ? MEM16(src + 0x1C) : 0),
+                    (unsigned)src_first_desc,
+                    (unsigned)(fsw_zeromesh_va_ok(src_first_desc, 4) ? MEM32(src_first_desc) : 0),
+                    (unsigned)esp);
+            mesh_copy_logs++;
+        }
+    }
     MEM32(edi + 8) = 1;
     MEM32(esp + 0x18) = eax;
     ebp = edi + 0x10;
@@ -1831,6 +1916,31 @@ loc_0011921F:
     MEM32(ecx + 4) = eax;
     edx = MEM32(ebx + 8);
     eax = edi;
+    {
+        static uint32_t mesh_copy_done_logs;
+        if (mesh_copy_done_logs < 128) {
+            uint32_t dst = edi;
+            uint32_t dst_material_array = fsw_zeromesh_va_ok(dst + 0x10, 4) ? MEM32(dst + 0x10) : 0;
+            uint32_t dst_desc_array = fsw_zeromesh_va_ok(dst + 0x18, 4) ? MEM32(dst + 0x18) : 0;
+            uint32_t dst_first_material = fsw_zeromesh_va_ok(dst_material_array, 4) ? MEM32(dst_material_array) : 0;
+            uint32_t dst_first_desc = fsw_zeromesh_va_ok(dst_desc_array, 4) ? MEM32(dst_desc_array) : 0;
+            fprintf(stderr,
+                    "[FSW/ZeroMesh] copy done #%u dst=%08X dst_vtbl=%08X materials=%08X/%u first=%08X first_vtbl=%08X descs=%08X/%u first=%08X first_vtbl=%08X esp=%08X\n",
+                    (unsigned)(mesh_copy_done_logs + 1),
+                    (unsigned)dst,
+                    (unsigned)(fsw_zeromesh_va_ok(dst, 4) ? MEM32(dst) : 0),
+                    (unsigned)dst_material_array,
+                    (unsigned)(fsw_zeromesh_va_ok(dst + 0x14, 2) ? MEM16(dst + 0x14) : 0),
+                    (unsigned)dst_first_material,
+                    (unsigned)(fsw_zeromesh_va_ok(dst_first_material, 4) ? MEM32(dst_first_material) : 0),
+                    (unsigned)dst_desc_array,
+                    (unsigned)(fsw_zeromesh_va_ok(dst + 0x1C, 2) ? MEM16(dst + 0x1C) : 0),
+                    (unsigned)dst_first_desc,
+                    (unsigned)(fsw_zeromesh_va_ok(dst_first_desc, 4) ? MEM32(dst_first_desc) : 0),
+                    (unsigned)esp);
+            mesh_copy_done_logs++;
+        }
+    }
     POP32(esp, edi);
     POP32(esp, esi);
     MEM32(ecx + 8) = edx;

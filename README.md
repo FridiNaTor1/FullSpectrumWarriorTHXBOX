@@ -24,11 +24,11 @@ The shell/menu screenshots show real `Shell.pak` assets, real menu background la
 |---|
 | ![Current direct first-level runtime frame](docs/screenshots/first-level-runtime-current.png) |
 
-The first-level screenshot is a real Vulkan frame from the mission loop. It is not playable gameplay yet: the app reaches `MissionHandler::Update`, `ProcessGame`, `SceneManager_RenderAll`, and continuous native presents, but the world scene is not populated correctly, so the frame still shows shell/menu background state instead of the level geometry.
+The first-level screenshot is a real Vulkan frame from the mission loop. It is not playable gameplay yet: the app reaches geometry rendering now, but gameplay flow and textures are not in place yet.
 
 ## Current Status
 
-**The Linux port now reaches two important real paths: the shell/profile/main-menu renderer and the first-level mission loop.**
+**The Linux port now reaches two important real paths: the shell/profile/main-menu renderer and the first-level geomtry rendering.**
 
 The normal shell path initializes the Vulkan presentation host, loads `Shell.pak`, resolves PAK-contained resources through the game's `ZeroFile` memory-file system, loads `menu.ui`, selects the shell menu, decodes real shell textures, decodes font atlas data, and submits real RHW UI draws through Vulkan. The verified flow now reaches:
 
@@ -45,7 +45,7 @@ The direct first-level path now loads the current forced mission PAK, registers 
 This is not playable yet. The mission path is alive and presenting frames, but world state is still damaged: camera slots, settings, physical world, player/faction lists, and scene object links are frequently invalid, and the visible frame is still dominated by shell/menu background state. The next real gameplay blocker is scene/world population and camera/player state repair, not presentation.
 
 ## Since Last Push
-
+- Added more work on actual level paks. Now renders geometry, but gameplay flow and textures are not in place yet. (You just see white lines in the top left of the corner)
 - Added and hardened Linux Vulkan D3D8 presentation paths for native RHW UI draws, frame presentation, and runtime frame dumping.
 - Advanced the real shell/menu path: `Shell.pak`, `menu.ui`, UI texture lookup, image controls, line controls, static text, font atlas decode, and location-string fallback all run far enough to render the real shell screen.
 - Brought up the real shell background animation cycle and quote-text scrolling across Press Start, Profile Select, Profile Creation, and Main Menu states.
@@ -84,7 +84,7 @@ This is not playable yet. The mission path is alive and presenting frames, but w
 - **Main Menu shell** - the Main Menu renders with real menu options, highlight styling, controller glyphs, and a Linux-only Quit option.
 - **SDL input bridge** - SDL-backed XInput compatibility detects and maps modern controllers, with keyboard fallback for bring-up.
 - **Scripted input bring-up** - `FSW_TH_INPUT_SCRIPT` can drive repeatable shell/profile tests without manual controller input.
-- **Direct mission loop** - `FSW_TH_FORCE_DIRECT=1` reaches `MissionHandler::Update`, `ProcessGame`, `SceneManager_RenderAll`, and continues presenting native Vulkan frames.
+- **Direct mission loop** - Using the env `FSW_TH_LEVEL=PR_ProjectsRidealong FSW_TH_FORCE_SKIP_BOOT_SURFACE=1 FSW_TH_DISABLE_MENU_FALLBACK=1 FSW_TH_NET_STATE=0x3A` reaches the first render. Still need to fix gameplay flow and textures.
 
 ## Current Blockers
 
@@ -94,8 +94,6 @@ This is not playable yet. The mission path is alive and presenting frames, but w
 - [ ] Continue polishing Bink/video timing and presentation now that the intro videos play in the real shell timeline.
 - [ ] Replace temporary XACT/audio bypasses with a real Xbox audio path after gameplay rendering is further along.
 - [ ] Fix first-level world/scene population. The direct path reaches `InitLevel`, `ConstructObjects`, `MissionHandler::Update`, `ProcessGame`, and `SceneManager_RenderAll`, but the visible frame still comes from stale shell/menu state instead of proper level geometry.
-- [ ] Route or repair the real `LoadWLD`/`CGameWorld_LoadWLD`/static-prop setup path; current logs do not show the expected WLD/static prop population in direct mode.
-- [ ] Repair player/faction/camera/physical-world state in the mission loop; current logs show invalid local player, faction list, camera vtables, settings pointer, and physical world pointers.
 - [ ] Reduce noisy bring-up diagnostics once each subsystem is stable enough for public testing.
 
 ## Current Findings
@@ -206,14 +204,14 @@ Useful bring-up commands:
 
 ```bash
 # Real shell/menu path
-FSW_TH_DISABLE_MENU_FALLBACK=1 tools/run_host.sh
+FSW_TH_DISABLE_MENU_FALLBACK=1 bin/fsw_th_recomp
 
 # Isolated save-dir test run
-FSW_TH_SAVE_DIR=/tmp/fswth-saves FSW_TH_DISABLE_MENU_FALLBACK=1 tools/run_host.sh
+FSW_TH_SAVE_DIR=/tmp/fswth-saves FSW_TH_DISABLE_MENU_FALLBACK=1 bin/fsw_th_recomp
 
 # Direct first-mission probe
-FSW_TH_FORCE_DIRECT=1 FSW_TH_DISABLE_MENU_FALLBACK=1 tools/run_host.sh
+FSW_TH_FORCE_DIRECT=1 FSW_TH_DISABLE_MENU_FALLBACK=1 bin/fsw_th_recomp
 
 # Dump a Vulkan frame to /tmp/xboxrecomp_vulkan_frame.ppm
-XBOXRECOMP_DUMP_VULKAN_FRAME=120 FSW_TH_DISABLE_MENU_FALLBACK=1 tools/run_host.sh
+XBOXRECOMP_DUMP_VULKAN_FRAME=120 FSW_TH_DISABLE_MENU_FALLBACK=1 bin/fsw_th_recomp
 ```

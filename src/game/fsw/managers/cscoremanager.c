@@ -8,21 +8,37 @@
 #include "recomp_funcs.h"
 #include <math.h>
 #include <stdio.h>
+#include <stdlib.h>
 
 static int cscoremanager_va_range_is_valid(uint32_t va, uint32_t size)
 {
-    return va >= 0x00010000u && va < 0x04000000u && size <= 0x04000000u - va;
+    if (size == 0) {
+        return va >= 0x00010000u && va < RECOMP_GUEST_RAM_LIMIT;
+    }
+    if (va < 0x00010000u || va >= RECOMP_GUEST_RAM_LIMIT || va + size < va) {
+        return 0;
+    }
+    return va + size <= RECOMP_GUEST_RAM_LIMIT;
 }
 
 static uint32_t cscoremanager_get_or_init(void)
 {
     uint32_t manager = MEM32(0x5D9A8C);
+    uint32_t static_manager = 0x6244D0;
 
     if (cscoremanager_va_range_is_valid(manager, 0x2000)) {
         return manager;
     }
 
-    manager = 0x6244D0;
+    manager = static_manager;
+    if (getenv("FSW_TH_LEVEL") != NULL && cscoremanager_va_range_is_valid(manager, 0x2000)) {
+        fprintf(stderr,
+                "[FSW/Score] rebinding existing CScoreManager singleton object=%08X old=%08X\n",
+                (unsigned)manager, (unsigned)MEM32(0x5D9A8C));
+        MEM32(0x5D9A8C) = manager;
+        return manager;
+    }
+
     fprintf(stderr, "[FSW/Score] repairing missing CScoreManager singleton object=%08X old=%08X\n",
             (unsigned)manager, (unsigned)MEM32(0x5D9A8C));
     PUSH32(esp, manager);
