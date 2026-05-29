@@ -16,12 +16,81 @@ extern void fsw_applicationmanager_allow_shutdown_host(void);
 extern void fsw_textentry_profile_activate_host(uint32_t menu);
 extern int fsw_textentry_profile_is_editing(void);
 extern void fsw_textentry_profile_reset_accept_host(void);
+extern uint32_t fsw_xapi_populate_profile_manager_names(uint32_t mgr);
 
 static uint8_t g_fsw_profile_setup_accept_requested;
+
+static int cstateupdate_va_is_valid(uint32_t va);
+static void fsw_profile_selection_init_visible_list(uint32_t menu);
 
 void fsw_profile_setup_request_accept_host(void)
 {
     g_fsw_profile_setup_accept_requested = 1;
+}
+
+static uint32_t cstateupdate_wcslen_bounded(uint32_t text, uint32_t max_chars)
+{
+    uint32_t len = 0;
+
+    if (!cstateupdate_va_is_valid(text + 1)) {
+        return 0;
+    }
+    while (len < max_chars && cstateupdate_va_is_valid(text + len * 2u + 1)) {
+        if (MEM16(text + len * 2u) == 0) {
+            break;
+        }
+        len++;
+    }
+    return len;
+}
+
+static uint8_t cstateupdate_commit_new_profile_host(void)
+{
+    uint32_t manager = MEM32(0x5FA358);
+    uint32_t saved_ebx = ebx;
+    uint32_t name_len;
+    uint8_t profile_exists;
+    uint32_t old_count;
+    uint32_t new_count;
+
+    if (!cstateupdate_va_is_valid(manager + 0x5700)) {
+        return 0;
+    }
+    name_len = cstateupdate_wcslen_bounded(0x5D92F8u, 0x11);
+    if (name_len == 0) {
+        fprintf(stderr, "[FSW/Profile] ignoring empty profile create request\n");
+        return 0;
+    }
+
+    MEM8(manager + 0x5700) = 0;
+    ecx = manager;
+    PUSH32(esp, 0);
+    fn_002B2140_CProfileManager_ProfileExists();
+    profile_exists = LO8(eax) != 0;
+    if (profile_exists) {
+        ebx = saved_ebx;
+        fprintf(stderr, "[FSW/Profile] profile create rejected duplicate name len=%u\n",
+                (unsigned)name_len);
+        return 0;
+    }
+
+    old_count = MEM32(manager + 0x2C90);
+    PUSH32(esp, 0);
+    ebx = manager;
+    PUSH32(esp, 0);
+    fn_002B5960_CProfileManager_AddNewProfile();
+    ebx = saved_ebx;
+    new_count = MEM32(manager + 0x2C90);
+
+    if (new_count > old_count) {
+        PUSH32(esp, manager);
+        PUSH32(esp, 0);
+        fn_002B4320_CProfileManager_SaveGlobalSettings();
+    }
+
+    fprintf(stderr, "[FSW/Profile] profile create committed old_count=%u new_count=%u\n",
+            (unsigned)old_count, (unsigned)new_count);
+    return new_count > old_count;
 }
 
 static int cstateupdate_va_is_valid(uint32_t va)
@@ -53,6 +122,452 @@ static void cstateupdate_ensure_singleton(void)
     MEM32(0x6A9D38) = 0x55A4F8;
     MEM32(0x6A9D34) = 0x6A9D38;
     MEM32(0x6AA6AC) = MEM32(0x6AA6AC) | 3;
+}
+
+static uint32_t fsw_profile_selection_find_item_list_in_control(uint32_t control, uint32_t depth)
+{
+    uint32_t node;
+    uint32_t count;
+    uint32_t i;
+
+    if (!cstateupdate_va_is_valid(control + 0xB4)) {
+        return 0;
+    }
+    if (MEM32(control) == 0x5608F0u) {
+        return control;
+    }
+    if (depth >= 4) {
+        return 0;
+    }
+
+    count = MEM32(control + 0xAC);
+    node = MEM32(control + 0xB4);
+    for (i = 0; i < count && i < 32 && cstateupdate_va_is_valid(node + 4); ++i) {
+        uint32_t child = MEM32(node);
+        uint32_t found = fsw_profile_selection_find_item_list_in_control(child, depth + 1);
+        if (found) {
+            return found;
+        }
+        node = MEM32(node + 4);
+    }
+
+    return 0;
+}
+
+static uint32_t fsw_profile_selection_find_item_list(uint32_t menu)
+{
+    return fsw_profile_selection_find_item_list_in_control(menu, 0);
+}
+
+static uint32_t fsw_profile_selection_child_at(uint32_t list, uint32_t index)
+{
+    uint32_t node;
+    uint32_t i;
+
+    if (!cstateupdate_va_is_valid(list + 0xB4)) {
+        return 0;
+    }
+    node = MEM32(list + 0xB4);
+    for (i = 0; i < index && cstateupdate_va_is_valid(node + 4); ++i) {
+        node = MEM32(node + 4);
+    }
+    if (!cstateupdate_va_is_valid(node)) {
+        return 0;
+    }
+    return MEM32(node);
+}
+
+static int fsw_profile_selection_wide_equals(uint32_t a, uint32_t b)
+{
+    uint32_t i;
+
+    if (!cstateupdate_va_is_valid(a + 1) || !cstateupdate_va_is_valid(b + 1)) {
+        return 0;
+    }
+    for (i = 0; i < 17; ++i) {
+        uint16_t ca = MEM16(a + i * 2);
+        uint16_t cb = MEM16(b + i * 2);
+        if (ca != cb) {
+            return 0;
+        }
+        if (!ca) {
+            return 1;
+        }
+    }
+    return 1;
+}
+
+static uint32_t fsw_profile_selection_find_menu_item_visual(uint32_t control, uint32_t depth)
+{
+    uint32_t count;
+    uint32_t node;
+    uint32_t i;
+
+    if (!cstateupdate_va_is_valid(control + 0xB4) || depth >= 6) {
+        return 0;
+    }
+
+    count = MEM32(control + 0xAC);
+    node = MEM32(control + 0xB4);
+    for (i = 0; i < count && i < 64 && cstateupdate_va_is_valid(node + 4); ++i) {
+        uint32_t child = MEM32(node);
+        uint32_t found = fsw_profile_selection_find_menu_item_visual(child, depth + 1);
+        if (found) {
+            return found;
+        }
+        node = MEM32(node + 4);
+    }
+
+    if (cstateupdate_va_is_valid(control + 0xD1) && MEM8(control + 0xD1) == 5) {
+        return control;
+    }
+
+    return 0;
+}
+
+static uint32_t fsw_profile_selection_current_index(uint32_t manager, uint32_t profiles)
+{
+    uint32_t i;
+
+    for (i = 0; i < profiles && i < 0x11; ++i) {
+        if (fsw_profile_selection_wide_equals(manager + 0x56DE,
+                                              manager + 0x2A2E + i * 36)) {
+            return i;
+        }
+    }
+    return 0;
+}
+
+static void fsw_profile_selection_set_selected_item(uint32_t list, uint32_t selected)
+{
+    uint32_t count;
+    uint32_t i;
+
+    if (!cstateupdate_va_is_valid(list + 0xB4)) {
+        return;
+    }
+
+    count = MEM32(list + 0xAC);
+    for (i = 0; i < count && i < 32; ++i) {
+        uint32_t child = fsw_profile_selection_child_at(list, i);
+        uint32_t visual = fsw_profile_selection_find_menu_item_visual(child, 0);
+        if (!cstateupdate_va_is_valid(child + 0xE4)) {
+            continue;
+        }
+        if (i == selected) {
+            MEM8(child + 0xE4) = MEM8(child + 0xE4) | 4u;
+            if (cstateupdate_va_is_valid(visual + 0xE4)) {
+                MEM8(visual + 0xE4) = MEM8(visual + 0xE4) | 4u;
+            }
+        } else {
+            MEM8(child + 0xE4) = MEM8(child + 0xE4) & (uint8_t)~4u;
+            if (cstateupdate_va_is_valid(visual + 0xE4)) {
+                MEM8(visual + 0xE4) = MEM8(visual + 0xE4) & (uint8_t)~4u;
+            }
+        }
+    }
+}
+
+static uint32_t fsw_profile_selection_get_selected_item(uint32_t list, uint32_t max_items)
+{
+    uint32_t count;
+    uint32_t i;
+
+    if (!cstateupdate_va_is_valid(list + 0xB4)) {
+        return 0;
+    }
+
+    count = MEM32(list + 0xAC);
+    if (count > max_items) {
+        count = max_items;
+    }
+    for (i = 0; i < count && i < 32; ++i) {
+        uint32_t child = fsw_profile_selection_child_at(list, i);
+        uint32_t visual = fsw_profile_selection_find_menu_item_visual(child, 0);
+        if ((cstateupdate_va_is_valid(child + 0xE4) && (MEM8(child + 0xE4) & 4u) != 0) ||
+            (cstateupdate_va_is_valid(visual + 0xE4) && (MEM8(visual + 0xE4) & 4u) != 0)) {
+            return i;
+        }
+    }
+    return 0;
+}
+
+static void fsw_profile_selection_mark_event_used(uint32_t input, uint32_t event_id)
+{
+    if (cstateupdate_va_is_valid(input + event_id + 0x18)) {
+        MEM8(input + event_id) = 1;
+        MEM8(input + event_id + 0x18) = 1;
+    }
+}
+
+static void fsw_profile_selection_repair_navigation(uint32_t menu)
+{
+    uint32_t manager;
+    uint32_t profiles;
+    uint32_t item_list;
+    uint32_t input;
+    uint32_t event_id = 0;
+    uint32_t max_items;
+    uint32_t selected;
+    uint32_t next;
+
+    manager = MEM32(0x5FA358);
+    input = MEM32(0x5FA89C);
+    if (!cstateupdate_va_is_valid(manager + 0x2C90) || !cstateupdate_va_is_valid(input + 0x1C)) {
+        return;
+    }
+    profiles = MEM32(manager + 0x2C90);
+    if (profiles == 0 || profiles > 0x11) {
+        return;
+    }
+    item_list = fsw_profile_selection_find_item_list(menu);
+    if (!cstateupdate_va_is_valid(item_list + 0xB4)) {
+        return;
+    }
+
+    if (MEM8(input + 1) == 0 && MEM8(0x5F9E1D) != 0) {
+        event_id = 1;
+    } else if (MEM8(input + 2) == 0 && MEM8(0x5F9E1E) != 0) {
+        event_id = 2;
+    }
+    if (event_id == 0) {
+        return;
+    }
+
+    max_items = profiles + 1;
+    selected = fsw_profile_selection_get_selected_item(item_list, max_items);
+    if (event_id == 1) {
+        next = (selected == 0) ? (max_items - 1) : (selected - 1);
+    } else {
+        next = (selected + 1) % max_items;
+    }
+    fsw_profile_selection_set_selected_item(item_list, next);
+    fsw_profile_selection_mark_event_used(input, event_id);
+
+    if (getenv("FSW_TH_PROFILE_MENU_DEBUG") != NULL) {
+        fprintf(stderr, "[FSW/ProfileMenu] repaired nav event=%u selected=%u -> %u profiles=%u\n",
+                (unsigned)event_id, (unsigned)selected, (unsigned)next, (unsigned)profiles);
+    }
+}
+
+static void fsw_profile_selection_refresh_variable_text(uint32_t control, uint32_t depth)
+{
+    uint32_t count;
+    uint32_t node;
+    uint32_t i;
+
+    if (!cstateupdate_va_is_valid(control + 0xB4)) {
+        return;
+    }
+
+    if (MEM32(control) == 0x560A20u) {
+        uint32_t saved_eax = eax;
+        uint32_t saved_ecx = ecx;
+        uint32_t saved_edx = edx;
+        uint32_t saved_esi = esi;
+        uint32_t saved_edi = edi;
+        uint32_t saved_esp = esp;
+
+        esi = control;
+        PUSH32(esp, 0);
+        fn_0012C7A0_CUIVariableTextControl_SetDataFromCRC();
+
+        esp = saved_esp;
+        eax = saved_eax;
+        ecx = saved_ecx;
+        edx = saved_edx;
+        esi = saved_esi;
+        edi = saved_edi;
+    }
+
+    if (depth >= 6) {
+        return;
+    }
+
+    count = MEM32(control + 0xAC);
+    node = MEM32(control + 0xB4);
+    for (i = 0; i < count && i < 64 && cstateupdate_va_is_valid(node + 4); ++i) {
+        uint32_t child = MEM32(node);
+        if (cstateupdate_va_is_valid(child + 0xB4)) {
+            fsw_profile_selection_refresh_variable_text(child, depth + 1);
+        }
+        node = MEM32(node + 4);
+    }
+}
+
+static void fsw_profile_selection_bind_variable_text_to_name(uint32_t control, uint32_t name_va, uint32_t depth)
+{
+    uint32_t count;
+    uint32_t node;
+    uint32_t i;
+
+    if (!cstateupdate_va_is_valid(control + 0xB4) || !cstateupdate_va_is_valid(name_va + 1)) {
+        return;
+    }
+
+    if (MEM32(control) == 0x560A20u) {
+        MEM32(control + 0x120) = 2;
+        MEM32(control + 0x128) = name_va;
+    }
+
+    if (depth >= 6) {
+        return;
+    }
+
+    count = MEM32(control + 0xAC);
+    node = MEM32(control + 0xB4);
+    for (i = 0; i < count && i < 64 && cstateupdate_va_is_valid(node + 4); ++i) {
+        uint32_t child = MEM32(node);
+        if (cstateupdate_va_is_valid(child + 0xB4)) {
+            fsw_profile_selection_bind_variable_text_to_name(child, name_va, depth + 1);
+        }
+        node = MEM32(node + 4);
+    }
+}
+
+static void fsw_profile_selection_bind_profile_names(uint32_t item_list, uint32_t manager, uint32_t profiles)
+{
+    uint32_t i;
+
+    for (i = 0; i < profiles && i < 0x11; ++i) {
+        uint32_t row = fsw_profile_selection_child_at(item_list, i + 1);
+        if (!cstateupdate_va_is_valid(row + 0xB4)) {
+            continue;
+        }
+        fsw_profile_selection_bind_variable_text_to_name(row, manager + 0x2A2E + i * 36, 0);
+    }
+}
+
+static void fsw_profile_selection_layout_profile_rows(uint32_t item_list, uint32_t profiles)
+{
+    uint32_t new_profile_row;
+    uint32_t new_profile_visual;
+    float base_x;
+    float base_y;
+    uint32_t i;
+
+    if (!cstateupdate_va_is_valid(item_list + 0xB4)) {
+        return;
+    }
+
+    new_profile_row = fsw_profile_selection_child_at(item_list, 0);
+    if (!cstateupdate_va_is_valid(new_profile_row + 0xE4)) {
+        return;
+    }
+
+    new_profile_visual = fsw_profile_selection_find_menu_item_visual(new_profile_row, 0);
+    if (!cstateupdate_va_is_valid(new_profile_visual + 0x44)) {
+        return;
+    }
+
+    base_x = MEMF(new_profile_visual + 0x40);
+    base_y = MEMF(new_profile_visual + 0x44);
+    if (!isfinite(base_x) || !isfinite(base_y) || fabsf(base_y) < 1.0f) {
+        return;
+    }
+
+    for (i = 0; i < profiles && i < 0x11; ++i) {
+        uint32_t row = fsw_profile_selection_child_at(item_list, i + 1);
+        uint32_t visual = fsw_profile_selection_find_menu_item_visual(row, 0);
+        if (!cstateupdate_va_is_valid(row + 0xE4)) {
+            continue;
+        }
+
+        if (cstateupdate_va_is_valid(visual + 0xE4)) {
+            MEM8(visual + 0xD1) = 5;
+            MEMF(visual + 0x40) = base_x;
+            MEMF(visual + 0x44) = base_y + 30.0f * (float)(i + 1);
+            if ((MEM8(row + 0xE4) & 4u) != 0) {
+                MEM8(visual + 0xE4) = MEM8(visual + 0xE4) | 4u;
+            }
+        }
+    }
+}
+
+static void fsw_profile_selection_init_visible_list(uint32_t menu)
+{
+    static uint32_t initialized_menu;
+    static uint32_t initialized_profiles;
+    static uint32_t init_log_count;
+    uint32_t manager;
+    uint32_t profiles;
+    uint32_t item_list;
+    uint32_t selected_item;
+    uint32_t saved_eax;
+    uint32_t saved_ebx;
+    uint32_t saved_ecx;
+    uint32_t saved_edx;
+    uint32_t saved_esi;
+    uint32_t saved_edi;
+    uint32_t saved_esp;
+
+    manager = MEM32(0x5FA358);
+    if (!cstateupdate_va_is_valid(menu) || !cstateupdate_va_is_valid(manager + 0x2C90)) {
+        return;
+    }
+
+    profiles = MEM32(manager + 0x2C90);
+    if (profiles > 0 && profiles <= 0x11 && MEM16(manager + 0x2A2E) == 0) {
+        uint32_t repaired_profiles = fsw_xapi_populate_profile_manager_names(manager);
+        if (repaired_profiles > 0 && repaired_profiles <= 0x11) {
+            profiles = repaired_profiles;
+        }
+    }
+    if (profiles == 0 || profiles > 0x11) {
+        return;
+    }
+    item_list = fsw_profile_selection_find_item_list(menu);
+    if (!cstateupdate_va_is_valid(item_list + 0xB4)) {
+        if (init_log_count < 16) {
+            fprintf(stderr,
+                    "[FSW/ProfileMenu] visible list init pending menu=%08X menu_children=%u profiles=%u\n",
+                    (unsigned)menu,
+                    cstateupdate_va_is_valid(menu + 0xAC) ? (unsigned)MEM32(menu + 0xAC) : 0,
+                    (unsigned)profiles);
+            init_log_count++;
+        }
+        return;
+    }
+
+    if (initialized_menu == menu && initialized_profiles == profiles) {
+        fsw_profile_selection_layout_profile_rows(item_list, profiles);
+        fsw_profile_selection_bind_profile_names(item_list, manager, profiles);
+        return;
+    }
+
+    saved_eax = eax;
+    saved_ebx = ebx;
+    saved_ecx = ecx;
+    saved_edx = edx;
+    saved_esi = esi;
+    saved_edi = edi;
+    saved_esp = esp;
+    MEM8(item_list + 0xD1) = 5;
+    PUSH32(esp, item_list);
+    PUSH32(esp, 0);
+    fn_001A5F30_InitProfileList();
+    selected_item = fsw_profile_selection_current_index(manager, profiles) + 1;
+    fsw_profile_selection_set_selected_item(item_list, selected_item);
+    fsw_profile_selection_layout_profile_rows(item_list, profiles);
+    fsw_profile_selection_refresh_variable_text(item_list, 0);
+    fsw_profile_selection_bind_profile_names(item_list, manager, profiles);
+    esp = saved_esp;
+    eax = saved_eax;
+    ebx = saved_ebx;
+    ecx = saved_ecx;
+    edx = saved_edx;
+    esi = saved_esi;
+    edi = saved_edi;
+
+    initialized_menu = menu;
+    initialized_profiles = profiles;
+    fprintf(stderr,
+            "[FSW/ProfileMenu] visible list initialized menu=%08X item_list=%08X items=%u profiles=%u selected=%u\n",
+            (unsigned)menu,
+            (unsigned)item_list,
+            (unsigned)MEM32(item_list + 0xAC),
+            (unsigned)profiles,
+            (unsigned)selected_item);
 }
 
 /**
@@ -9963,6 +10478,8 @@ void fn_001B5AB0_CStateUpdate_ProfileSelectionUpdate(void)
 loc_001B5AB0:
     esp = esp - 0x2C;
     fsw_profile_manager_host_repair("ProfileSelectionUpdate");
+    fsw_profile_selection_init_visible_list(MEM32(ecx + 0x970));
+    fsw_profile_selection_repair_navigation(MEM32(ecx + 0x970));
     {
         static uint32_t profile_select_log_count = 0;
         uint32_t input = MEM32(0x5FA89C);
@@ -10753,14 +11270,15 @@ loc_001B60E7:
         uint8_t back_active = MEM8(0x5F9E21);
         if (edi == 0x0Du && g_fsw_profile_setup_accept_requested && MEM32(esi + 0x968) == 0) {
             static uint32_t profile_setup_textentry_accept_log_count = 0;
+            uint8_t created_profile = cstateupdate_commit_new_profile_host();
             MEM32(esi + 0x964) = 0;
             MEM32(esi + 0x968) = 2;
-            MEM32(esi + 0x96C) = 0;
+            MEM32(esi + 0x96C) = created_profile ? 1 : 0;
             profile_setup_accept_armed = 0;
             g_fsw_profile_setup_accept_requested = 0;
             if (profile_setup_textentry_accept_log_count < 8) {
-                fprintf(stderr, "[FSW/Menu] profile setup accepted via text entry state=%08X menu=%08X\n",
-                        (unsigned)edi, (unsigned)MEM32(esi + 0x970));
+                fprintf(stderr, "[FSW/Menu] profile setup accepted via text entry state=%08X menu=%08X created=%u\n",
+                        (unsigned)edi, (unsigned)MEM32(esi + 0x970), created_profile);
                 profile_setup_textentry_accept_log_count++;
             }
         } else if (edi != 0x0Du) {
@@ -10795,12 +11313,13 @@ loc_001B60E7:
         }
         if (edi == 0x0Du && MEM32(esi + 0x968) == 0 && accept_active && profile_setup_accept_armed) {
             static uint32_t profile_setup_log_count = 0;
+            uint8_t created_profile = cstateupdate_commit_new_profile_host();
             MEM32(esi + 0x968) = 2;
-            MEM32(esi + 0x96C) = 0;
+            MEM32(esi + 0x96C) = created_profile ? 1 : 0;
             profile_setup_accept_armed = 0;
             if (profile_setup_log_count < 8) {
-                fprintf(stderr, "[FSW/Menu] profile setup accepted via armed CUI event state=%08X menu=%08X\n",
-                        (unsigned)edi, (unsigned)MEM32(esi + 0x970));
+                fprintf(stderr, "[FSW/Menu] profile setup accepted via armed CUI event state=%08X menu=%08X created=%u\n",
+                        (unsigned)edi, (unsigned)MEM32(esi + 0x970), created_profile);
                 profile_setup_log_count++;
             }
         }

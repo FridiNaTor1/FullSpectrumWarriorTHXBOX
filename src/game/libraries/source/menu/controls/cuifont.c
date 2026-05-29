@@ -240,6 +240,67 @@ static uint32_t fsw_cuifont_measure_wide(uint32_t font, uint32_t text, uint32_t 
     return width;
 }
 
+static uint32_t fsw_cuifont_measure_host_wide(uint32_t font, const uint16_t *text, uint32_t scale, int32_t len)
+{
+    uint32_t width = 0;
+    uint32_t limit;
+
+    if (text == NULL) {
+        return 0;
+    }
+    if (!fsw_cuifont_va_is_valid(font + 0x24) || MEM32(font + 4) == 0) {
+        uint32_t fallback = fsw_cuifont_find_registered(0xB17BF420u);
+        if (fallback != 0 && fsw_cuifont_va_is_valid(fallback + 0x24) && MEM32(fallback + 4) != 0) {
+            font = fallback;
+        } else {
+            return 0;
+        }
+    }
+
+    limit = (len < 0) ? 0xFFFFFFFFu : (uint32_t)len;
+    if (limit > 1024) {
+        limit = 1024;
+    }
+
+    for (uint32_t i = 0; i < limit; i++) {
+        uint16_t ch = text[i];
+        uint32_t glyph;
+        uint32_t glyph_width;
+
+        if (ch == 0) {
+            break;
+        }
+        if (ch == 0x0A) {
+            continue;
+        }
+        if (ch == 0x7B && i + 2 < limit && text[i + 1] != 0 && text[i + 2] == 0x7D) {
+            width += scale ? (uint32_t)(int32_t)(MEMF(0x5CDC94) * MEMF(0x5614F8)) : 0x10;
+            i += 2;
+            continue;
+        }
+
+        glyph = fsw_cuifont_find_char_record(font, ch);
+        if (glyph != 0 && fsw_cuifont_va_is_valid(glyph + 4)) {
+            glyph_width = (uint32_t)MEM8(glyph + 4) >> 2;
+            if (scale) {
+                glyph_width = (uint32_t)(int32_t)((float)(int32_t)glyph_width * MEMF(0x5CDC94));
+            }
+            width += glyph_width;
+        }
+    }
+
+    return width;
+}
+
+static uint32_t fsw_cuifont_measure_text(uint32_t font, uint32_t text, const uint16_t *host_text,
+                                         uint32_t scale, int32_t len)
+{
+    if (host_text != NULL) {
+        return fsw_cuifont_measure_host_wide(font, host_text, scale, len);
+    }
+    return fsw_cuifont_measure_wide(font, text, scale, len);
+}
+
 static int fsw_cuifont_get_menu_item_parent_delta(uint32_t control, float *out_x, float *out_y)
 {
     uint32_t parent;
@@ -262,6 +323,43 @@ static int fsw_cuifont_get_menu_item_parent_delta(uint32_t control, float *out_x
     return 1;
 }
 
+static int fsw_cuifont_profile_select_row_info(uint32_t control, uint32_t *out_row_index)
+{
+    uint32_t row;
+    uint32_t depth;
+
+    if (out_row_index != NULL) {
+        *out_row_index = 0;
+    }
+    if (!fsw_cuifont_va_is_valid(control + 0xD8)) {
+        return 0;
+    }
+
+    row = MEM32(control + 0xD8);
+    for (depth = 0; depth < 6 && fsw_cuifont_va_is_valid(row + 0xD8); ++depth) {
+        uint32_t list = MEM32(row + 0xD8);
+        if (fsw_cuifont_va_is_valid(list + 0xB4) && MEM32(list) == 0x5608F0u &&
+            MEM8(list + 0xD1) == 5) {
+            uint32_t count = MEM32(list + 0xAC);
+            uint32_t node = MEM32(list + 0xB4);
+            uint32_t i;
+
+            for (i = 0; i < count && i < 32 && fsw_cuifont_va_is_valid(node + 4); ++i) {
+                if (MEM32(node) == row) {
+                    if (out_row_index != NULL) {
+                        *out_row_index = i;
+                    }
+                    return 1;
+                }
+                node = MEM32(node + 4);
+            }
+        }
+        row = list;
+    }
+
+    return 0;
+}
+
 static int fsw_cuifont_wide_equals_ascii(uint32_t text, const char *ascii)
 {
     uint32_t i;
@@ -279,6 +377,24 @@ static int fsw_cuifont_wide_equals_ascii(uint32_t text, const char *ascii)
     return fsw_cuifont_va_is_valid(text + i * 2 + 1) && MEM16(text + i * 2) == 0;
 }
 
+static int fsw_cuifont_text_equals_ascii(uint32_t text, const uint16_t *host_text, const char *ascii)
+{
+    uint32_t i;
+
+    if (ascii == NULL) {
+        return 0;
+    }
+    if (host_text != NULL) {
+        for (i = 0; ascii[i] != 0; i++) {
+            if (host_text[i] != (uint16_t)(uint8_t)ascii[i]) {
+                return 0;
+            }
+        }
+        return host_text[i] == 0;
+    }
+    return fsw_cuifont_wide_equals_ascii(text, ascii);
+}
+
 static int fsw_cuifont_current_control_is_menu_item_label(void)
 {
     uint32_t control = g_fsw_cuifont_current_control;
@@ -290,17 +406,33 @@ static int fsw_cuifont_current_control_is_menu_item_label(void)
     }
     parent = MEM32(control + 0xD8);
     return fsw_cuifont_va_is_valid(parent + 0xD1) &&
-           MEM8(parent + 0xD1) == 5 &&
+           (MEM8(parent + 0xD1) == 5 || fsw_cuifont_profile_select_row_info(control, NULL)) &&
            fabsf(MEMF(control + 0x44)) < 120.0f;
 }
 
 static int fsw_cuifont_current_control_is_selected_menu_item_label(void)
 {
     uint32_t control = g_fsw_cuifont_current_control;
+    uint32_t parent;
+    uint32_t depth;
 
-    return fsw_cuifont_current_control_is_menu_item_label() &&
-           fsw_cuifont_va_is_valid(control + 0xE4) &&
-           (MEM8(control + 0xE4) & 4u) != 0;
+    if (!fsw_cuifont_current_control_is_menu_item_label()) {
+        return 0;
+    }
+
+    parent = control;
+    for (depth = 0; depth < 5; ++depth) {
+        if (fsw_cuifont_va_is_valid(parent + 0xE4) &&
+            (MEM8(parent + 0xE4) & 4u) != 0) {
+            return 1;
+        }
+        if (!fsw_cuifont_va_is_valid(parent + 0xD8)) {
+            break;
+        }
+        parent = MEM32(parent + 0xD8);
+    }
+
+    return 0;
 }
 
 #ifdef XBOXRECOMP_VULKAN_GRAPHICS
@@ -398,9 +530,81 @@ static int fsw_cuifont_current_control_is_signin_status(void)
 {
     uint32_t control = g_fsw_cuifont_current_control;
 
+    if (fsw_cuifont_va_is_valid(control + 0xC4) &&
+        (MEM32(control + 0xB8) == 0x00198DD0u || MEM32(control + 0xB8) == 0x00198E00u)) {
+        return 1;
+    }
     return fsw_cuifont_va_is_valid(control + 0x12C) &&
            (control == MEM32(0x5F31D4) || control == MEM32(0x5F31CC) || control == MEM32(0x5F31D0));
 }
+
+static int fsw_cuifont_text_looks_invalid_status_string(uint32_t text)
+{
+    if (!fsw_cuifont_va_is_valid(text + 1)) {
+        return 1;
+    }
+    if (MEM16(text) == 0) {
+        return 1;
+    }
+    return MEM16(text) > 0x7Fu;
+}
+
+static const uint16_t *fsw_cuifont_host_text_override(uint32_t text)
+{
+    static const uint16_t not_signed_in[] = {
+        'N', 'o', 't', ' ', 'S', 'i', 'g', 'n', 'e', 'd', ' ', 'I', 'n', '.', 0
+    };
+    static const uint16_t quit[] = { 'Q', 'U', 'I', 'T', 0 };
+    uint32_t control = g_fsw_cuifont_current_control;
+    uint32_t row_index = 0;
+    uint32_t row;
+    uint32_t list;
+    uint32_t first;
+    uint32_t quit_row;
+
+    if (fsw_cuifont_va_is_valid(control + 0xC4) &&
+        MEM32(control + 0xB8) == 0x00198DD0u &&
+        fsw_cuifont_text_looks_invalid_status_string(text)) {
+        return not_signed_in;
+    }
+
+    if (!fsw_cuifont_profile_select_row_info(control, &row_index) || row_index != 6 ||
+        !fsw_cuifont_va_is_valid(control + 0xD8)) {
+        return NULL;
+    }
+
+    row = MEM32(control + 0xD8);
+    if (!fsw_cuifont_va_is_valid(row + 0xD8)) {
+        return NULL;
+    }
+    list = MEM32(row + 0xD8);
+    if (!fsw_cuifont_va_is_valid(list + 0xB4) || MEM32(list + 0xAC) != 7) {
+        return NULL;
+    }
+    first = MEM32(MEM32(list + 0xB4));
+    quit_row = row;
+    if (fsw_cuifont_va_is_valid(first + 0x104) && fsw_cuifont_va_is_valid(quit_row + 0x104) &&
+        MEM32(first + 0x104) == 0x2ADE209Cu && MEM32(quit_row + 0x104) == 0xC363DE43u &&
+        (!fsw_cuifont_va_is_valid(text + 1) || MEM16(text) == 0)) {
+        return quit;
+    }
+
+    return NULL;
+}
+
+static uint16_t fsw_cuifont_read_text_ch(uint32_t text, const uint16_t *host_text, uint32_t index)
+{
+    if (host_text != NULL) {
+        return host_text[index];
+    }
+    return MEM16(text + index * 2);
+}
+
+static int fsw_cuifont_text_can_read(uint32_t text, const uint16_t *host_text, uint32_t index)
+{
+    return host_text != NULL || fsw_cuifont_va_is_valid(text + index * 2 + 1);
+}
+
 
 static int fsw_cuifont_current_control_is_textentry_item_label(void)
 {
@@ -576,6 +780,182 @@ static float fsw_cuifont_draw_button_token(uint32_t font, uint16_t token, float 
     return 16.0f;
 }
 
+static float fsw_cuifont_draw_host_line(uint32_t font, const uint16_t *text, float x, float y, float char_h,
+                                        float r, float g, float b, float a)
+{
+    uint32_t atlas_w = 0;
+    uint32_t atlas_h = 0;
+    const uint32_t *atlas = fsw_cuifont_decode_atlas(font, &atlas_w, &atlas_h);
+    float pen_x = x;
+
+    if (text == NULL || atlas == NULL) {
+        return 0.0f;
+    }
+
+    for (uint32_t i = 0; i < 256; i++) {
+        uint16_t ch = text[i];
+        uint32_t glyph;
+        uint32_t packed;
+        uint32_t glyph_x;
+        uint32_t glyph_row;
+        uint32_t glyph_w;
+        uint32_t glyph_channel;
+        uint32_t cell_h;
+        uint32_t row_count;
+        uint32_t row_h;
+        uint32_t y0_px;
+        uint32_t y1_px;
+        float u0, v0, u1, v1;
+
+        if (ch == 0) {
+            break;
+        }
+        glyph = fsw_cuifont_find_char_record(font, ch);
+        if (!glyph || !fsw_cuifont_va_is_valid(glyph + 4)) {
+            continue;
+        }
+        packed = MEM16(glyph + 2);
+        glyph_x = packed >> 6;
+        glyph_row = packed & 0x3F;
+        glyph_channel = ((uint32_t)MEM8(glyph + 4) + 1u) & 3u;
+        glyph_w = (uint32_t)MEM8(glyph + 4) >> 2;
+        if (glyph_w == 0 || glyph_w > 256) {
+            glyph_w = (uint32_t)(char_h * 0.5f);
+        }
+        if (ch == 0x20) {
+            pen_x += (float)glyph_w;
+            continue;
+        }
+        cell_h = MEM32(font + 0x0C);
+        row_count = MEM32(font + 0x10);
+        row_h = MEM32(font + 0x14);
+        if (row_count == 0 || row_count > 128) row_count = 1;
+        if (row_h == 0 || row_h > 256) row_h = (uint32_t)char_h;
+        if (cell_h == 0 || cell_h > 256) cell_h = row_h;
+        y0_px = glyph_row * cell_h;
+        y1_px = y0_px + row_h;
+        atlas = fsw_cuifont_decode_atlas_channel(font, &atlas_w, &atlas_h, glyph_channel);
+        if (!atlas || glyph_x >= atlas_w || y0_px >= atlas_h) {
+            pen_x += (float)glyph_w;
+            continue;
+        }
+        if (glyph_x + glyph_w > atlas_w) glyph_w = atlas_w - glyph_x;
+        if (y1_px > atlas_h) y1_px = atlas_h;
+        u0 = (float)glyph_x / (float)atlas_w;
+        u1 = (float)(glyph_x + glyph_w) / (float)atlas_w;
+        v0 = (float)y0_px / (float)atlas_h;
+        v1 = (float)y1_px / (float)atlas_h;
+        D3D8VulkanRhwVertex rect[6] = {
+            { pen_x,                  y,          0.02f, 1.0f, r, g, b, a, u0, v0 },
+            { pen_x + (float)glyph_w, y,          0.02f, 1.0f, r, g, b, a, u1, v0 },
+            { pen_x + (float)glyph_w, y + char_h, 0.02f, 1.0f, r, g, b, a, u1, v1 },
+            { pen_x,                  y,          0.02f, 1.0f, r, g, b, a, u0, v0 },
+            { pen_x + (float)glyph_w, y + char_h, 0.02f, 1.0f, r, g, b, a, u1, v1 },
+            { pen_x,                  y + char_h, 0.02f, 1.0f, r, g, b, a, u0, v1 },
+        };
+        d3d8_vulkan_host_draw_rhw(rect, 6, atlas, atlas_w, atlas_h, 0, 0);
+        pen_x += (float)glyph_w;
+    }
+
+    return pen_x - x;
+}
+
+static int fsw_cuifont_current_control_is_main_menu_battle_drills(uint32_t text)
+{
+    uint32_t control = g_fsw_cuifont_current_control;
+    uint32_t list;
+    uint32_t first_node;
+    uint32_t quit_node;
+    uint32_t first;
+    uint32_t quit;
+
+    if (!fsw_cuifont_wide_equals_ascii(text, "BATTLE DRILLS") ||
+        !fsw_cuifont_va_is_valid(control + 0xD8)) {
+        return 0;
+    }
+    list = MEM32(control + 0xD8);
+    if (!fsw_cuifont_va_is_valid(list + 0xB4) || MEM32(list + 0xAC) != 7) {
+        return 0;
+    }
+    first_node = MEM32(list + 0xB4);
+    if (!fsw_cuifont_va_is_valid(first_node + 4)) {
+        return 0;
+    }
+    quit_node = first_node;
+    for (uint32_t i = 0; i < 6 && fsw_cuifont_va_is_valid(quit_node + 4); ++i) {
+        quit_node = MEM32(quit_node + 4);
+    }
+    if (!fsw_cuifont_va_is_valid(quit_node)) {
+        return 0;
+    }
+    first = MEM32(first_node);
+    quit = MEM32(quit_node);
+    return fsw_cuifont_va_is_valid(first + 0x104) && fsw_cuifont_va_is_valid(quit + 0x104) &&
+           MEM32(first + 0x104) == 0x2ADE209Cu && MEM32(quit + 0x104) == 0xC363DE43u;
+}
+
+static int fsw_cuifont_current_main_menu_quit_is_selected(void)
+{
+    uint32_t control = g_fsw_cuifont_current_control;
+    uint32_t list;
+    uint32_t node;
+
+    if (!fsw_cuifont_va_is_valid(control + 0xD8)) {
+        return 0;
+    }
+    list = MEM32(control + 0xD8);
+    if (!fsw_cuifont_va_is_valid(list + 0xB4) || MEM32(list + 0xAC) != 7) {
+        return 0;
+    }
+    node = MEM32(list + 0xB4);
+    for (uint32_t i = 0; i < 6 && fsw_cuifont_va_is_valid(node + 4); ++i) {
+        node = MEM32(node + 4);
+    }
+    if (!fsw_cuifont_va_is_valid(node)) {
+        return 0;
+    }
+    node = MEM32(node);
+    return fsw_cuifont_va_is_valid(node + 0xE4) && (MEM8(node + 0xE4) & 4u) != 0;
+}
+
+static uint32_t fsw_cuifont_profile_select_row_index(uint32_t control)
+{
+    uint32_t row_index = 0;
+    fsw_cuifont_profile_select_row_info(control, &row_index);
+    return row_index;
+}
+
+static uint32_t fsw_cuifont_profile_select_name_for_control(uint32_t control, uint32_t text)
+{
+    uint32_t row_index;
+    uint32_t manager;
+    uint32_t profiles;
+
+    if (fsw_cuifont_va_is_valid(text + 1) && MEM16(text) != 0) {
+        return text;
+    }
+
+    row_index = fsw_cuifont_profile_select_row_index(control);
+    if (row_index == 0) {
+        return text;
+    }
+
+    manager = MEM32(0x5FA358);
+    if (!fsw_cuifont_va_is_valid(manager + 0x2C90)) {
+        return text;
+    }
+    profiles = MEM32(manager + 0x2C90);
+    if (profiles > 0x11u || row_index > profiles) {
+        return text;
+    }
+
+    text = manager + 0x2A2E + (row_index - 1) * 36;
+    if (fsw_cuifont_va_is_valid(text + 1) && MEM16(text) != 0) {
+        return text;
+    }
+    return text;
+}
+
 static int fsw_cuifont_draw_vulkan(uint32_t font, uint32_t text, float x, float y,
                                    uint32_t color_ptr, uint32_t flags, int32_t len)
 {
@@ -599,8 +979,15 @@ static int fsw_cuifont_draw_vulkan(uint32_t font, uint32_t text, float x, float 
     int current_is_background_quote;
     int current_has_parent;
     int current_is_selected_menu_item;
+    int current_is_profile_select_row;
+    uint32_t profile_row_index;
+    const uint16_t *host_text;
 
-    if (!atlas || !fsw_cuifont_va_is_valid(text + 1)) {
+    text = fsw_cuifont_profile_select_name_for_control(g_fsw_cuifont_current_control, text);
+    host_text = fsw_cuifont_host_text_override(text);
+    current_is_profile_select_row = fsw_cuifont_profile_select_row_info(g_fsw_cuifont_current_control,
+                                                                        &profile_row_index);
+    if (!atlas || (host_text == NULL && !fsw_cuifont_va_is_valid(text + 1))) {
         return 0;
     }
     if (fsw_cuifont_va_is_valid(color_ptr + 3)) {
@@ -645,7 +1032,7 @@ static int fsw_cuifont_draw_vulkan(uint32_t font, uint32_t text, float x, float 
         fsw_cuifont_va_is_valid(g_fsw_cuifont_current_control + 0x44) &&
         fsw_cuifont_va_is_valid(MEM32(g_fsw_cuifont_current_control + 0xD8) + 0x44)) {
         uint32_t parent = MEM32(g_fsw_cuifont_current_control + 0xD8);
-        measured_width = fsw_cuifont_measure_wide(font, text, 0, len);
+        measured_width = fsw_cuifont_measure_text(font, text, host_text, 0, len);
         x = MEMF(parent + 0x40) + MEMF(g_fsw_cuifont_current_control + 0x40) - (float)measured_width * 0.5f;
         y = MEMF(parent + 0x44) + MEMF(g_fsw_cuifont_current_control + 0x44) - char_h * 0.5f + 16.0f;
         pen_x = x;
@@ -654,27 +1041,40 @@ static int fsw_cuifont_draw_vulkan(uint32_t font, uint32_t text, float x, float 
         fsw_cuifont_get_menu_item_parent_delta(g_fsw_cuifont_current_control, &parent_x, &parent_y)) {
         float local_x = MEMF(g_fsw_cuifont_current_control + 0x40);
         float local_y = MEMF(g_fsw_cuifont_current_control + 0x44);
-        if (fsw_cuifont_wide_equals_ascii(text, "QUIT")) {
+        if (fsw_cuifont_text_equals_ascii(text, host_text, "QUIT")) {
             local_y += 25.0f;
         }
         if (fabsf(parent_x) < 2000.0f && fabsf(parent_y) < 2000.0f) {
-            measured_width = fsw_cuifont_measure_wide(font, text, 0, len);
+            measured_width = fsw_cuifont_measure_text(font, text, host_text, 0, len);
             x = parent_x + local_x - (float)measured_width * 0.5f;
             y = parent_y + local_y - char_h * 0.5f;
+            if (current_is_profile_select_row && profile_row_index > 0 &&
+                (fabsf(parent_x) < 1.0f || fabsf(parent_y) < 1.0f)) {
+                x = 320.0f - (float)measured_width * 0.5f;
+                y = 110.0f + 30.0f * (float)profile_row_index;
+            }
             pen_x = x;
             origin_x = x;
         }
     } else if (fabsf(x) < 0.001f && fabsf(y) < 0.001f &&
         fsw_cuifont_va_is_valid(g_fsw_cuifont_current_control + 0x44)) {
-        measured_width = fsw_cuifont_measure_wide(font, text, 0, len);
+        measured_width = fsw_cuifont_measure_text(font, text, host_text, 0, len);
         x = MEMF(g_fsw_cuifont_current_control + 0x40) - (float)measured_width * 0.5f;
         y = MEMF(g_fsw_cuifont_current_control + 0x44) - char_h * 0.5f;
         pen_x = x;
         origin_x = x;
     }
+    if (current_is_profile_select_row && profile_row_index > 0 &&
+        (x < 0.0f || y < 80.0f || x > 640.0f || y > 300.0f)) {
+        measured_width = fsw_cuifont_measure_text(font, text, host_text, 0, len);
+        x = 320.0f - (float)measured_width * 0.5f;
+        y = 110.0f + 30.0f * (float)profile_row_index;
+        pen_x = x;
+        origin_x = x;
+    }
     if (!current_is_background_quote && current_has_parent &&
         fabsf(x) < 0.001f && fsw_cuifont_va_is_valid(g_fsw_cuifont_current_control + 0x44)) {
-        measured_width = fsw_cuifont_measure_wide(font, text, 0, len);
+        measured_width = fsw_cuifont_measure_text(font, text, host_text, 0, len);
         if (measured_width != 0) {
             x = 320.0f - (float)measured_width * 0.5f;
             pen_x = x;
@@ -707,12 +1107,11 @@ static int fsw_cuifont_draw_vulkan(uint32_t font, uint32_t text, float x, float 
         char preview[65];
         uint32_t preview_len = 0;
         for (uint32_t i = 0; i < 64 && i < limit; i++) {
-            uint32_t pos = text + i * 2;
             uint16_t ch;
-            if (!fsw_cuifont_va_is_valid(pos + 1)) {
+            if (!fsw_cuifont_text_can_read(text, host_text, i)) {
                 break;
             }
-            ch = MEM16(pos);
+            ch = fsw_cuifont_read_text_ch(text, host_text, i);
             if (ch == 0) {
                 break;
             }
@@ -729,14 +1128,13 @@ static int fsw_cuifont_draw_vulkan(uint32_t font, uint32_t text, float x, float 
                 fsw_cuifont_va_is_valid(g_fsw_cuifont_current_control + 0xD8) ? MEM32(g_fsw_cuifont_current_control + 0xD8) : 0,
                 fsw_cuifont_va_is_valid(g_fsw_cuifont_current_matrix + 0x34) ? MEMF(g_fsw_cuifont_current_matrix + 0x30) : 0.0f,
                 fsw_cuifont_va_is_valid(g_fsw_cuifont_current_matrix + 0x34) ? MEMF(g_fsw_cuifont_current_matrix + 0x34) : 0.0f,
-                fsw_cuifont_va_is_valid(text + 1) ? MEM16(text) : 0,
-                fsw_cuifont_va_is_valid(text + 3) ? MEM16(text + 2) : 0,
+                host_text != NULL ? host_text[0] : (fsw_cuifont_va_is_valid(text + 1) ? MEM16(text) : 0),
+                host_text != NULL ? host_text[1] : (fsw_cuifont_va_is_valid(text + 3) ? MEM16(text + 2) : 0),
                 preview);
         fsw_cuifont_draw_log_count++;
     }
 
     for (uint32_t i = 0; i < limit; i++) {
-        uint32_t pos = text + i * 2;
         uint16_t ch;
         uint32_t glyph;
         uint32_t packed;
@@ -751,10 +1149,10 @@ static int fsw_cuifont_draw_vulkan(uint32_t font, uint32_t text, float x, float 
         uint32_t y1_px;
         float u0, v0, u1, v1;
 
-        if (!fsw_cuifont_va_is_valid(pos + 1)) {
+        if (!fsw_cuifont_text_can_read(text, host_text, i)) {
             break;
         }
-        ch = MEM16(pos);
+        ch = fsw_cuifont_read_text_ch(text, host_text, i);
         if (ch == 0) {
             break;
         }
@@ -763,9 +1161,12 @@ static int fsw_cuifont_draw_vulkan(uint32_t font, uint32_t text, float x, float 
             y += char_h;
             continue;
         }
-        if (ch == 0x7B && i + 2 < limit && fsw_cuifont_va_is_valid(pos + 5) &&
-            MEM16(pos + 2) != 0 && MEM16(pos + 4) == 0x7D) {
-            float advance = fsw_cuifont_draw_button_token(font, MEM16(pos + 2), pen_x, y, char_h,
+        if (ch == 0x7B && i + 2 < limit &&
+            fsw_cuifont_text_can_read(text, host_text, i + 2) &&
+            fsw_cuifont_read_text_ch(text, host_text, i + 1) != 0 &&
+            fsw_cuifont_read_text_ch(text, host_text, i + 2) == 0x7D) {
+            float advance = fsw_cuifont_draw_button_token(font, fsw_cuifont_read_text_ch(text, host_text, i + 1),
+                                                          pen_x, y, char_h,
                                                           &atlas, &atlas_w, &atlas_h, a);
             if (advance > 0.0f) {
                 pen_x += advance;
@@ -775,7 +1176,7 @@ static int fsw_cuifont_draw_vulkan(uint32_t font, uint32_t text, float x, float 
                 i += 2;
                 continue;
             }
-            ch = MEM16(pos + 2);
+            ch = fsw_cuifont_read_text_ch(text, host_text, i + 1);
             i += 2;
         }
         glyph = fsw_cuifont_find_char_record(font, ch);
@@ -842,6 +1243,19 @@ static int fsw_cuifont_draw_vulkan(uint32_t font, uint32_t text, float x, float 
     }
     fsw_cuifont_draw_underline(underline_x, underline_y, drawn_width, char_h, r, g, b, a,
                                current_is_selected_menu_item);
+    if (fsw_cuifont_current_control_is_main_menu_battle_drills(text)) {
+        static const uint16_t quit_text[] = { 'Q', 'U', 'I', 'T', 0 };
+        uint32_t quit_width = fsw_cuifont_measure_host_wide(font, quit_text, 0, -1);
+        float quit_x = underline_x + drawn_width * 0.5f - (float)quit_width * 0.5f;
+        float quit_y = underline_y + 25.0f;
+        int quit_selected = fsw_cuifont_current_main_menu_quit_is_selected();
+        float qr = quit_selected ? 1.0f : r * 0.60f;
+        float qg = quit_selected ? 1.0f : g * 0.60f;
+        float qb = quit_selected ? 1.0f : b * 0.60f;
+        float qa = quit_selected ? 1.0f : a;
+        float qwidth = fsw_cuifont_draw_host_line(font, quit_text, quit_x, quit_y, char_h, qr, qg, qb, qa);
+        fsw_cuifont_draw_underline(quit_x, quit_y, qwidth, char_h, qr, qg, qb, qa, quit_selected);
+    }
     return 1;
 }
 #endif

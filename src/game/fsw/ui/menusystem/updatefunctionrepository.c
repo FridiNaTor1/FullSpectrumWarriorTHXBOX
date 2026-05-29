@@ -10,6 +10,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 
+extern uint32_t fsw_xapi_populate_profile_manager_names(uint32_t mgr);
+
 /**
  * fn_0004C780_1CUIStaticTextControl_UAE_XZ
  * Symbol: ??1CUIStaticTextControl@@UAE@XZ
@@ -15986,6 +15988,10 @@ loc_001A5FE1:
     PUSH32(esp, 0); fn_002B2E70_CProfileManager_EnumerateProfiles(); /* call 0x002B2E70 */
 
 loc_001A5FED:
+    eax = MEM32(0x5FA358);
+    if (eax >= 0x00010000u && eax < 0x04000000u) {
+        fsw_xapi_populate_profile_manager_names(eax);
+    }
     PUSH32(esp, esi);
     PUSH32(esp, 0); fn_001A5F30_InitProfileList(); /* call 0x001A5F30 */
 

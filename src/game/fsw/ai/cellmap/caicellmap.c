@@ -12,12 +12,12 @@
 static int caicellmap_va_range_is_valid(uint32_t va, uint32_t size)
 {
     if (size == 0) {
-        return va >= 0x00010000u && va < 0x04000000u;
+        return va >= 0x00010000u && va < RECOMP_GUEST_RAM_LIMIT;
     }
-    if (va < 0x00010000u || va >= 0x04000000u || va + size < va) {
+    if (va < 0x00010000u || va >= RECOMP_GUEST_RAM_LIMIT || va + size < va) {
         return 0;
     }
-    return va + size <= 0x04000000u;
+    return va + size <= RECOMP_GUEST_RAM_LIMIT;
 }
 
 static void caicellmap_log_file_state(const char *label, uint32_t file)
@@ -3371,6 +3371,29 @@ loc_003160B1:
 
 loc_003160CD:
     ecx = MEM32(ebp + 4);
+    if (!caicellmap_va_range_is_valid(ebp, 0xCu) ||
+        (MEM32(ebp + 8) != 0 && !caicellmap_va_range_is_valid(MEM32(ebp + 8), 4))) {
+        static uint32_t bad_proto_log_count = 0;
+        if (bad_proto_log_count++ < 16) {
+            fprintf(stderr,
+                    "[FSW/CAICellmap] skipping invalid dynamic cell prototype=%08X count=%08X table=%08X esp=%08X\n",
+                    (unsigned)ebp,
+                    (unsigned)(caicellmap_va_range_is_valid(ebp, 8) ? MEM32(ebp + 4) : 0),
+                    (unsigned)(caicellmap_va_range_is_valid(ebp, 0xCu) ? MEM32(ebp + 8) : 0),
+                    (unsigned)esp);
+        }
+        goto loc_0031628F;
+    }
+    if (ecx > 0xFFu) {
+        static uint32_t wide_count_log_count = 0;
+        if (wide_count_log_count++ < 16) {
+            fprintf(stderr,
+                    "[FSW/CAICellmap] clamping dynamic cell prototype count prototype=%08X raw=%08X byte=%u table=%08X esp=%08X\n",
+                    (unsigned)ebp, (unsigned)ecx, (unsigned)MEM8(ebp + 4),
+                    (unsigned)MEM32(ebp + 8), (unsigned)esp);
+        }
+        ecx = MEM8(ebp + 4);
+    }
     (void)0; /* cmp ecx, ebx - flags set for next jcc */
     MEM8(esp + 0x64) = LO8(ebx);
     if (CMP_LE(ecx, ebx)) goto loc_0031628F; /* jle: less or equal (signed <=) */

@@ -9,6 +9,7 @@
 #include "kernel.h"
 #include <math.h>
 #include <stdio.h>
+#include <string.h>
 
 const char* fsw_xapi_last_save_file_path(void);
 
@@ -66,8 +67,37 @@ static int fsw_host_CreateFileA(uint32_t ebp)
         &err);
 
     if (!eax) {
+        const char* fallback = fsw_xapi_last_save_file_path();
+        if (fallback && fallback[0] && strcmp(fallback, path) != 0) {
+            DWORD fallback_err = ERROR_SUCCESS;
+            eax = xbox_kernel_bridge_create_file_handle(
+                fallback,
+                desired_access,
+                share_mode,
+                creation_disposition,
+                flags_and_attributes,
+                &fallback_err);
+            if (eax) {
+                fprintf(stderr,
+                        "[FSW/File] CreateFileA recovered failed path=%s err=%u -> %s\n",
+                        path,
+                        err,
+                        fallback);
+                fflush(stderr);
+                return 1;
+            }
+            err = fallback_err;
+        }
         SetLastError(err);
         eax = 0xFFFFFFFFu;
+        fprintf(stderr,
+                "[FSW/File] CreateFileA failed path=%s access=%08X disp=%u flags=%08X err=%u\n",
+                path,
+                desired_access,
+                creation_disposition,
+                flags_and_attributes,
+                err);
+        fflush(stderr);
     }
 
     return 1;

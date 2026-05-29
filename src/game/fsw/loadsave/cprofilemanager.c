@@ -9,6 +9,9 @@
 #include <math.h>
 #include <stdio.h>
 
+extern int fsw_xapi_write_last_save_file(uint32_t data_va, uint32_t size);
+extern uint32_t fsw_xapi_populate_profile_manager_names(uint32_t mgr);
+
 static void fsw_log_profile_state(const char* tag, uint32_t mgr)
 {
     char first_name[64];
@@ -38,6 +41,96 @@ static void fsw_log_profile_state(const char* tag, uint32_t mgr)
             MEM8(mgr + 0x56C2),
             MEM8(mgr + 0x5702),
             first_name);
+}
+
+static void fsw_log_profile_wide_path(const char* tag, uint32_t wide_va, uint32_t path_va, int32_t cmp)
+{
+    char name[128];
+    uint32_t i;
+
+    for (i = 0; i + 1 < sizeof(name); ++i) {
+        uint16_t ch = MEM16(wide_va + i * 2);
+        if (!ch) {
+            break;
+        }
+        name[i] = (ch >= 0x20 && ch < 0x80) ? (char)ch : '?';
+    }
+    name[i] = 0;
+
+    fprintf(stderr,
+            "[FSW/Profile] %s cmp=%d wide='%s' path='%s'\n",
+            tag,
+            cmp,
+            name,
+            path_va ? (const char*)XBOX_PTR(path_va) : "");
+}
+
+static int fsw_wide_is_empty(uint32_t wide_va)
+{
+    return !wide_va || MEM16(wide_va) == 0;
+}
+
+static int fsw_wide_equals(uint32_t a, uint32_t b)
+{
+    uint32_t i;
+
+    if (!a || !b) {
+        return 0;
+    }
+    for (i = 0; i < 17; ++i) {
+        uint16_t ca = MEM16(a + i * 2);
+        uint16_t cb = MEM16(b + i * 2);
+        if (ca != cb) {
+            return 0;
+        }
+        if (!ca) {
+            return 1;
+        }
+    }
+    return 1;
+}
+
+static void fsw_copy_profile_wide_name(uint32_t dst_va, uint32_t src_va)
+{
+    uint32_t i;
+
+    if (!dst_va || !src_va) {
+        return;
+    }
+    for (i = 0; i < 16; ++i) {
+        uint16_t ch = MEM16(src_va + i * 2);
+        MEM16(dst_va + i * 2) = ch;
+        if (!ch) {
+            return;
+        }
+    }
+    MEM16(dst_va + 16 * 2) = 0;
+}
+
+static void fsw_repair_selected_profile_blob_name(uint32_t mgr)
+{
+    uint32_t source_name_va;
+    uint32_t blob_name_va;
+
+    if (!mgr || MEM32(mgr + 0x2C90) == 0) {
+        return;
+    }
+
+    source_name_va = mgr + 0x56DE;
+    if (fsw_wide_is_empty(source_name_va)) {
+        source_name_va = mgr + 0x2A2E;
+        fsw_copy_profile_wide_name(mgr + 0x56DE, source_name_va);
+        MEM16(mgr + 0x56DC) = 0x11;
+    }
+
+    blob_name_va = mgr + 0x2CAA;
+    if (fsw_wide_is_empty(source_name_va) || fsw_wide_equals(blob_name_va, source_name_va)) {
+        return;
+    }
+
+    fsw_copy_profile_wide_name(blob_name_va, source_name_va);
+    MEM16(mgr + 0x2CA8) = 0x11;
+    fsw_log_profile_state("repaired selected profile blob name", mgr);
 }
 
 static uint32_t fsw_profile_manager_snapshot = 0;
@@ -3973,6 +4066,10 @@ loc_002B2E37:
     (void)0; /* test LO8(eax), LO8(eax) - flags set for next jcc */
     esi = esp + 0x10;
     if (TEST_NZ(LO8(eax), LO8(eax))) { sub_002B2E4B(); return; } /* jne: not equal / not zero */
+    if (MEM32(ebx + 0x7648) == 0) {
+        fprintf(stderr, "[FSW/Profile] LoadProfile accepting profile without optional sidecar saves\n");
+        g_seh_ebp = ebp; sub_002B2E4B(); return;
+    }
 
 loc_002B2E3F:
     MEM8(ebp + 0x56C0) = 1;
@@ -4084,6 +4181,7 @@ loc_002B2EEA:
 
 loc_002B2EFD:
     esp = esp + 0x10;
+    fsw_log_profile_wide_path("enumerate compare", esp + 0x272, esp + 0x374, (int32_t)eax);
     if (TEST_NZ(eax, eax)) goto loc_002B3039; /* jne: not equal / not zero */
 
 loc_002B2F08:
@@ -4212,6 +4310,7 @@ loc_002B3026:
 
 loc_002B3039:
     eax = MEM32(ebp + 0x2C90);
+    fsw_log_profile_wide_path("enumerate add candidate", esp + 0x272, esp + 0x374, (int32_t)eax);
     esi = 0x11;
     if (CMP_AE(eax, esi)) goto loc_002B30D1; /* jae: above or equal (unsigned >=) */
 
@@ -4266,6 +4365,7 @@ loc_002B30D1:
     MEM8(ebp + 0x7782) = 1;
 
 loc_002B30D8:
+    fsw_log_profile_state("enumerate loop bottom", ebp);
     ecx = MEM32(esp + 0x14);
     esi = esp + 0x68;
     PUSH32(esp, 0); fn_002B6F80_CFileManager_FindNext(); /* call 0x002B6F80 */
@@ -6711,6 +6811,7 @@ void fn_002B41B0_CProfileManager_SaveSelectedProfile(void)
 loc_002B41B0:
     fprintf(stderr, "[FSW/Profile] SaveSelected entry esp=%08X manager=%08X\n", esp, esi);
     fsw_save_selected_mgr = esi;
+    fsw_repair_selected_profile_blob_name(fsw_save_selected_mgr);
     esp = esp - 0x120;
     eax = MEM32(0x57ED94);
     MEM32(esp + 0x11C) = eax;
@@ -6796,6 +6897,11 @@ loc_002B4258:
 loc_002B4293:
     esp = esp + 0x18;
     fprintf(stderr, "[FSW/Profile] SaveSelected profile write done esp=%08X result=%u\n", esp, LO8(eax));
+    if (fsw_xapi_write_last_save_file(fsw_save_selected_mgr + 0x2C94, 0x2A2C)) {
+        SET_LO8(eax, 1);
+    } else if (TEST_Z(LO8(eax), LO8(eax))) {
+        SET_LO8(eax, fsw_xapi_write_last_save_file(fsw_save_selected_mgr + 0x2C94, 0x2A2C) ? 1 : 0);
+    }
     esi = fsw_save_selected_mgr;
     if (MEM32(fsw_save_selected_mgr + 0x7648) == 0) {
         fprintf(stderr, "[FSW/Profile] SaveSelected skipping empty priority/score sidecars mgr=%08X\n",
@@ -10150,6 +10256,9 @@ loc_002B5AE0:
 
 loc_002B5AEE:
     esi = MEM32(0x5FA358);
+    if (MEM32(ebp + 0x2C90) == 0) {
+        fsw_xapi_populate_profile_manager_names(ebp);
+    }
     fsw_log_profile_state("setup after enumerate", ebp);
     SET_LO8(eax, MEM8(esi + 0x5702));
     if (TEST_Z(LO8(eax), LO8(eax))) goto loc_002B5B47; /* je: equal / zero */
@@ -10265,7 +10374,7 @@ loc_002B5BB8:
 loc_002B5BBF:
     esp = fsw_success_frame_esp;
     fsw_log_profile_state("setup success default profile check", ebp);
-    if (TEST_NZ(LO8(eax), LO8(eax))) { g_seh_ebp = ebp; sub_002B5BF9(); return; } /* jne: not equal / not zero */
+    if (TEST_NZ(LO8(eax), LO8(eax)) || MEM32(ebp + 0x2C90) > 0) { g_seh_ebp = ebp; sub_002B5BF9(); return; } /* jne: not equal / not zero */
 
 loc_002B5BC3:
     esp = fsw_success_frame_esp;

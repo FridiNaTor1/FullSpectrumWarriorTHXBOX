@@ -11,6 +11,7 @@
 
 #include "kernel.h"
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <wctype.h>
 #include <shlobj.h>
@@ -19,6 +20,29 @@
 static WCHAR s_game_dir[MAX_PATH];    /* Path to game disc content */
 static WCHAR s_save_dir[MAX_PATH];    /* Base for save/cache directories */
 static BOOL  s_initialized = FALSE;
+
+static void create_directory_tree_w(const WCHAR* path)
+{
+    WCHAR partial[MAX_PATH];
+    size_t len;
+
+    if (!path || !path[0])
+        return;
+
+    wcsncpy(partial, path, MAX_PATH - 1);
+    partial[MAX_PATH - 1] = L'\0';
+    len = wcslen(partial);
+    for (size_t i = 1; i < len; i++) {
+        if (partial[i] == L'\\' || partial[i] == L'/') {
+            WCHAR saved = partial[i];
+            partial[i] = L'\0';
+            if (wcslen(partial) > 0)
+                CreateDirectoryW(partial, NULL);
+            partial[i] = saved;
+        }
+    }
+    CreateDirectoryW(partial, NULL);
+}
 
 static BOOL xbox_path_is_sep(WCHAR ch)
 {
@@ -167,7 +191,10 @@ static BOOL resolve_case_insensitive_path(WCHAR* path, DWORD buf_size)
 
 void xbox_path_init(const char* game_dir, const char* save_dir)
 {
+#ifndef __linux__
     WCHAR save_base[MAX_PATH];
+#endif
+    const char* save_dir_env;
 
     if (game_dir) {
         MultiByteToWideChar(CP_UTF8, 0, game_dir, -1, s_game_dir, MAX_PATH);
@@ -177,16 +204,33 @@ void xbox_path_init(const char* game_dir, const char* save_dir)
         wcscat_s(s_game_dir, MAX_PATH, L"\\Burnout 3 Takedown");
     }
 
-    if (save_dir) {
+    save_dir_env = getenv("FSW_TH_SAVE_DIR");
+    if (save_dir && save_dir[0]) {
         MultiByteToWideChar(CP_UTF8, 0, save_dir, -1, s_save_dir, MAX_PATH);
+    } else if (save_dir_env && save_dir_env[0]) {
+        MultiByteToWideChar(CP_UTF8, 0, save_dir_env, -1, s_save_dir, MAX_PATH);
     } else {
-        /* Default: AppData\Local\Burnout3 */
+#ifdef __linux__
+        char save_path[MAX_PATH];
+        const char* home = getenv("HOME");
+        const char* xdg_config = getenv("XDG_CONFIG_HOME");
+        if (home && home[0]) {
+            snprintf(save_path, sizeof(save_path), "%s/.config/FSWTH/saves", home);
+        } else if (xdg_config && xdg_config[0]) {
+            snprintf(save_path, sizeof(save_path), "%s/FSWTH/saves", xdg_config);
+        } else {
+            snprintf(save_path, sizeof(save_path), "./FSWTH/saves");
+        }
+        MultiByteToWideChar(CP_UTF8, 0, save_path, -1, s_save_dir, MAX_PATH);
+#else
+        /* Default: $XDG_CONFIG_HOME/FSWTH/saves, or ~/.config/FSWTH/saves. */
         if (SUCCEEDED(SHGetFolderPathW(NULL, CSIDL_LOCAL_APPDATA, NULL, 0, save_base))) {
-            swprintf_s(s_save_dir, MAX_PATH, L"%ls\\FSWTH", save_base);
+            swprintf_s(s_save_dir, MAX_PATH, L"%ls\\FSWTH\\saves", save_base);
         } else {
             GetCurrentDirectoryW(MAX_PATH, s_save_dir);
             wcscat_s(s_save_dir, MAX_PATH, L"\\SaveData");
         }
+#endif
     }
 
     /* Ensure trailing backslashes are stripped for consistent concatenation */
@@ -198,6 +242,7 @@ void xbox_path_init(const char* game_dir, const char* save_dir)
     if (len > 0 && s_save_dir[len - 1] == L'\\')
         s_save_dir[len - 1] = L'\0';
 
+    create_directory_tree_w(s_save_dir);
     s_initialized = TRUE;
     xbox_log(XBOX_LOG_INFO, XBOX_LOG_PATH, "Path init: game=%S, save=%S", s_game_dir, s_save_dir);
 }
@@ -355,8 +400,8 @@ translate:
         if (sub_dir) {
             WCHAR dir_path[MAX_PATH];
             swprintf_s(dir_path, MAX_PATH, L"%ls%ls", base_dir, sub_dir);
-            CreateDirectoryW(s_save_dir, NULL);
-            CreateDirectoryW(dir_path, NULL);
+            create_directory_tree_w(s_save_dir);
+            create_directory_tree_w(dir_path);
         }
 
         XBOX_TRACE(XBOX_LOG_PATH, "%s -> %S", xbox_path, win_path_buf);

@@ -8,6 +8,7 @@
 #include "recomp_funcs.h"
 #include <math.h>
 #include <stdio.h>
+#include <stdlib.h>
 
 extern uint32_t xbox_HeapAlloc(uint32_t size, uint32_t alignment);
 extern uint32_t fsw_xbvideo_find_surface(uint32_t crc);
@@ -29,6 +30,17 @@ static const char *fsw_cuitexture_crc_name(uint32_t crc)
 }
 
 static uint32_t g_fsw_cuitexture_ctor_this;
+
+static int fsw_cuitexture_debug_enabled(void)
+{
+    static int initialized;
+    static int enabled;
+    if (!initialized) {
+        enabled = getenv("FSW_TH_TEXTURE_DEBUG") != NULL;
+        initialized = 1;
+    }
+    return enabled;
+}
 
 typedef struct FswCUITextureSurfaceEntry {
     uint32_t crc;
@@ -581,7 +593,7 @@ loc_0012F7A0:
 loc_0012F7B6:
     ebx = eax;
     fsw_cuitexture_register_surface(fsw_requested_crc, ebx);
-    if (fsw_requested_name) {
+    if (fsw_cuitexture_debug_enabled() && fsw_requested_name) {
         uint32_t fsw_video = MEM32(0x5FA8E8);
         uint32_t fsw_vtable = fsw_video ? MEM32(fsw_video) : 0;
         uint32_t fsw_use_surface = fsw_vtable ? MEM32(fsw_vtable + 0x34) : 0;
@@ -966,7 +978,7 @@ loc_0012FA34:
     }
     {
         const char *fsw_name = fsw_cuitexture_crc_name(MEM32(esp + 0x20));
-        if (fsw_name) {
+        if (fsw_cuitexture_debug_enabled() && fsw_name) {
             fprintf(stderr, "[FSW/CUITexture] create crc=%08X %s texture=%08X valid_flag=%u w=%u h=%u texgroup=%08X\n",
                     MEM32(esp + 0x20), fsw_name, esi,
                     esi ? MEM8(esi + 0x38) : 0,

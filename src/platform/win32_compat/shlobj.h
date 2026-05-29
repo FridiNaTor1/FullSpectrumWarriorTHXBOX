@@ -12,11 +12,11 @@
 static inline HRESULT SHGetFolderPathW(HWND hwnd, int csidl, HANDLE token, DWORD flags, LPWSTR path)
 {
     (void)hwnd; (void)csidl; (void)token; (void)flags;
-    const char *base = getenv("XDG_DATA_HOME");
+    const char *base = getenv("XDG_CONFIG_HOME");
     char fallback[PATH_MAX];
     if (!base || !*base) {
         const char *home = getenv("HOME");
-        snprintf(fallback, sizeof(fallback), "%s/.local/share", home ? home : ".");
+        snprintf(fallback, sizeof(fallback), "%s/.config", home ? home : ".");
         base = fallback;
     }
     xutf8_to_w(base, path, MAX_PATH);

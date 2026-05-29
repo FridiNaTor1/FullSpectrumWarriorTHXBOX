@@ -40,8 +40,11 @@ extern "C" {
  * game code reads from addresses like 0x20 and 0x28 (Xbox kernel structures). */
 #define XBOX_MAP_START          0x00000000
 
-/* Xbox physical memory */
-#define XBOX_TOTAL_RAM          (64 * 1024 * 1024)  /* 64 MB */
+/* Xbox physical memory.
+ * The Dec 5 2005 review/debug build needs devkit-sized memory during level
+ * bring-up. Retail targets can lower this once their exact allocation profile
+ * is validated. */
+#define XBOX_TOTAL_RAM          (128 * 1024 * 1024)  /* 128 MB debug/devkit profile */
 #define XBOX_GPU_RESERVED       (4 * 1024 * 1024)   /* ~4 MB for GPU */
 
 /* NOTE: Section addresses (.text, .rdata, .data, etc.) are NOT hardcoded.
@@ -143,10 +146,9 @@ ptrdiff_t xbox_GetMemoryOffset(void);
 #define XBOX_HEAP_BASE      (XBOX_STACK_BASE + XBOX_STACK_SIZE)  /* 0x00800000 */
 
 /** Size of the dynamic heap.
- *  Xbox has 64 MB total RAM. The total mapped region (data + stack + heap)
- *  must equal 64 MB so the RenderWare engine's memory probing stops at the
- *  correct boundary. On a real Xbox, probing past 64 MB causes a page fault
- *  that the engine catches via SEH to determine available memory. */
+ *  This review/debug build currently uses a 128 MB devkit-style profile so
+ *  level PAK data and constructed world state can coexist while we bring the
+ *  game up. */
 #define XBOX_HEAP_SIZE      (XBOX_TOTAL_RAM - XBOX_HEAP_BASE)  /* ~55.5 MB */
 
 /** No static mirror/guard region. RAM mirror is handled via file mapping
@@ -163,6 +165,11 @@ ptrdiff_t xbox_GetMemoryOffset(void);
  * Thread-safe: no (single-threaded recompiled code).
  */
 uint32_t xbox_HeapAlloc(uint32_t size, uint32_t alignment);
+
+/**
+ * Return the tracked size of an Xbox heap allocation, or 0 if unknown.
+ */
+uint32_t xbox_HeapSize(uint32_t xbox_va);
 
 /**
  * Free a block from the Xbox heap for reuse by later host-backed allocations.

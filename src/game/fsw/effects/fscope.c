@@ -8,6 +8,15 @@
 #include "recomp_funcs.h"
 #include <math.h>
 #include <stdio.h>
+#include <stdlib.h>
+
+static int fsw_fscope_debug_enabled(void)
+{
+    return getenv("FSW_TH_FSCOPE_DEBUG") != NULL;
+}
+
+#define FSW_FSCOPE_LOG(...) \
+    do { if (fsw_fscope_debug_enabled()) fprintf(stderr, __VA_ARGS__); } while (0)
 
 static int fscope_va_range_is_valid(uint32_t va, uint32_t size)
 {
@@ -580,7 +589,7 @@ void fn_00161CE0_FScope_NextFunction(void)
 loc_00161CE0:
     if (next_function_log_count++ < 32) {
         uint32_t current = fscope_va_range_is_valid(eax + 0x38, 4) ? MEM32(eax + 0x38) : 0xFFFFFFFFu;
-        fprintf(stderr, "[FSW/FScope] NextFunction entry scope=%08X esp=%08X funcs=%08X out=%08X iter=%08X\n",
+        FSW_FSCOPE_LOG("[FSW/FScope] NextFunction entry scope=%08X esp=%08X funcs=%08X out=%08X iter=%08X\n",
                 (unsigned)eax, (unsigned)esp, (unsigned)current, (unsigned)(esp + 8), (unsigned)(eax + 0x38));
     }
     esp = esp - 8;
@@ -597,7 +606,7 @@ loc_00161CF1:
     eax = esp + 8;
     ecx = esi;
     if (next_function_iter_log_count++ < 32) {
-        fprintf(stderr, "[FSW/FScope] NextFunction iter out=%08X iter=%08X head=%08X node=%08X esp=%08X\n",
+        FSW_FSCOPE_LOG("[FSW/FScope] NextFunction iter out=%08X iter=%08X head=%08X node=%08X esp=%08X\n",
                 (unsigned)eax, (unsigned)ecx,
                 (unsigned)(fscope_va_range_is_valid(ecx, 4) ? MEM32(ecx) : 0xFFFFFFFFu),
                 (unsigned)edi, (unsigned)esp);

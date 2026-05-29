@@ -20,6 +20,17 @@ static uint32_t fsw_static_text_load_log_count;
 extern uint32_t g_fsw_cuifont_current_control;
 extern uint32_t g_fsw_cuifont_current_matrix;
 
+static int fsw_static_text_debug_enabled(void)
+{
+    static int initialized;
+    static int enabled;
+    if (!initialized) {
+        enabled = getenv("FSW_TH_TEXT_DEBUG") != NULL;
+        initialized = 1;
+    }
+    return enabled;
+}
+
 static int fsw_static_text_va_is_valid(uint32_t va)
 {
     return va >= 0x00010000u && va < 0x04000000u;
@@ -177,7 +188,9 @@ static const uint32_t *fsw_statictext_decode_font_atlas(uint32_t font, uint32_t 
             g_fsw_font_atlases[i].bgra = bgra;
             *out_w = width;
             *out_h = height;
-            fprintf(stderr, "[FSW/Text] decoded font atlas font=%08X %ux%u pixels=%08X\n", font, width, height, pixels);
+            if (fsw_static_text_debug_enabled()) {
+                fprintf(stderr, "[FSW/Text] decoded font atlas font=%08X %ux%u pixels=%08X\n", font, width, height, pixels);
+            }
             return bgra;
         }
     }
@@ -233,7 +246,7 @@ static int fsw_statictext_draw_real_font(uint32_t control, uint32_t text, uint32
     if ((color & 0x00FFFFFFu) == 0) {
         r = g = b = 1.0f;
     }
-    if (fsw_static_text_draw_log_count < 1024) {
+    if (fsw_static_text_debug_enabled() && fsw_static_text_draw_log_count < 1024) {
         fprintf(stderr, "[FSW/Text] native draw control=%08X text=%08X font=%08X pos=%.2f,%.2f color=%08X char_h=%.2f atlas=%ux%u glyphs=%u table=%08X\n",
                 control, text, font, x, y, color, char_h, atlas_w, atlas_h,
                 fsw_static_text_va_is_valid(font + 4) ? MEM32(font + 4) : 0,
@@ -1152,7 +1165,7 @@ loc_0012C335:
 
 loc_0012C340:
     MEM32(edi + 0x100) = eax;
-    if (fsw_static_text_load_log_count < 160) {
+    if (fsw_static_text_debug_enabled() && fsw_static_text_load_log_count < 160) {
         char key[128];
         fsw_static_text_copy_ascii(esp + 0xC, key, sizeof(key));
         fprintf(stderr, "[FSW/Text] load control=%08X key=\"%s\" key_crc=%08X raw_len=%u file=%08X\n",
@@ -1524,7 +1537,7 @@ loc_0012C54B:
     esi = eax;
     ebp = 0; /* xor self */
     esp = esp + 4;
-    if (fsw_static_text_log_count < 4096) {
+    if (fsw_static_text_debug_enabled() && fsw_static_text_log_count < 4096) {
         fprintf(stderr, "[FSW/Text] Draw control=%08X text=%08X font_crc=%08X font=%08X flags=%02X pos=%.2f,%.2f parent=%08X matrix=%.2f,%.2f w0=%04X w1=%04X w2=%04X w3=%04X\n",
                 edi, ebx, MEM32(edi + 0x100), esi, MEM8(edi + 0x118),
                 MEMF(edi + 0x40), MEMF(edi + 0x44),
@@ -1711,7 +1724,7 @@ loc_0012C6C5:
 loc_0012C6D6:
     esp = esp + 4;
     esi = self_control;
-    if (fsw_static_text_log_count < 4096) {
+    if (fsw_static_text_debug_enabled() && fsw_static_text_log_count < 4096) {
         fprintf(stderr, "[FSW/Text] Render control=%08X visible_arg=%08X text_crc=%08X font_crc=%08X callback=%08X result=%08X pos=%.2f,%.2f parent=%08X matrix=%.2f,%.2f w0=%04X w1=%04X\n",
                 esi, MEM32(esp + 8), MEM32(esi + 0x104), MEM32(esi + 0x100), MEM32(esi + 0x108), eax,
                 MEMF(esi + 0x40), MEMF(esi + 0x44),

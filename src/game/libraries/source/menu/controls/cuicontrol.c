@@ -19,6 +19,17 @@ static int cuicontrol_va_is_valid(uint32_t va)
     return va >= 0x00010000u && va < 0x04000000u;
 }
 
+static int cuicontrol_debug_enabled(void)
+{
+    static int initialized;
+    static int enabled;
+    if (!initialized) {
+        enabled = getenv("FSW_TH_MENU_DEBUG") != NULL;
+        initialized = 1;
+    }
+    return enabled;
+}
+
 static int cuicontrol_method_is_valid(uint32_t object, uint32_t method_offset)
 {
     if (!cuicontrol_va_is_valid(object) || !cuicontrol_va_is_valid(object + 4)) {
@@ -749,7 +760,7 @@ static uint32_t fsw_cuicontrol_load_child(uint32_t file, uint32_t parent)
 
     {
         static uint32_t child_log_count = 0;
-        if (child_log_count < 24) {
+        if (cuicontrol_debug_enabled() && child_log_count < 24) {
             fprintf(stderr,
                     "[FSW/Menu] child load parent=%08X child=%08X type=%u children=%u record=%08X base=%08X callbacks=%08X/%08X/%08X\n",
                     (unsigned)parent, (unsigned)object, (unsigned)type, (unsigned)child_count,
@@ -815,7 +826,7 @@ static uint32_t fsw_cuicontrol_load_child_by_type(uint32_t file, uint32_t parent
 
     {
         static uint32_t typed_child_log_count = 0;
-        if (typed_child_log_count < 48) {
+        if (cuicontrol_debug_enabled() && typed_child_log_count < 48) {
             fprintf(stderr,
                     "[FSW/Menu] typed child load parent=%08X child=%08X type=%u pos=%08X load=%08X\n",
                     (unsigned)parent, (unsigned)object, (unsigned)type,
@@ -881,7 +892,7 @@ static void fsw_cuicontrol_load_tail(uint32_t control, uint32_t file)
     }
     {
         static uint32_t tail_log_count = 0;
-        if (tail_log_count < 48) {
+        if (cuicontrol_debug_enabled() && tail_log_count < 48) {
             fprintf(stderr,
                     "[FSW/Menu] control tail control=%08X type=%u children=%u callbacks=%08X/%08X/%08X flags=%08X parent=%08X pos=%08X\n",
                     (unsigned)control, (unsigned)MEM8(control + 0xD1),
@@ -5096,7 +5107,7 @@ loc_00132650:
 	        if (callback != 0 || crc == 0xC9EF9119u) {
 	            if (callback != 0) {
 	                static uint32_t update_bind_log_count = 0;
-	                if (update_bind_log_count < 64) {
+	                if (cuicontrol_debug_enabled() && update_bind_log_count < 64) {
 	                    fprintf(stderr,
 	                            "[FSW/Menu] bind update control=%08X crc=%08X callback=%08X\n",
 	                            (unsigned)edi, (unsigned)crc, (unsigned)callback);

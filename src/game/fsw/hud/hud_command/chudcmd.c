@@ -7,6 +7,29 @@
 #define RECOMP_GENERATED_CODE
 #include "recomp_funcs.h"
 #include <math.h>
+#include <stdio.h>
+#include <stdlib.h>
+
+static int fsw_chudcmd_va_range_is_valid(uint32_t va, uint32_t size)
+{
+    if (size == 0) {
+        return va >= 0x00010000u && va < RECOMP_GUEST_RAM_LIMIT;
+    }
+    if (va < 0x00010000u || va >= RECOMP_GUEST_RAM_LIMIT || va + size < va) {
+        return 0;
+    }
+    return va + size <= RECOMP_GUEST_RAM_LIMIT;
+}
+
+static int fsw_chudcmd_virtual_call_is_valid(uint32_t object, uint32_t min_vtable_size)
+{
+    uint32_t vtable;
+    if (!fsw_chudcmd_va_range_is_valid(object, 4)) {
+        return 0;
+    }
+    vtable = MEM32(object);
+    return fsw_chudcmd_va_range_is_valid(vtable, min_vtable_size);
+}
 
 /**
  * fn_0002A780_1CHUDIconPanel_QAE_XZ
@@ -3724,6 +3747,7 @@ loc_002E0550:
 void fn_002E0570_CHUDCmd_InitHandlerSetup(void)
 {
     uint32_t chudcmd_this;
+    uint32_t manager;
     int _flags = 0; /* fallback flag var */
     float xmm0;
 
@@ -3743,6 +3767,16 @@ loc_002E0570:
 
 loc_002E0590:
     esi = eax;
+    if (getenv("FSW_TH_FORCE_DIRECT") != NULL ||
+        getenv("FSW_TH_SKIP_CASEVAC_INIT") != NULL) {
+        static uint32_t skip_count;
+        if (skip_count++ < 8) {
+            fprintf(stderr,
+                    "[FSW/HUDCmd] skipping CASEVAC manager init during direct level load manager=%08X esp=%08X\n",
+                    (unsigned)esi, (unsigned)esp);
+        }
+        goto loc_002E0597;
+    }
     PUSH32(esp, 0); fn_002CFA80_CCASEVACManager_Initialize(); /* call 0x002CFA80 */
 
 loc_002E0597:
@@ -3776,6 +3810,16 @@ loc_002E05DC:
 
 loc_002E05DF:
     edi = chudcmd_this;
+    if (getenv("FSW_TH_FORCE_DIRECT") != NULL ||
+        getenv("FSW_TH_SKIP_HUDCMD_OBJECTIVE_INDICATOR") != NULL) {
+        static uint32_t skip_count;
+        if (skip_count++ < 8) {
+            fprintf(stderr,
+                    "[FSW/HUDCmd] skipping objective indicator setup during direct level load cmd=%08X esp=%08X\n",
+                    (unsigned)edi, (unsigned)esp);
+        }
+        goto loc_002E05E4;
+    }
     PUSH32(esp, 0); fn_002DE070_CHUDObjectiveIndicator_Setup(); /* call 0x002DE070 */
 
 loc_002E05E4:
@@ -3790,9 +3834,31 @@ loc_002E05E4:
     PUSH32(esp, 0); fn_00355430_CAIManager_Get(); /* call 0x00355430 */
 
 loc_002E05FD:
+    manager = eax;
     ecx = eax + 0x8D8;
     esi = esi | 0xFFFFFFFFu;
     MEM32(esp + 0x20) = esi;
+    if (getenv("FSW_TH_FORCE_DIRECT") != NULL ||
+        getenv("FSW_TH_SKIP_HUDCMD_AI_CLEAR") != NULL) {
+        static uint32_t skip_count;
+        if (skip_count++ < 8) {
+            fprintf(stderr,
+                    "[FSW/HUDCmd] skipping AI handler clear during direct level load manager=%08X list=%08X esp=%08X\n",
+                    (unsigned)manager, (unsigned)ecx, (unsigned)esp);
+        }
+        goto loc_002E060E;
+    }
+    if (!fsw_chudcmd_virtual_call_is_valid(ecx, 4)) {
+        static uint32_t warn_count;
+        if (warn_count++ < 8) {
+            fprintf(stderr,
+                    "[FSW/HUDCmd] skipping invalid AI handler clear manager=%08X list=%08X vtbl=%08X esp=%08X\n",
+                    (unsigned)manager, (unsigned)ecx,
+                    (unsigned)(fsw_chudcmd_va_range_is_valid(ecx, 4) ? MEM32(ecx) : 0),
+                    (unsigned)esp);
+        }
+        goto loc_002E060E;
+    }
     edx = MEM32(ecx);
     { uint32_t _icall_esp = g_esp;
     PUSH32(esp, 0); RECOMP_ICALL_SAFE(MEM32(edx), _icall_esp); /* indirect call */
@@ -3810,8 +3876,30 @@ loc_002E060E:
     PUSH32(esp, 0); fn_0030A6A0_CAIVOManager_Get(); /* call 0x0030A6A0 */
 
 loc_002E062B:
+    manager = eax;
     ecx = eax + 0x38;
     MEM32(esp + 0x20) = esi;
+    if (getenv("FSW_TH_FORCE_DIRECT") != NULL ||
+        getenv("FSW_TH_SKIP_HUDCMD_AI_CLEAR") != NULL) {
+        static uint32_t skip_count;
+        if (skip_count++ < 8) {
+            fprintf(stderr,
+                    "[FSW/HUDCmd] skipping VO handler clear during direct level load manager=%08X list=%08X esp=%08X\n",
+                    (unsigned)manager, (unsigned)ecx, (unsigned)esp);
+        }
+        goto loc_002E0636;
+    }
+    if (!fsw_chudcmd_virtual_call_is_valid(ecx, 4)) {
+        static uint32_t warn_count;
+        if (warn_count++ < 8) {
+            fprintf(stderr,
+                    "[FSW/HUDCmd] skipping invalid VO handler clear manager=%08X list=%08X vtbl=%08X esp=%08X\n",
+                    (unsigned)manager, (unsigned)ecx,
+                    (unsigned)(fsw_chudcmd_va_range_is_valid(ecx, 4) ? MEM32(ecx) : 0),
+                    (unsigned)esp);
+        }
+        goto loc_002E0636;
+    }
     edx = MEM32(ecx);
     { uint32_t _icall_esp = g_esp;
     PUSH32(esp, 0); RECOMP_ICALL_SAFE(MEM32(edx), _icall_esp); /* indirect call */

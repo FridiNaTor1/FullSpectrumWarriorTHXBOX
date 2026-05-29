@@ -29,6 +29,17 @@ uint32_t g_fsw_xbvideo_global_vtable;
 
 void fsw_xbvideo_ensure_default_render_surfaces(uint32_t video, const char *reason);
 
+static int fsw_xbvideo_texture_debug_enabled(void)
+{
+    static int initialized;
+    static int enabled;
+    if (!initialized) {
+        enabled = getenv("FSW_TH_TEXTURE_DEBUG") != NULL;
+        initialized = 1;
+    }
+    return enabled;
+}
+
 static void fsw_xbvideo_register_surface(uint32_t crc, uint32_t surface)
 {
     for (uint32_t i = 0; i < g_fsw_xbvideo_surface_count; i++) {
@@ -6098,7 +6109,8 @@ void fn_0013A1D0_XBVideo_UseSurface(void)
             MEM32(fsw_registered_surface + 8) = MEM32(fsw_registered_surface + 8) + 1;
         }
         eax = fsw_registered_surface;
-        if (fsw_requested_name || fsw_xbvideo_should_log_crc(fsw_requested_crc)) {
+        if (fsw_xbvideo_texture_debug_enabled() &&
+            (fsw_requested_name || fsw_xbvideo_should_log_crc(fsw_requested_crc))) {
             fprintf(stderr, "[FSW/XBVideo] UseSurface native crc=%08X%s%s surface=%08X s_crc=%08X s_w=%u s_h=%u s_tex=%08X\n",
                     fsw_requested_crc,
                     fsw_requested_name ? " " : "",

@@ -14,6 +14,14 @@ static uint32_t g_stdparse_atomic_log_count;
 static uint32_t g_stdparse_numeric_log_count;
 static uint32_t g_stdparse_numeric_int_log_count;
 
+static int fsw_stdparse_debug_enabled(void)
+{
+    return getenv("FSW_TH_STDPARSE_DEBUG") != NULL;
+}
+
+#define FSW_STDPARSE_LOG(...) \
+    do { if (fsw_stdparse_debug_enabled()) fprintf(stderr, __VA_ARGS__); } while (0)
+
 /**
  * fn_003F2D30_StdParse_ParseStringVNode
  * Symbol: ?ParseStringVNode@StdParse@@CAPAVVNode@@PAVTBuf@@@Z
@@ -192,7 +200,7 @@ void fn_003F2DE0_StdParse_ParseNumericVNode(void)
 
 loc_003F2DE0:
     if (g_stdparse_numeric_log_count < 16) {
-        fprintf(stderr, "[FSW/StdParse] ParseNumeric entry esp=%08X arg=%08X eax=%08X esi=%08X\n",
+        FSW_STDPARSE_LOG("[FSW/StdParse] ParseNumeric entry esp=%08X arg=%08X eax=%08X esi=%08X\n",
                 (unsigned)esp, (unsigned)MEM32(esp + 4), (unsigned)eax, (unsigned)esi);
     }
     esp = esp - 0x10;
@@ -427,7 +435,7 @@ loc_003F30D5:
 
 loc_003F30F6:
     if (g_stdparse_numeric_log_count < 16) {
-        fprintf(stderr, "[FSW/StdParse] ParseNumeric float epilogue esp=%08X out=%08X\n",
+        FSW_STDPARSE_LOG("[FSW/StdParse] ParseNumeric float epilogue esp=%08X out=%08X\n",
                 (unsigned)esp, (unsigned)edi);
         g_stdparse_numeric_log_count++;
     }
@@ -522,7 +530,7 @@ loc_003F3185:
 
 loc_003F3190:
     if (g_stdparse_numeric_log_count < 16) {
-        fprintf(stderr, "[FSW/StdParse] ParseNumeric binary epilogue esp=%08X out=%08X\n",
+        FSW_STDPARSE_LOG("[FSW/StdParse] ParseNumeric binary epilogue esp=%08X out=%08X\n",
                 (unsigned)esp, (unsigned)edi);
         g_stdparse_numeric_log_count++;
     }
@@ -548,7 +556,7 @@ void sub_003F3189(void)
 {
     uint32_t ebp;
     if (g_stdparse_numeric_int_log_count < 16) {
-        fprintf(stderr, "[FSW/StdParse] ParseNumeric int epilogue esp=%08X out=%08X\n",
+        FSW_STDPARSE_LOG("[FSW/StdParse] ParseNumeric int epilogue esp=%08X out=%08X\n",
                 (unsigned)esp, (unsigned)edi);
         g_stdparse_numeric_int_log_count++;
     }
@@ -648,7 +656,7 @@ void fn_003F3320_StdParse_ParseAtomicVNode(void)
 loc_003F3320:
     if (g_stdparse_atomic_log_count < 24) {
         uint32_t tbuf = eax;
-        fprintf(stderr, "[FSW/StdParse] ParseAtomic entry esp=%08X tbuf=%08X state=%08X token='%s' punct='%s'\n",
+        FSW_STDPARSE_LOG("[FSW/StdParse] ParseAtomic entry esp=%08X tbuf=%08X state=%08X token='%s' punct='%s'\n",
                 (unsigned)esp, (unsigned)tbuf,
                 (unsigned)(tbuf ? MEM32(tbuf + 4) : 0xFFFFFFFFu),
                 tbuf ? (const char *)XBOX_PTR(tbuf + 0x430) : "<null>",
@@ -696,7 +704,7 @@ loc_003F3367:
 
 loc_003F336C:
     if (g_stdparse_atomic_log_count < 24) {
-        fprintf(stderr, "[FSW/StdParse] ParseAtomic string epilogue esp=%08X out=%08X\n",
+        FSW_STDPARSE_LOG("[FSW/StdParse] ParseAtomic string epilogue esp=%08X out=%08X\n",
                 (unsigned)esp, (unsigned)eax);
         g_stdparse_atomic_log_count++;
     }
@@ -719,7 +727,7 @@ loc_003F3385:
 
 loc_003F338E:
     if (g_stdparse_atomic_log_count < 24) {
-        fprintf(stderr, "[FSW/StdParse] ParseAtomic before numeric esp=%08X tbuf=%08X\n",
+        FSW_STDPARSE_LOG("[FSW/StdParse] ParseAtomic before numeric esp=%08X tbuf=%08X\n",
                 (unsigned)esp, (unsigned)esi);
     }
     PUSH32(esp, esi);
@@ -727,7 +735,7 @@ loc_003F338E:
 
 loc_003F3394:
     if (g_stdparse_atomic_log_count < 24) {
-        fprintf(stderr, "[FSW/StdParse] ParseAtomic after numeric before cleanup esp=%08X out=%08X\n",
+        FSW_STDPARSE_LOG("[FSW/StdParse] ParseAtomic after numeric before cleanup esp=%08X out=%08X\n",
                 (unsigned)esp, (unsigned)eax);
     }
     esp = esp + 4;
@@ -735,7 +743,7 @@ loc_003F3394:
 
 loc_003F3399:
     if (g_stdparse_atomic_log_count < 24) {
-        fprintf(stderr, "[FSW/StdParse] ParseAtomic epilogue esp=%08X out=%08X\n",
+        FSW_STDPARSE_LOG("[FSW/StdParse] ParseAtomic epilogue esp=%08X out=%08X\n",
                 (unsigned)esp, (unsigned)edi);
         g_stdparse_atomic_log_count++;
     }

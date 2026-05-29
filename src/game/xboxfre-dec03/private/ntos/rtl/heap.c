@@ -10,6 +10,7 @@
 #include <string.h>
 
 extern uint32_t xbox_HeapAlloc(uint32_t size, uint32_t alignment);
+extern uint32_t xbox_HeapSize(uint32_t xbox_va);
 extern void xbox_HeapFree(uint32_t xbox_va);
 
 /**
@@ -4675,9 +4676,24 @@ loc_0005D600:
     {
         uint32_t old_va = MEM32(esp + 12);
         uint32_t new_size = MEM32(esp + 16);
-        uint32_t new_va = xbox_HeapAlloc(new_size, 16);
-        if (new_va && old_va && new_size) {
-            memcpy((void *)XBOX_PTR(new_va), (const void *)XBOX_PTR(old_va), new_size);
+        uint32_t old_size;
+        uint32_t copy_size;
+        uint32_t new_va;
+        if (old_va == 0) {
+            eax = xbox_HeapAlloc(new_size, 16);
+            esp += 20; return; /* ret 16 */
+        }
+        if (new_size == 0) {
+            xbox_HeapFree(old_va);
+            eax = 0;
+            esp += 20; return; /* ret 16 */
+        }
+        old_size = xbox_HeapSize(old_va);
+        new_va = xbox_HeapAlloc(new_size, 16);
+        copy_size = old_size != 0 && old_size < new_size ? old_size : new_size;
+        if (new_va && copy_size) {
+            memcpy((void *)XBOX_PTR(new_va), (const void *)XBOX_PTR(old_va), copy_size);
+            xbox_HeapFree(old_va);
         }
         eax = new_va;
     }

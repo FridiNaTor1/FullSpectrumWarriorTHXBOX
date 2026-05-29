@@ -7,6 +7,43 @@
 #define RECOMP_GENERATED_CODE
 #include "recomp_funcs.h"
 #include <math.h>
+#include <stdio.h>
+
+static int hudtextticker_va_range_is_valid(uint32_t va, uint32_t size)
+{
+    if (va < 0x00010000u || va >= RECOMP_GUEST_RAM_LIMIT) {
+        return 0;
+    }
+    if (size != 0 && (va + size < va || va + size > RECOMP_GUEST_RAM_LIMIT)) {
+        return 0;
+    }
+    return 1;
+}
+
+static int hudtextticker_item_is_valid(uint32_t item)
+{
+    return hudtextticker_va_range_is_valid(item, 0x414u);
+}
+
+static void hudtextticker_clear_invalid_queue(uint32_t ticker, const char *reason, uint32_t node, uint32_t steps)
+{
+    static uint32_t log_count;
+
+    if (hudtextticker_va_range_is_valid(ticker + 0x1C, 4)) {
+        MEM32(ticker + 0x14) = 0;
+        MEM32(ticker + 0x18) = 0;
+        MEM32(ticker + 0x1C) = 0;
+    }
+    if (log_count < 32) {
+        fprintf(stderr,
+                "[FSW/HUDTextTicker] cleared invalid queue ticker=%08X reason=%s node=%08X steps=%u\n",
+                (unsigned)ticker,
+                reason ? reason : "?",
+                (unsigned)node,
+                (unsigned)steps);
+        log_count++;
+    }
+}
 
 /**
  * fn_0002C7F0_0HUDTextTicker_QAE_XZ
@@ -595,6 +632,7 @@ loc_003AEABF:
 void fn_003AEAD0_HUDTextTicker_SetFont(void)
 {
     uint32_t ebp;
+    uint32_t setfont_steps = 0;
     int _flags = 0; /* fallback flag var */
     float xmm0;
 
@@ -614,6 +652,14 @@ loc_003AEAE9:
     if (TEST_Z(esi, esi)) goto loc_003AEB2A; /* je: equal / zero */
 
 loc_003AEAF1:
+    if (!hudtextticker_item_is_valid(esi)) {
+        hudtextticker_clear_invalid_queue(edi, "setfont-invalid-node", esi, setfont_steps);
+        goto loc_003AEB2A;
+    }
+    if (++setfont_steps > 4096u) {
+        hudtextticker_clear_invalid_queue(edi, "setfont-loop-limit", esi, setfont_steps);
+        goto loc_003AEB2A;
+    }
     if (TEST_Z(ebx, ebx)) goto loc_003AEB0A; /* je: equal / zero */
 
 loc_003AEAF5:

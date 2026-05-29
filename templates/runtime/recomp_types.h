@@ -45,6 +45,12 @@
 #include <string.h>
 #include <stdio.h>
 
+#ifndef RECOMP_GUEST_RAM_LIMIT
+#define RECOMP_GUEST_RAM_LIMIT 0x08000000u
+#endif
+
+#define RECOMP_GUEST_RAM_MASK (RECOMP_GUEST_RAM_LIMIT - 1u)
+
 /* ================================================================
  * Memory offset
  * ================================================================ */
@@ -136,7 +142,7 @@ static inline uintptr_t recomp_xbox_ptr(uint32_t addr) {
     if (addr >= 0x80010000u && addr < 0x80011000u) {
         return (uintptr_t)addr + g_xbox_mem_offset;
     }
-    return (uintptr_t)(addr & 0x03FFFFFFu) + g_xbox_mem_offset;
+    return (uintptr_t)(addr & RECOMP_GUEST_RAM_MASK) + g_xbox_mem_offset;
 }
 
 #define XBOX_PTR(addr) recomp_xbox_ptr((uint32_t)(addr))
@@ -157,7 +163,7 @@ static inline uintptr_t recomp_xbox_ptr(uint32_t addr) {
 
 static inline int recomp_va_is_mapped(uint32_t va)
 {
-    return va >= 0x00010000u && va < 0x04000000u;
+    return va >= 0x00010000u && va < RECOMP_GUEST_RAM_LIMIT;
 }
 
 static inline int recomp_try_global_allocator_fallback(uint32_t saved_esp, uint32_t method_va)
@@ -204,7 +210,7 @@ static inline int recomp_try_global_allocator_fallback(uint32_t saved_esp, uint3
     uint32_t size = MEM32(g_esp + 4);
     uint32_t out_ptr = MEM32(g_esp + 8);
     if (size > 0x01000000u ||
-        (out_ptr != 0 && (out_ptr < 0x00010000u || out_ptr >= 0x04000000u))) {
+        (out_ptr != 0 && (out_ptr < 0x00010000u || out_ptr >= RECOMP_GUEST_RAM_LIMIT))) {
         return 0;
     }
     if (size > 0x100000u) {
@@ -235,7 +241,7 @@ static inline int recomp_try_global_allocator_fallback(uint32_t saved_esp, uint3
     }
     uint32_t allocated = xbox_HeapAlloc(size, 16);
 
-    if (out_ptr >= 0x00010000u && out_ptr < 0x04000000u) {
+    if (out_ptr >= 0x00010000u && out_ptr < RECOMP_GUEST_RAM_LIMIT) {
         MEM32(out_ptr) = 0;
     }
 

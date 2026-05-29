@@ -14852,6 +14852,9 @@ loc_0026E630:
         if (!forced_state_applied && forced_state != NULL && forced_state[0] != 0) {
             uint32_t state = (uint32_t)strtoul(forced_state, NULL, 0);
             fprintf(stderr, "[FSW/Net] forcing update state=0x%08X\n", (unsigned)state);
+            if (state == 0x2A || state == 0x2C || state == 0x3A) {
+                fsw_linux_ensure_local_campaign_level("forced-state");
+            }
             eax = state;
             ecx = net_obj;
             esi = 0;
@@ -15015,6 +15018,14 @@ loc_0026E630:
             esi = 0;
             PUSH32(esp, 0); fn_00272580_CNetState_SetState(); /* call SetState */
             MEM32(0x613FCC) = 0x0D;
+        } else if (event == 2 && before_state == 0x09 && (next_state == 0x04 || next_state == 0x06)) {
+            fprintf(stderr, "[FSW/Net] Linux profile selection loaded local profile next=%08X -> main menu state=00000013\n",
+                    (unsigned)next_state);
+            eax = 0x13;
+            ecx = net_obj;
+            esi = 0;
+            PUSH32(esp, 0); fn_00272580_CNetState_SetState(); /* call SetState */
+            MEM32(0x613FCC) = 0x13;
         } else if (event == 2 && before_state == 0x0D && next_state == 0x01) {
             fprintf(stderr, "[FSW/Net] Linux profile creation complete -> main menu state=00000013\n");
             eax = 0x13;
@@ -15030,15 +15041,25 @@ loc_0026E630:
             PUSH32(esp, 0); fn_00272580_CNetState_SetState(); /* call SetState */
             MEM32(0x613FCC) = 0x09;
         } else if (event == 2 && before_state == 0x13 && next_state == 0x00) {
-            fprintf(stderr, "[FSW/Net] Linux main menu local play -> process original play-menu route\n");
-            fsw_linux_ensure_local_campaign_level("main-to-campaign");
+            fprintf(stderr, "[FSW/Net] Linux main menu local play -> play menu state=0000002A\n");
+            fsw_linux_ensure_local_campaign_level("main-to-play-menu");
+            eax = 0x2A;
             ecx = net_obj;
-            PUSH32(esp, next_state);
-            PUSH32(esp, 1);
-            PUSH32(esp, 0); fn_00269D40_CNetStateXbox_ProcessStates(); /* call ProcessStates(true, next) */
+            esi = 0;
+            PUSH32(esp, 0); fn_00272580_CNetState_SetState(); /* call SetState */
+            MEM32(0x613FCC) = 0x2A;
         } else if (event == 2 && before_state == 0x12 && next_state == 0x00) {
             fprintf(stderr, "[FSW/Net] Linux campaign selection -> difficulty selection state=0000002C\n");
             fsw_linux_ensure_local_campaign_level("campaign-to-difficulty");
+            eax = 0x2C;
+            ecx = net_obj;
+            esi = 0;
+            PUSH32(esp, 0); fn_00272580_CNetState_SetState(); /* call SetState */
+            MEM32(0x613FCC) = 0x2C;
+        } else if (event == 2 && before_state == 0x2A && (next_state == 0x06 || next_state == 0x02)) {
+            fprintf(stderr, "[FSW/Net] Linux play menu -> difficulty selection state=0000002C next=%08X\n",
+                    (unsigned)next_state);
+            fsw_linux_ensure_local_campaign_level("play-to-difficulty");
             eax = 0x2C;
             ecx = net_obj;
             esi = 0;

@@ -8,8 +8,17 @@
 #include "recomp_funcs.h"
 #include <math.h>
 #include <stdio.h>
+#include <stdlib.h>
 
 static uint32_t g_fsw_ptree_parse_loop_log_count;
+
+static int fsw_ptree_debug_enabled(void)
+{
+    return getenv("FSW_TH_PTREE_DEBUG") != NULL;
+}
+
+#define FSW_PTREE_LOG(...) \
+    do { if (fsw_ptree_debug_enabled()) fprintf(stderr, __VA_ARGS__); } while (0)
 
 /**
  * fn_0015FAA0_PTree_ReadBinaryData
@@ -1811,7 +1820,7 @@ void fn_00160770_PTree_ParseVariableReference(void)
 
 loc_00160770:
     if (variable_ref_log_count < 16) {
-        fprintf(stderr, "[FSW/PTree] ParseVariableReference entry esp=%08X scope_arg=%08X\n",
+        FSW_PTREE_LOG("[FSW/PTree] ParseVariableReference entry esp=%08X scope_arg=%08X\n",
                 (unsigned)esp, (unsigned)MEM32(esp + 4));
     }
     PUSH32(esp, ebx);
@@ -1864,7 +1873,7 @@ loc_001607CA:
     MEM32(ecx) = eax;
     eax = MEM32(esp + 0x14);
     if (variable_ref_log_count < 16) {
-        fprintf(stderr, "[FSW/PTree] ParseVariableReference before FindVariableVisible esp=%08X scope=%08X crc=%08X\n",
+        FSW_PTREE_LOG("[FSW/PTree] ParseVariableReference before FindVariableVisible esp=%08X scope=%08X crc=%08X\n",
                 (unsigned)esp, (unsigned)eax, (unsigned)MEM32(ecx));
     }
     PUSH32(esp, 0); fn_00161CB0_FScope_FindVariableVisible(); /* call 0x00161CB0 */
@@ -1872,7 +1881,7 @@ loc_001607CA:
 loc_001607D8:
     ebx = eax;
     if (variable_ref_log_count < 16) {
-        fprintf(stderr, "[FSW/PTree] ParseVariableReference after FindVariableVisible esp=%08X vnode=%08X\n",
+        FSW_PTREE_LOG("[FSW/PTree] ParseVariableReference after FindVariableVisible esp=%08X vnode=%08X\n",
                 (unsigned)esp, (unsigned)ebx);
     }
     if (TEST_NZ(ebx, ebx)) goto loc_001607F8; /* jne: not equal / not zero */
@@ -1889,7 +1898,7 @@ loc_001607F5:
 
 loc_001607F8:
     if (variable_ref_log_count < 16) {
-        fprintf(stderr, "[FSW/PTree] ParseVariableReference before NewAtomicNode esp=%08X source=%08X\n",
+        FSW_PTREE_LOG("[FSW/PTree] ParseVariableReference before NewAtomicNode esp=%08X source=%08X\n",
                 (unsigned)esp, (unsigned)ebx);
     }
     PUSH32(esp, ebx);
@@ -1898,7 +1907,7 @@ loc_001607F8:
 loc_001607FE:
     ebx = eax;
     if (variable_ref_log_count < 16) {
-        fprintf(stderr, "[FSW/PTree] ParseVariableReference after NewAtomicNode esp=%08X vnode=%08X\n",
+        FSW_PTREE_LOG("[FSW/PTree] ParseVariableReference after NewAtomicNode esp=%08X vnode=%08X\n",
                 (unsigned)esp, (unsigned)ebx);
     }
     if (TEST_NZ(ebx, ebx)) goto loc_0016081E; /* jne: not equal / not zero */
@@ -1915,14 +1924,14 @@ loc_0016081B:
 
 loc_0016081E:
     if (variable_ref_log_count < 16) {
-        fprintf(stderr, "[FSW/PTree] ParseVariableReference before PeekPunctuation esp=%08X vnode=%08X\n",
+        FSW_PTREE_LOG("[FSW/PTree] ParseVariableReference before PeekPunctuation esp=%08X vnode=%08X\n",
                 (unsigned)esp, (unsigned)ebx);
     }
     PUSH32(esp, 0); fn_0015FB70_PTree_PeekPunctuation(); /* call 0x0015FB70 */
 
 loc_00160823:
     if (variable_ref_log_count < 16) {
-        fprintf(stderr, "[FSW/PTree] ParseVariableReference epilogue esp=%08X vnode=%08X\n",
+        FSW_PTREE_LOG("[FSW/PTree] ParseVariableReference epilogue esp=%08X vnode=%08X\n",
                 (unsigned)esp, (unsigned)ebx);
         variable_ref_log_count++;
     }
@@ -2952,7 +2961,7 @@ void sub_00160EB6(void)
 
 loc_00160EB6:
     if (g_fsw_ptree_parse_loop_log_count <= 8) {
-        fprintf(stderr, "[FSW/PTree] ParseFunctionArguments before FScope_Setup new_scope=%08X parent=%08X esp=%08X\n",
+        FSW_PTREE_LOG("[FSW/PTree] ParseFunctionArguments before FScope_Setup new_scope=%08X parent=%08X esp=%08X\n",
                 (unsigned)ebp, (unsigned)MEM32(esp + 0x18), (unsigned)esp);
     }
     edx = MEM32(esp + 0x18);
@@ -2968,7 +2977,7 @@ loc_00160EB6:
 
 loc_00160ED5:
     if (g_fsw_ptree_parse_loop_log_count <= 8) {
-        fprintf(stderr, "[FSW/PTree] ParseFunctionArguments after FScope_Setup new_scope=%08X esp=%08X eax=%08X\n",
+        FSW_PTREE_LOG("[FSW/PTree] ParseFunctionArguments after FScope_Setup new_scope=%08X esp=%08X eax=%08X\n",
                 (unsigned)ebp, (unsigned)esp, (unsigned)eax);
     }
     SET_LO8(ebx, 0); /* xor self */
@@ -3022,7 +3031,7 @@ loc_00160F21:
 
 loc_00160F24:
     if (g_fsw_ptree_parse_loop_log_count <= 8) {
-        fprintf(stderr, "[FSW/PTree] ParseFunctionArguments before arg vnode scope=%08X esp=%08X\n",
+        FSW_PTREE_LOG("[FSW/PTree] ParseFunctionArguments before arg vnode scope=%08X esp=%08X\n",
                 (unsigned)ebp, (unsigned)esp);
     }
     PUSH32(esp, ebp);
@@ -3031,7 +3040,7 @@ loc_00160F24:
 
 loc_00160F2C:
     if (g_fsw_ptree_parse_loop_log_count <= 8) {
-        fprintf(stderr, "[FSW/PTree] ParseFunctionArguments after arg vnode scope=%08X esp=%08X eax=%08X\n",
+        FSW_PTREE_LOG("[FSW/PTree] ParseFunctionArguments after arg vnode scope=%08X esp=%08X eax=%08X\n",
                 (unsigned)ebp, (unsigned)esp, (unsigned)eax);
     }
     (void)0; /* test eax, eax - flags set for next jcc */
@@ -3102,7 +3111,7 @@ loc_00160F7A:
 
 loc_00160F86:
     if (g_fsw_ptree_parse_loop_log_count <= 8) {
-        fprintf(stderr, "[FSW/PTree] ParseFunctionArguments epilogue scope=%08X esp=%08X eax=%08X\n",
+        FSW_PTREE_LOG("[FSW/PTree] ParseFunctionArguments epilogue scope=%08X esp=%08X eax=%08X\n",
                 (unsigned)ebp, (unsigned)esp, (unsigned)eax);
     }
     POP32(esp, esi);
@@ -3826,7 +3835,7 @@ void fn_00161450_PTree_ParseFunctionConstruct(void)
 
 loc_00161450:
     if (g_fsw_ptree_parse_loop_log_count <= 8) {
-        fprintf(stderr, "[FSW/PTree] ParseFunctionConstruct entry tree=%08X arg_scope=%08X esp=%08X\n",
+        FSW_PTREE_LOG("[FSW/PTree] ParseFunctionConstruct entry tree=%08X arg_scope=%08X esp=%08X\n",
                 (unsigned)ebx, (unsigned)MEM32(esp + 4), (unsigned)esp);
     }
     PUSH32(esp, ebp);
@@ -3889,7 +3898,7 @@ loc_001614B9:
 
 loc_001614D1:
     if (g_fsw_ptree_parse_loop_log_count <= 8) {
-        fprintf(stderr, "[FSW/PTree] ParseFunctionConstruct error epilogue esp=%08X\n", (unsigned)esp);
+        FSW_PTREE_LOG("[FSW/PTree] ParseFunctionConstruct error epilogue esp=%08X\n", (unsigned)esp);
     }
     esp = esp + 0xC;
     POP32(esp, edi);
@@ -3937,7 +3946,7 @@ loc_0016150F:
 
 loc_00161517:
     if (g_fsw_ptree_parse_loop_log_count <= 8) {
-        fprintf(stderr, "[FSW/PTree] ParseFunctionConstruct enum epilogue esp=%08X\n", (unsigned)esp);
+        FSW_PTREE_LOG("[FSW/PTree] ParseFunctionConstruct enum epilogue esp=%08X\n", (unsigned)esp);
     }
     POP32(esp, edi);
     POP32(esp, esi);
@@ -3964,7 +3973,7 @@ loc_0016151D:
 
 loc_00161524:
     if (g_fsw_ptree_parse_loop_log_count <= 8) {
-        fprintf(stderr, "[FSW/PTree] ParseFunctionConstruct var epilogue esp=%08X\n", (unsigned)esp);
+        FSW_PTREE_LOG("[FSW/PTree] ParseFunctionConstruct var epilogue esp=%08X\n", (unsigned)esp);
     }
     POP32(esp, edi);
     POP32(esp, esi);
@@ -3987,7 +3996,7 @@ void sub_0016152A(void)
 
 loc_0016152A:
     if (g_fsw_ptree_parse_loop_log_count <= 8) {
-        fprintf(stderr, "[FSW/PTree] ParseFunctionConstruct function path start esp=%08X scope_arg=%08X\n",
+        FSW_PTREE_LOG("[FSW/PTree] ParseFunctionConstruct function path start esp=%08X scope_arg=%08X\n",
                 (unsigned)esp, (unsigned)ebp);
     }
     eax = eax + 0x430;
@@ -3996,7 +4005,7 @@ loc_0016152A:
 
 loc_00161535:
     if (g_fsw_ptree_parse_loop_log_count <= 8) {
-        fprintf(stderr, "[FSW/PTree] ParseFunctionConstruct after ident esp=%08X\n", (unsigned)esp);
+        FSW_PTREE_LOG("[FSW/PTree] ParseFunctionConstruct after ident esp=%08X\n", (unsigned)esp);
     }
     PUSH32(esp, ebp);
     edi = ebx;
@@ -4004,7 +4013,7 @@ loc_00161535:
 
 loc_0016153D:
     if (g_fsw_ptree_parse_loop_log_count <= 8) {
-        fprintf(stderr, "[FSW/PTree] ParseFunctionConstruct after args new_scope=%08X esp=%08X eax=%08X\n",
+        FSW_PTREE_LOG("[FSW/PTree] ParseFunctionConstruct after args new_scope=%08X esp=%08X eax=%08X\n",
                 (unsigned)eax, (unsigned)esp, (unsigned)eax);
     }
     esi = eax;
@@ -4035,7 +4044,7 @@ loc_0016156E:
 
 loc_00161576:
     if (g_fsw_ptree_parse_loop_log_count <= 8) {
-        fprintf(stderr, "[FSW/PTree] ParseFunctionConstruct after nested contents result=%u esp=%08X scope=%08X\n",
+        FSW_PTREE_LOG("[FSW/PTree] ParseFunctionConstruct after nested contents result=%u esp=%08X scope=%08X\n",
                 (unsigned)eax, (unsigned)esp, (unsigned)esi);
     }
     if (CMP_NE(eax, 2)) goto loc_001615B8; /* jne: not equal / not zero */
@@ -4048,7 +4057,7 @@ loc_0016157B:
 
 loc_00161590:
     if (g_fsw_ptree_parse_loop_log_count <= 8) {
-        fprintf(stderr, "[FSW/PTree] ParseFunctionConstruct bad nested epilogue esp=%08X\n", (unsigned)esp);
+        FSW_PTREE_LOG("[FSW/PTree] ParseFunctionConstruct bad nested epilogue esp=%08X\n", (unsigned)esp);
     }
     esp = esp + 8;
     POP32(esp, edi);
@@ -4071,7 +4080,7 @@ loc_001615B5:
 
 loc_001615B8:
     if (g_fsw_ptree_parse_loop_log_count <= 8) {
-        fprintf(stderr, "[FSW/PTree] ParseFunctionConstruct normal epilogue esp=%08X\n", (unsigned)esp);
+        FSW_PTREE_LOG("[FSW/PTree] ParseFunctionConstruct normal epilogue esp=%08X\n", (unsigned)esp);
     }
     POP32(esp, edi);
     POP32(esp, esi);
@@ -4164,7 +4173,7 @@ void sub_00161611(void)
 
 loc_00161611:
     if (g_fsw_ptree_parse_loop_log_count <= 8) {
-        fprintf(stderr, "[FSW/PTree] ParseFunctionContents before construct scope=%08X esp=%08X\n",
+        FSW_PTREE_LOG("[FSW/PTree] ParseFunctionContents before construct scope=%08X esp=%08X\n",
                 (unsigned)ebp, (unsigned)esp);
     }
     PUSH32(esp, ebp);
@@ -4173,7 +4182,7 @@ loc_00161611:
 
 loc_00161619:
     if (g_fsw_ptree_parse_loop_log_count <= 8) {
-        fprintf(stderr, "[FSW/PTree] ParseFunctionContents after construct scope=%08X esp=%08X eax=%08X\n",
+        FSW_PTREE_LOG("[FSW/PTree] ParseFunctionContents after construct scope=%08X esp=%08X eax=%08X\n",
                 (unsigned)ebp, (unsigned)esp, (unsigned)eax);
     }
     g_seh_ebp = ebp; sub_001615D0(); return; /* tail jmp 0x001615D0 */
@@ -4193,7 +4202,7 @@ void sub_0016161B(void)
 
 loc_0016161B:
     if (g_fsw_ptree_parse_loop_log_count <= 8) {
-        fprintf(stderr, "[FSW/PTree] ParseFunctionContents return done pre-epilogue scope=%08X esp=%08X\n",
+        FSW_PTREE_LOG("[FSW/PTree] ParseFunctionContents return done pre-epilogue scope=%08X esp=%08X\n",
                 (unsigned)ebp, (unsigned)esp);
     }
     POP32(esp, edi);
@@ -4251,7 +4260,7 @@ loc_00161640:
             const char *path = (const char *)XBOX_PTR(path_arg);
             if (path && path[0] == 'l' && path[1] == 'e' && path[2] == 'v' &&
                 path[3] == 'e' && path[4] == 'l' && path[5] == '.') {
-                fprintf(stderr, "[FSW/PTree] AddFileToScope begin path=%s scope=%08X tree=%08X esp=%08X\n",
+                FSW_PTREE_LOG("[FSW/PTree] AddFileToScope begin path=%s scope=%08X tree=%08X esp=%08X\n",
                         path, (unsigned)MEM32(esp + 8), (unsigned)MEM32(esp + 0xC), (unsigned)esp);
             }
         }
@@ -4289,7 +4298,7 @@ loc_001616A4:
         const char *path = (const char *)XBOX_PTR(ebp);
         if (path && path[0] == 'l' && path[1] == 'e' && path[2] == 'v' &&
             path[3] == 'e' && path[4] == 'l' && path[5] == '.') {
-            fprintf(stderr, "[FSW/PTree] AddFileToScope opened path=%s handle=%08X memstream=%08X raw_size=%d\n",
+            FSW_PTREE_LOG("[FSW/PTree] AddFileToScope opened path=%s handle=%08X memstream=%08X raw_size=%d\n",
                     path, (unsigned)MEM32(esp + 0x14), (unsigned)MEM32(esp + 0x34),
                     (int)MEM32(esp + 0x14));
         }
@@ -4334,7 +4343,7 @@ loc_001616CF:
         const char *path = (const char *)XBOX_PTR(ebp);
         if (path && path[0] == 'l' && path[1] == 'e' && path[2] == 'v' &&
             path[3] == 'e' && path[4] == 'l' && path[5] == '.') {
-            fprintf(stderr, "[FSW/PTree] AddFileToScope size path=%s size=%u stream=%08X handle=%08X\n",
+            FSW_PTREE_LOG("[FSW/PTree] AddFileToScope size path=%s size=%u stream=%08X handle=%08X\n",
                     path, (unsigned)edi, (unsigned)MEM32(esp + 0x34),
                     (unsigned)MEM32(esp + 0x14));
         }
@@ -4407,7 +4416,7 @@ loc_0016170E:
         const char *path = (const char *)XBOX_PTR(ebp);
         if (path && path[0] == 'l' && path[1] == 'e' && path[2] == 'v' &&
             path[3] == 'e' && path[4] == 'l' && path[5] == '.') {
-            fprintf(stderr, "[FSW/PTree] AddFileToScope header path=%s magic=%08X expect=%08X version=%u\n",
+            FSW_PTREE_LOG("[FSW/PTree] AddFileToScope header path=%s magic=%08X expect=%08X version=%u\n",
                     path, (unsigned)edx, (unsigned)MEM32(0x6132AC),
                     (unsigned)MEM32(esp + 0x3C));
         }
@@ -4469,7 +4478,7 @@ loc_00161754:
         const char *path = (const char *)XBOX_PTR(ebp);
         if (path && path[0] == 'l' && path[1] == 'e' && path[2] == 'v' &&
             path[3] == 'e' && path[4] == 'l' && path[5] == '.') {
-            fprintf(stderr, "[FSW/PTree] AddFileToScope binary parse path=%s payload=%u scope=%08X\n",
+            FSW_PTREE_LOG("[FSW/PTree] AddFileToScope binary parse path=%s payload=%u scope=%08X\n",
                     path, (unsigned)MEM32(esp + 0x74), (unsigned)MEM32(esp + 0x7C));
         }
     }
@@ -4557,7 +4566,7 @@ loc_001617B0:
         const char *path = (const char *)XBOX_PTR(ebp);
         if (path && path[0] == 'l' && path[1] == 'e' && path[2] == 'v' &&
             path[3] == 'e' && path[4] == 'l' && path[5] == '.') {
-            fprintf(stderr, "[FSW/PTree] AddFileToScope text parse path=%s size=%u buffer=%08X scope=%08X\n",
+            FSW_PTREE_LOG("[FSW/PTree] AddFileToScope text parse path=%s size=%u buffer=%08X scope=%08X\n",
                     path, (unsigned)edi, (unsigned)MEM32(esp + 0x18),
                     (unsigned)MEM32(esp + 0x7C));
         }
@@ -4600,7 +4609,7 @@ loc_00161804:
 loc_00161812:
     {
         uint32_t tbuf = MEM32(ebp + 0x140);
-        if (g_fsw_ptree_parse_loop_log_count < 8) {
+        if (fsw_ptree_debug_enabled() && g_fsw_ptree_parse_loop_log_count < 8) {
             fprintf(stderr,
                     "[FSW/PTree] parse loop #%u tree=%08X tbuf=%08X pos=%u/%u state=%u token='%s' punct='%s' esp=%08X\n",
                     (unsigned)g_fsw_ptree_parse_loop_log_count,
@@ -4622,7 +4631,7 @@ loc_00161812:
 loc_0016181E:
     {
         uint32_t tbuf = MEM32(ebp + 0x140);
-        if (g_fsw_ptree_parse_loop_log_count <= 8) {
+        if (fsw_ptree_debug_enabled() && g_fsw_ptree_parse_loop_log_count <= 8) {
             fprintf(stderr,
                     "[FSW/PTree] parse loop result=%u tbuf=%08X pos=%u/%u state=%u token='%s' punct='%s' esp=%08X\n",
                     (unsigned)eax, (unsigned)tbuf,
@@ -4679,7 +4688,7 @@ void sub_00161853(void)
 
 loc_00161853:
     if (g_fsw_ptree_parse_loop_log_count <= 8) {
-        fprintf(stderr, "[FSW/PTree] AddFileToScope cleanup before close tree=%08X esp=%08X eax=%08X\n",
+        FSW_PTREE_LOG("[FSW/PTree] AddFileToScope cleanup before close tree=%08X esp=%08X eax=%08X\n",
                 (unsigned)ebp, (unsigned)esp, (unsigned)eax);
     }
     MEM32(esp + 0x6C) = 0xFFFFFFFFu;
@@ -4706,7 +4715,7 @@ void sub_0016186E(void)
 
 loc_0016186E:
     if (g_fsw_ptree_parse_loop_log_count <= 8) {
-        fprintf(stderr, "[FSW/PTree] AddFileToScope epilogue begin tree=%08X esp=%08X eax=%08X\n",
+        FSW_PTREE_LOG("[FSW/PTree] AddFileToScope epilogue begin tree=%08X esp=%08X eax=%08X\n",
                 (unsigned)ebp, (unsigned)esp, (unsigned)eax);
     }
     ecx = MEM32(esp + 0x64);
@@ -4721,7 +4730,7 @@ loc_0016186E:
 loc_00161886:
     esp = esp + 0x60;
     if (g_fsw_ptree_parse_loop_log_count <= 8) {
-        fprintf(stderr, "[FSW/PTree] AddFileToScope epilogue final esp=%08X eax=%08X\n",
+        FSW_PTREE_LOG("[FSW/PTree] AddFileToScope epilogue final esp=%08X eax=%08X\n",
                 (unsigned)(esp + 16), (unsigned)eax);
     }
     esp += 16; return; /* ret 12 */

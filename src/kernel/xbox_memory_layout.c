@@ -525,7 +525,7 @@ static uint32_t g_heap_next = XBOX_HEAP_BASE;
 
 static int g_heap_alloc_count = 0;
 
-#define XBOX_HEAP_RECORD_MAX 65536
+#define XBOX_HEAP_RECORD_MAX 1048576
 
 typedef struct XboxHeapRecord {
     uint32_t addr;
@@ -636,9 +636,24 @@ static int xbox_heap_ranges_overlap(uint32_t a_addr, uint32_t a_size,
     return a_size != 0 && b_size != 0 && a_addr < b_end && b_addr < a_end;
 }
 
+static void xbox_heap_discard_overlapping_free_records(uint32_t addr, uint32_t size)
+{
+    for (uint32_t i = 0; i < g_heap_record_count; i++) {
+        XboxHeapRecord *record = &g_heap_records[i];
+        if (!record->free || record->size == 0) {
+            continue;
+        }
+        if (xbox_heap_ranges_overlap(record->addr, record->size, addr, size)) {
+            record->free = 0;
+            record->size = 0;
+        }
+    }
+}
+
 uint32_t xbox_HeapAlloc(uint32_t size, uint32_t alignment)
 {
     uint32_t result;
+    int coalesced_for_oom = 0;
 
     if (alignment < 4) alignment = 4;
 
@@ -648,6 +663,10 @@ uint32_t xbox_HeapAlloc(uint32_t size, uint32_t alignment)
     if (size == 0) size = alignment;
 
     /* Align the next pointer */
+retry_free_list:
+    if (size >= 0x10000u) {
+        xbox_heap_coalesce_free_records();
+    }
     for (uint32_t i = 0; i < g_heap_record_count; i++) {
         uint32_t aligned;
         uint32_t original_addr;
@@ -674,6 +693,10 @@ uint32_t xbox_HeapAlloc(uint32_t size, uint32_t alignment)
             }
             if (allocated_end < original_end) {
                 xbox_heap_add_record(allocated_end, original_end - allocated_end, 1);
+            }
+            xbox_heap_discard_overlapping_free_records(aligned, size);
+            if (allocated_end > g_heap_next) {
+                g_heap_next = allocated_end;
             }
             memset((void *)((uintptr_t)aligned + g_memory_offset), 0, size);
             g_heap_alloc_count++;
@@ -713,21 +736,15 @@ uint32_t xbox_HeapAlloc(uint32_t size, uint32_t alignment)
             if (end > blocker) {
                 continue;
             }
-            for (uint32_t j = 0; j < g_heap_record_count; j++) {
-                XboxHeapRecord *other = &g_heap_records[j];
-                if (!other->free || other->size == 0) {
-                    continue;
-                }
-                if (xbox_heap_ranges_overlap(other->addr, other->size, aligned, size)) {
-                    other->free = 0;
-                    other->size = 0;
-                }
-            }
+            xbox_heap_discard_overlapping_free_records(aligned, size);
             if (g_heap_record_count < XBOX_HEAP_RECORD_MAX) {
                 g_heap_records[g_heap_record_count].addr = aligned;
                 g_heap_records[g_heap_record_count].size = size;
                 g_heap_records[g_heap_record_count].free = 0;
                 g_heap_record_count++;
+            }
+            if (end > g_heap_next) {
+                g_heap_next = end;
             }
             memset((void *)((uintptr_t)aligned + g_memory_offset), 0, size);
             g_heap_alloc_count++;
@@ -749,6 +766,11 @@ uint32_t xbox_HeapAlloc(uint32_t size, uint32_t alignment)
         uint32_t free_total = 0;
         uint32_t free_largest = 0;
         uint32_t free_records = 0;
+        if (!coalesced_for_oom) {
+            coalesced_for_oom = 1;
+            xbox_heap_coalesce_free_records();
+            goto retry_free_list;
+        }
         xbox_heap_get_free_summary(alignment, &free_total, &free_largest, &free_records);
         if (g_memory_base && g_esp <= XBOX_TOTAL_RAM - 4) {
             guest_ret = *(volatile uint32_t *)((uintptr_t)g_esp + g_memory_offset);
@@ -771,6 +793,7 @@ uint32_t xbox_HeapAlloc(uint32_t size, uint32_t alignment)
         g_heap_records[g_heap_record_count].free = 0;
         g_heap_record_count++;
     }
+    xbox_heap_discard_overlapping_free_records(result, size);
 
     /* Zero-fill the allocated block (Xbox memory is always zeroed) */
     memset((void *)((uintptr_t)result + g_memory_offset), 0, size);
@@ -786,12 +809,26 @@ uint32_t xbox_HeapAlloc(uint32_t size, uint32_t alignment)
     return result;
 }
 
+uint32_t xbox_HeapSize(uint32_t xbox_va)
+{
+    for (uint32_t i = 0; i < g_heap_record_count; i++) {
+        if (!g_heap_records[i].free &&
+            g_heap_records[i].size != 0 &&
+            g_heap_records[i].addr == xbox_va) {
+            return g_heap_records[i].size;
+        }
+    }
+    return 0;
+}
+
 void xbox_HeapFree(uint32_t xbox_va)
 {
+    if (xbox_va == 0) {
+        return;
+    }
     for (uint32_t i = 0; i < g_heap_record_count; i++) {
         if (g_heap_records[i].size != 0 && g_heap_records[i].addr == xbox_va) {
             g_heap_records[i].free = 1;
-            xbox_heap_coalesce_free_records();
             return;
         }
     }

@@ -18,6 +18,18 @@ static int cuimenumanager_va_is_valid(uint32_t va)
     return va >= 0x00010000u && va < 0x04000000u;
 }
 
+static int cuimenumanager_debug_enabled(void)
+{
+    static int initialized;
+    static int enabled;
+    if (!initialized) {
+        enabled = getenv("FSW_TH_MENU_DEBUG") != NULL ||
+                  getenv("FSW_TH_MENU_ROOT_DEBUG") != NULL;
+        initialized = 1;
+    }
+    return enabled;
+}
+
 static uint32_t fsw_menu_selected_node_va;
 static uint32_t fsw_menu_saved_manager_va;
 static uint32_t fsw_menu_saved_root_count;
@@ -150,6 +162,39 @@ static void fsw_menu_align_next_root_menu(uint32_t file)
                 fprintf(stderr, "[FSW/Menu] aligned next root menu pos %08X -> %08X\n",
                         (unsigned)pos, (unsigned)scan);
                 align_log_count++;
+            }
+            MEM32(stream + 0xC) = scan;
+            return;
+        }
+    }
+}
+
+static void fsw_menu_recover_next_root_menu(uint32_t file, uint32_t stream, uint32_t previous_pos)
+{
+    uint32_t start;
+    uint32_t length;
+    uint32_t end;
+
+    if (!cuimenumanager_va_is_valid(file + 0x24) ||
+        !cuimenumanager_va_is_valid(stream + 0xC)) {
+        return;
+    }
+
+    start = MEM32(stream + 4);
+    length = MEM32(stream + 8);
+    end = start + length;
+    if (!cuimenumanager_va_is_valid(start) || previous_pos < start || previous_pos >= end) {
+        return;
+    }
+
+    MEM32(file + 0x24) = stream;
+    for (uint32_t scan = previous_pos + 4; scan + 4 <= end; scan++) {
+        if (MEM32(scan) == 0x60942105u) {
+            static uint32_t recover_log_count = 0;
+            if (recover_log_count < 16) {
+                fprintf(stderr, "[FSW/Menu] recovered root stream pos %08X -> %08X\n",
+                        (unsigned)previous_pos, (unsigned)scan);
+                recover_log_count++;
             }
             MEM32(stream + 0xC) = scan;
             return;
@@ -1374,7 +1419,8 @@ loc_0012FFF9:
         ((eax >= 0x00010000u && eax < 0x04000000u) ? eax : esi);
     {
         static uint32_t root_alloc_log_count = 0;
-        if (root_alloc_log_count < 16) {
+        if (cuimenumanager_debug_enabled() &&
+            (root_alloc_log_count < 16 || getenv("FSW_TH_MENU_ROOT_DEBUG") != NULL)) {
             uint32_t stream = cuimenumanager_va_is_valid(edi + 0x24) ? MEM32(edi + 0x24) : 0;
             uint32_t pos = cuimenumanager_va_is_valid(stream + 0xC) ? MEM32(stream + 0xC) : 0;
             fprintf(stderr,
@@ -1394,12 +1440,21 @@ loc_0012FFF9:
     edx = MEM32(current_menu_va);
     { uint32_t _icall_esp = g_esp;
     uint32_t saved_esp = esp;
+    uint32_t saved_file = edi;
+    uint32_t saved_stream = cuimenumanager_va_is_valid(edi + 0x24) ? MEM32(edi + 0x24) : 0;
+    uint32_t saved_stream_pos = cuimenumanager_va_is_valid(saved_stream + 0xC) ? MEM32(saved_stream + 0xC) : 0;
     PUSH32(esp, 0);
     PUSH32(esp, edi);
     ecx = current_menu_va;
     MEM32(esp + 0x20) = current_menu_va;
     PUSH32(esp, 0); RECOMP_ICALL_SAFE(MEM32(edx + 0x44), _icall_esp); /* indirect call */
     esp = saved_esp;
+    edi = saved_file;
+    if (!cuimenumanager_va_is_valid(edi + 0x24) ||
+        !cuimenumanager_va_is_valid(MEM32(edi + 0x24) + 0xC) ||
+        MEM32(MEM32(edi + 0x24) + 0xC) == 0) {
+        fsw_menu_recover_next_root_menu(edi, saved_stream, saved_stream_pos);
+    }
     }
 
 loc_00130007:
@@ -1413,7 +1468,7 @@ loc_00130014:
     eax = menu_count;
     {
         static uint32_t loadcontrols_loop_log_count = 0;
-        if (loadcontrols_loop_log_count < 16) {
+        if (cuimenumanager_debug_enabled() && loadcontrols_loop_log_count < 16) {
             uint32_t manager = MEM32(0x5FA8B0);
             fprintf(stderr,
                     "[FSW/Menu] LoadControls loop idx=%08X limit=%08X manager=%08X list=%08X/%08X/%08X stack=%08X/%08X/%08X/%08X eax=%08X\n",
@@ -1445,7 +1500,8 @@ loc_00130021:
                 uint32_t child_head = (value >= 0x00010000u && value < 0x04000000u) ? MEM32(value + 0xB4) : 0;
                 uint32_t first_child = (child_head >= 0x00010000u && child_head < 0x04000000u) ? MEM32(child_head) : 0;
                 uint32_t render_cb = (value >= 0x00010000u && value < 0x04000000u) ? MEM32(value + 0xC0) : 0;
-                if (i < 12 || render_cb != 0 || first_child != 0) {
+                if (cuimenumanager_debug_enabled() &&
+                    (i < 12 || render_cb != 0 || first_child != 0 || getenv("FSW_TH_MENU_ROOT_DEBUG") != NULL)) {
                     fprintf(stderr,
                             "[FSW/Menu] loaded node[%02u]=%08X value=%08X vtbl=%08X crc=%08X alt=%08X cb=%08X child=%08X/%08X next=%08X\n",
                             (unsigned)i, (unsigned)scan, (unsigned)value,

@@ -22,9 +22,9 @@ The shell/menu screenshots show real `Shell.pak` assets, real menu background la
 
 | Direct first-level runtime |
 |---|
-| ![Current direct first-level runtime frame](docs/screenshots/first-level-runtime-actual.png) |
+| ![Current direct first-level runtime frame](docs/screenshots/first-level-runtime-current.png) |
 
-The first-level screenshot is still black because the direct mission path presents frames from the gameplay loop with `vertices=0`. That is progress over crashing during setup, but it is not visible gameplay yet.
+The first-level screenshot is a real Vulkan frame from the mission loop. It is not playable gameplay yet: the app reaches `MissionHandler::Update`, `ProcessGame`, `SceneManager_RenderAll`, and continuous native presents, but the world scene is not populated correctly, so the frame still shows shell/menu background state instead of the level geometry.
 
 ## Current Status
 
@@ -36,13 +36,13 @@ The normal shell path initializes the Vulkan presentation host, loads `Shell.pak
 Intro Bink videos -> Press Start -> Profile Select -> New Profile -> Profile Creation -> Main Menu
 ```
 
-The intro Bink videos now resolve from `Shell.pak`, play through the host video path, and can be skipped one at a time. The shell background animation cycle now advances from the real background animation data, the quote text scrolls during shell/profile/main-menu states, the profile creation keyboard renders and accepts input, and the main menu is reachable. A host-only `Quit` option has also been added under the Xbox menu options so the Linux build can shut down like a normal PC game.
+The intro Bink videos now resolve from `Shell.pak`, play through the host video path, and can be skipped one at a time. The shell background animation cycle now advances from the real background animation data, the quote text scrolls during shell/profile/main-menu states, the profile creation keyboard renders and accepts input, created profiles route through the original `CProfileManager` add/save path, saved profiles appear on Profile Select across launches, and selecting a saved profile routes into the Main Menu. A host-only `Quit` option has also been added under the Xbox menu options so the Linux build can shut down like a normal PC game.
 
-This shell path is not finished. Created profiles are not saved or retained yet, the Profile Select menu still needs the selected-item underline/highlight behavior, and most Main Menu submenus are not routed correctly yet. Multiplayer is intentionally out of scope for now.
+This shell path is not finished. Profile creation, persistence, profile selection, and Main Menu entry are working, but most Main Menu submenus are not routed correctly yet. Multiplayer is intentionally out of scope for now.
 
-The direct first-level path now loads `BD_startbusdepot.pak`, registers texture tables, object tables, ABKs, Havok descriptors, fonts, meshes, INI/CSV data, and then enters `ProcessGame`. A 30 second run reached more than 2,000 presented frames in the mission loop without crashing.
+The direct first-level path now loads the current forced mission PAK, registers texture tables, object tables, ABKs, Havok descriptors, fonts, meshes, INI/CSV data, and then enters the live mission loop. A verification run reached `MissionHandler::Update`, `ProcessGame`, `SceneManager_RenderAll`, and more than 3,000 presented Vulkan frames without crashing.
 
-This is not playable yet. The mission path currently has no populated render scene: `SceneManager` stays at `count=0`, `SceneManager_RenderAll` runs, and the Vulkan host presents native frames, but the draw counters remain at `vertices=0`. The next real gameplay blocker is scene/world population, not presentation.
+This is not playable yet. The mission path is alive and presenting frames, but world state is still damaged: camera slots, settings, physical world, player/faction lists, and scene object links are frequently invalid, and the visible frame is still dominated by shell/menu background state. The next real gameplay blocker is scene/world population and camera/player state repair, not presentation.
 
 ## Since Last Push
 
@@ -57,11 +57,16 @@ This is not playable yet. The mission path currently has no populated render sce
 - Fixed intro Bink playback from PAK-contained `Shell.pak` assets, including one-at-a-time skip behavior.
 - Fixed the shell font atlas channel mapping so real menu text renders readable.
 - Switched shell background strip rendering to game-computed UVs and allowed inverted image-control UV ranges used by the menu animation data.
-- Advanced the real profile path through `Press Start`, `Profile Select`, `New Profile`, `Profile Creation`, and `Main Menu`.
+- Advanced the real profile path through `Press Start`, `Profile Select`, `New Profile`, `Profile Creation`, saved-profile selection, and `Main Menu`.
+- Wired profile persistence through the Linux save bridge so created profiles save under the Linux config/save root and are visible/selectable after relaunch.
 - Moved first-level direct mode past earlier setup crashes in PAK loading, object construction, Havok descriptor registration, AI setup, camera update, mission update, and render dispatch.
+- Fixed direct mission app-context loss after level setup by clearing bogus pending contexts and restoring the just-entered `MissionHandler` context when generated state clobbers the app manager slots.
+- Restored the registered mesh tree when `LoadMesh` finds the live mesh tree root overwritten by invalid data, keeping real mesh CRC lookups alive during level setup.
+- Guarded HUD text ticker queues against invalid nodes so HUD setup/update no longer stalls when queue links are corrupted.
+- Extended direct-run context restore so the forced mission probe keeps running across frames instead of exiting after the first presented frame.
 - Stabilized generated render-cookie construction around clobbered `this`, `ebx`, and ESP state so render setup no longer dies during `XBRenderCookie` construction.
 - Added targeted guards and diagnostics across AI, Havok, scene, prop, HUD, particles, sky, sound, script, and manager code so bad generated state is logged and isolated instead of immediately crashing.
-- Added actual runtime screenshots under `docs/screenshots/`
+- Added updated runtime screenshots under `docs/screenshots/`, including the first-level mission-loop frame.
 
 ## What's Working
 
@@ -73,22 +78,24 @@ This is not playable yet. The mission path currently has no populated render sce
 - **Real shell drawing** - the current renderer draws real shell textures, readable menu text, profile screens, main menu controls, and animated shell background strips through Vulkan.
 - **Intro Bink videos** - shell-contained intro videos resolve from `Shell.pak`, play through the host Bink/video surface path, and support per-video skip input.
 - **Shell background animation** - the background image cycle and quote text now continue ticking through Press Start, Profile Select, Profile Creation, and Main Menu.
-- **Profile Creation menu** - the real profile creation screen and keyboard render, accept text input, and can continue into the Main Menu.
+- **Profile Creation menu** - the real profile creation screen and keyboard render, accept text input, add profiles through the game profile manager, save them through the Linux bridge, and continue into the Main Menu.
+- **Profile Select menu** - saved profiles appear in the real Profile Select menu and can be selected to enter the Main Menu.
+- **Linux save root** - Xbox `U:\` save data now maps to `$XDG_CONFIG_HOME/FSWTH/saves` or `~/.config/FSWTH/saves`, with `FSW_TH_SAVE_DIR` available for test overrides.
 - **Main Menu shell** - the Main Menu renders with real menu options, highlight styling, controller glyphs, and a Linux-only Quit option.
 - **SDL input bridge** - SDL-backed XInput compatibility detects and maps modern controllers, with keyboard fallback for bring-up.
 - **Scripted input bring-up** - `FSW_TH_INPUT_SCRIPT` can drive repeatable shell/profile tests without manual controller input.
-- **Direct level loop** - `FSW_TH_FORCE_DIRECT=1 FSW_TH_LEVEL=1` reaches `ProcessGame` and continues presenting frames.
+- **Direct mission loop** - `FSW_TH_FORCE_DIRECT=1` reaches `MissionHandler::Update`, `ProcessGame`, `SceneManager_RenderAll`, and continues presenting native Vulkan frames.
 
 ## Current Blockers
 
-- [ ] Implement real profile persistence. Profiles can be entered in the current menu path, but created accounts are not saved or retained yet.
-- [ ] Finish Profile Select selected-item presentation. The menu renders and animates, but the highlighted underline is still missing there.
 - [ ] Route the remaining Main Menu submenus. The Main Menu renders and the Quit option works, but most Xbox menu destinations are not correct yet.
+- [ ] Route Single Player Campaign into the proper Marching Orders/difficulty/loading flow through the normal shell path.
 - [ ] Continue tightening shell/menu transforms and animation timing so every menu state matches the Xbox presentation.
 - [ ] Continue polishing Bink/video timing and presentation now that the intro videos play in the real shell timeline.
 - [ ] Replace temporary XACT/audio bypasses with a real Xbox audio path after gameplay rendering is further along.
-- [ ] Fix first-level world/scene population. The direct path reaches `InitLevel`, `ConstructObjects`, and `ProcessGame`, but `SceneManager` still has zero scene objects and the renderer receives no gameplay vertices.
+- [ ] Fix first-level world/scene population. The direct path reaches `InitLevel`, `ConstructObjects`, `MissionHandler::Update`, `ProcessGame`, and `SceneManager_RenderAll`, but the visible frame still comes from stale shell/menu state instead of proper level geometry.
 - [ ] Route or repair the real `LoadWLD`/`CGameWorld_LoadWLD`/static-prop setup path; current logs do not show the expected WLD/static prop population in direct mode.
+- [ ] Repair player/faction/camera/physical-world state in the mission loop; current logs show invalid local player, faction list, camera vtables, settings pointer, and physical world pointers.
 - [ ] Reduce noisy bring-up diagnostics once each subsystem is stable enough for public testing.
 
 ## Current Findings
@@ -97,16 +104,19 @@ This is not playable yet. The mission path currently has no populated render sce
 |------|---------|
 | **Build provenance** | The Dec 5 2005 review copy remains the best bring-up target because the PDB/MAP data gives useful source paths and function names. |
 | **Source layout** | PDB DBI source-file records are good enough to reconstruct most game modules under a readable `src/game/fsw/...` tree. |
-| **PAK resources** | `Shell.pak` contains shell UI resources and video assets; level PAKs contain object, texture look ups, Havok, mesh, and script-side data. |
-| **TEX resources** | `main.tex` contains textures. But those textures are only resolved/called via the **PAK** files|
+| **PAK resources** | `Shell.pak` contains shell UI resources and video assets; level PAKs contain object, texture lookups, Havok, mesh, and script-side data. |
+| **TEX resources** | `main.tex` contains textures. Those textures are resolved through the PAK/resource lookup path. |
 | **CRC/resource lookup** | CRCs are calculated by the game path at runtime; the current work uses those calculated CRCs to resolve loaded PAK resources rather than mapping "CRC X means texture Y" by hand. |
-| **Menu rendering** | Real textures, background animation layers, readable fonts, controller glyphs, and menu controls are reaching Vulkan; remaining shell work is submenu routing, persistence, and exact selected-item behavior. |
+| **Menu rendering** | Real textures, background animation layers, readable fonts, controller glyphs, and menu controls are reaching Vulkan; remaining shell work is submenu routing, timing, and exact selected-item behavior. |
 | **Background animation** | The shell background image cycle and scrolling quote text are driven by the real background UI state. |
-| **Profile flow** | Press Start now reaches Profile Select, New Profile, Profile Creation, and Main Menu. Profile persistence is still missing, so created accounts are not retained yet. |
+| **Profile flow** | Press Start now reaches Profile Select, New Profile, Profile Creation, saved-profile selection, and Main Menu. Profile creation calls the original `ProfileExists`/`AddNewProfile` flow and writes save data through the Linux `U:\` save bridge. |
 | **PC exit path** | The Xbox shell had no desktop-style Quit item; the Linux fork now adds a practical Quit entry under the Main Menu and routes it to shutdown. |
 | **Bink/video** | The intro videos now resolve from `Shell.pak`, play through the host Bink/video surface path, and skip one at a time like the Xbox shell flow. |
 | **Render-cookie bug** | Generated code around `XBRenderCookie` construction could clobber `this`, `ebx`, and ESP; targeted repair keeps render-cookie setup alive for now. |
-| **First-level blocker** | Direct mode reaches the mission loop, but WLD/static prop setup does not appear to populate `SceneManager`, leaving gameplay presentation at `vertices=0`. |
+| **App transition bug** | After mission setup and lighting, generated state can clobber `CApplicationManager`'s current/pending slots. The runtime now clears invalid pending contexts and restores the entered `MissionHandler` so the mission loop continues. |
+| **Mesh tree bug** | The registered mesh tree root can be overwritten with invalid float-like data such as `3F800000`; `LoadMesh` now restores the snapshotted real tree before lookup. |
+| **First-level progress** | Direct mode reaches `MissionHandler::Update`, `ProcessGame`, `SceneManager_RenderAll`, and long-running Vulkan presents. |
+| **First-level blocker** | The mission loop is alive, but scene/world state is still incomplete: local player/faction/camera/settings/physical-world data are invalid, and visible output is not proper level geometry yet. |
 | **Audio** | XACT wave/sound-bank work is intentionally not the current priority; some paths are bypassed so rendering and gameplay bring-up can continue. |
 
 ## How It Works
@@ -198,8 +208,11 @@ Useful bring-up commands:
 # Real shell/menu path
 FSW_TH_DISABLE_MENU_FALLBACK=1 tools/run_host.sh
 
-# Direct Chapter 1 path
-FSW_TH_FORCE_DIRECT=1 FSW_TH_LEVEL=1 FSW_TH_DISABLE_MENU_FALLBACK=1 tools/run_host.sh
+# Isolated save-dir test run
+FSW_TH_SAVE_DIR=/tmp/fswth-saves FSW_TH_DISABLE_MENU_FALLBACK=1 tools/run_host.sh
+
+# Direct first-mission probe
+FSW_TH_FORCE_DIRECT=1 FSW_TH_DISABLE_MENU_FALLBACK=1 tools/run_host.sh
 
 # Dump a Vulkan frame to /tmp/xboxrecomp_vulkan_frame.ppm
 XBOXRECOMP_DUMP_VULKAN_FRAME=120 FSW_TH_DISABLE_MENU_FALLBACK=1 tools/run_host.sh

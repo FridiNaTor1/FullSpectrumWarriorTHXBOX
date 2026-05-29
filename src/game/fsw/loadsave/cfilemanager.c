@@ -8,6 +8,76 @@
 #include "recomp_funcs.h"
 #include <math.h>
 #include <stdio.h>
+#include <string.h>
+
+static void fsw_cfile_data_wide_name(uint32_t data, char* out, uint32_t out_size)
+{
+    uint32_t i;
+
+    if (!out || out_size == 0) {
+        return;
+    }
+    out[0] = 0;
+    if (!data) {
+        return;
+    }
+
+    for (i = 0; i + 1 < out_size; ++i) {
+        uint16_t ch = MEM16(data + 0x20A + i * 2);
+        if (!ch) {
+            break;
+        }
+        out[i] = (ch >= 0x20 && ch < 0x80) ? (char)ch : '?';
+    }
+    out[i] = 0;
+}
+
+static void fsw_repair_cfile_data_full_path(uint32_t data)
+{
+    char wide_name[128];
+    char* full;
+    size_t full_len;
+    size_t name_len;
+
+    if (!data) {
+        return;
+    }
+
+    fsw_cfile_data_wide_name(data, wide_name, sizeof(wide_name));
+    if (!wide_name[0]) {
+        return;
+    }
+
+    full = (char*)XBOX_PTR(data + 0x30C);
+    full_len = strlen(full);
+    name_len = strlen(wide_name);
+    if (full_len == 0 || strstr(full, wide_name) || full_len + name_len >= 0x104) {
+        return;
+    }
+
+    memcpy(full + full_len, wide_name, name_len + 1);
+}
+
+static void fsw_log_cfile_data(const char* tag, uint32_t data)
+{
+    char wide_name[128];
+
+    if (!data) {
+        fprintf(stderr, "[FSW/File] %s data=NULL\n", tag);
+        return;
+    }
+
+    fsw_cfile_data_wide_name(data, wide_name, sizeof(wide_name));
+
+    fprintf(stderr,
+            "[FSW/File] %s data=%08X name='%s' dir='%s' wide='%s' full='%s'\n",
+            tag,
+            data,
+            (const char*)XBOX_PTR(data),
+            (const char*)XBOX_PTR(data + 0x105),
+            wide_name,
+            (const char*)XBOX_PTR(data + 0x30C));
+}
 
 /**
  * fn_002B6F00_CFileManager_DeleteSave
@@ -334,6 +404,8 @@ loc_002B7087:
 loc_002B7095:
     esp = esp + 0xC;
     MEM8(ebx + esi + 0x30C) = 0;
+    fsw_repair_cfile_data_full_path(esi);
+    fsw_log_cfile_data("FindNext", esi);
     POP32(esp, ebx);
     POP32(esp, edi);
     SET_LO8(eax, 1);
@@ -526,6 +598,8 @@ loc_002B71E5:
     eax = MEM32(esp + 0x18);
     esp = esp + 0xC;
     MEM8(ebx + esi + 0x30C) = 0;
+    fsw_repair_cfile_data_full_path(esi);
+    fsw_log_cfile_data("FindFirst", esi);
     POP32(esp, ebx);
     POP32(esp, edi);
     POP32(esp, ebp);
@@ -705,6 +779,12 @@ loc_002B72DB:
 loc_002B72E7:
     ecx = MEM32(esp + 0x18);
     (void)0; /* cmp edi, eax - flags set for next jcc */
+    fprintf(stderr,
+            "[FSW/File] Read direct returned bytes=%08X expected=%08X handle=%08X path='%s'\n",
+            eax,
+            edi,
+            esi,
+            (const char*)XBOX_PTR(ebx));
     SET_LO8(ebx, _cf ? 0xFFFFFFFF : 0); /* sbb self (CF extend) */
     PUSH32(esp, esi);
     MEM32(ecx) = eax;

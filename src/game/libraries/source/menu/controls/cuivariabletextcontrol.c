@@ -45,6 +45,65 @@ static int fsw_variable_text_is_not_signed_control(uint32_t control)
     return 0;
 }
 
+static uint32_t fsw_variable_text_profile_select_name(uint32_t control)
+{
+    uint32_t row;
+    uint32_t list;
+    uint32_t manager;
+    uint32_t count;
+    uint32_t node;
+    uint32_t i;
+
+    if (!fsw_variable_text_va_is_valid(control + 0xD8)) {
+        return 0;
+    }
+    row = MEM32(control + 0xD8);
+    if (!fsw_variable_text_va_is_valid(row + 0xD8)) {
+        return 0;
+    }
+    list = MEM32(row + 0xD8);
+    if (!fsw_variable_text_va_is_valid(list + 0xB4) || MEM32(list) != 0x5608F0u ||
+        MEM8(list + 0xD1) != 5) {
+        return 0;
+    }
+
+    manager = MEM32(0x5FA358);
+    if (!fsw_variable_text_va_is_valid(manager + 0x2C90)) {
+        return 0;
+    }
+
+    count = MEM32(list + 0xAC);
+    node = MEM32(list + 0xB4);
+    for (i = 0; i < count && i < 32 && fsw_variable_text_va_is_valid(node + 4); ++i) {
+        if (MEM32(node) == row) {
+            uint32_t profiles = MEM32(manager + 0x2C90);
+            if (i == 0 || i > profiles || profiles > 0x11u) {
+                return 0;
+            }
+            return manager + 0x2A2E + (i - 1) * 36;
+        }
+        node = MEM32(node + 4);
+    }
+
+    return 0;
+}
+
+static uint32_t fsw_variable_text_profile_fallback(uint32_t control, uint32_t text)
+{
+    uint32_t profile_name;
+
+    if (fsw_variable_text_va_is_valid(text) && MEM16(text) != 0) {
+        return text;
+    }
+
+    profile_name = fsw_variable_text_profile_select_name(control);
+    if (fsw_variable_text_va_is_valid(profile_name) && MEM16(profile_name) != 0) {
+        return profile_name;
+    }
+
+    return text;
+}
+
 /**
  * fn_00052A50_GCUIVariableTextControl_UAEPAXI_Z
  * Symbol: ??_GCUIVariableTextControl@@UAEPAXI@Z
@@ -305,6 +364,7 @@ loc_0012C7E8:
         (!fsw_variable_text_va_is_valid(eax) || MEM16(eax) == 0)) {
         eax = fsw_variable_text_not_signed_in();
     }
+    eax = fsw_variable_text_profile_fallback(esi, eax);
     MEM32(esi + 0x128) = eax;
     esp += 4; return; /* ret */
 
@@ -322,6 +382,7 @@ loc_0012C7FE:
         (!fsw_variable_text_va_is_valid(eax) || MEM16(eax) == 0)) {
         eax = fsw_variable_text_not_signed_in();
     }
+    eax = fsw_variable_text_profile_fallback(esi, eax);
     MEM32(esi + 0x128) = eax;
     esp += 4; return; /* ret */
 

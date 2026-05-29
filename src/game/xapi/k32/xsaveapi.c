@@ -25,6 +25,39 @@ const char* fsw_xapi_last_save_file_path(void)
     return g_fsw_last_save_file;
 }
 
+int fsw_xapi_write_last_save_file(uint32_t data_va, uint32_t size)
+{
+    const char* xbox_path = fsw_xapi_last_save_file_path();
+    WCHAR host_path[MAX_PATH];
+    HANDLE file;
+    DWORD written = 0;
+
+    if (!xbox_path || !xbox_path[0] || size == 0 || !data_va) {
+        return 0;
+    }
+    if (!xbox_translate_path(xbox_path, host_path, MAX_PATH)) {
+        fprintf(stderr, "[FSW/Save] host profile write translate failed path=%s\n", xbox_path);
+        return 0;
+    }
+
+    file = CreateFileW(host_path, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+    if (file == INVALID_HANDLE_VALUE) {
+        fprintf(stderr, "[FSW/Save] host profile write open failed path=%s err=%u\n",
+                xbox_path, GetLastError());
+        return 0;
+    }
+    if (!WriteFile(file, (const void*)XBOX_PTR(data_va), size, &written, NULL) || written != size) {
+        fprintf(stderr, "[FSW/Save] host profile write failed path=%s written=%u size=%u err=%u\n",
+                xbox_path, written, size, GetLastError());
+        CloseHandle(file);
+        return 0;
+    }
+    CloseHandle(file);
+    fprintf(stderr, "[FSW/Save] host profile write recovered path=%s size=%u\n",
+            xbox_path, size);
+    return 1;
+}
+
 static uint16_t fsw_read_u16_string_char(uint32_t va, size_t index)
 {
     if (!va) return 0;
@@ -316,6 +349,7 @@ static int fsw_read_save_meta_name_ascii(const WCHAR* save_dir, char* out, size_
 static void fsw_fill_save_find_data(uint32_t find_data_va, const char* root, const char* hash)
 {
     char xbox_path[260];
+    char save_title[128];
     WCHAR host_path[MAX_PATH];
 
     if (!find_data_va || !hash) return;
@@ -329,9 +363,22 @@ static void fsw_fill_save_find_data(uint32_t find_data_va, const char* root, con
 
     if (xbox_translate_path(xbox_path, host_path, MAX_PATH) &&
         fsw_read_save_meta_name(host_path, find_data_va + 0x244, 0x80)) {
+        if (!fsw_read_save_meta_name_ascii(host_path, save_title, sizeof(save_title))) {
+            save_title[0] = '\0';
+        }
+        fprintf(stderr,
+                "[FSW/Save] find data hash=%s path=%s title=%s\n",
+                hash,
+                xbox_path,
+                save_title);
         return;
     }
     fsw_copy_ascii_to_xbox_wide(find_data_va + 0x244, 0x80, hash);
+    fprintf(stderr,
+            "[FSW/Save] find data hash=%s path=%s title=%s\n",
+            hash,
+            xbox_path,
+            hash);
 }
 
 static uint32_t fsw_host_collect_save_games(uint32_t root_va, char hashes[FSW_SAVE_FIND_MAX][13])
@@ -376,11 +423,15 @@ static uint32_t fsw_host_collect_save_games(uint32_t root_va, char hashes[FSW_SA
                 if (!fsw_read_save_meta_name_ascii(save_dir, save_title, sizeof(save_title))) {
                     continue;
                 }
-                if (strcmp(save_title, "Profile-Settings") == 0 ||
-                    strcmp(save_title, "?") == 0) {
+                if (strcmp(save_title, "?") == 0) {
                     continue;
                 }
-                strncpy(hashes[count], name, 13);
+                if (strcmp(save_title, "Profile-Settings") == 0 && count > 0) {
+                    memmove(hashes[1], hashes[0], count * 13);
+                    strncpy(hashes[0], name, 13);
+                } else {
+                    strncpy(hashes[count], name, 13);
+                }
                 count++;
                 if (count >= FSW_SAVE_FIND_MAX) break;
             }
@@ -388,6 +439,80 @@ static uint32_t fsw_host_collect_save_games(uint32_t root_va, char hashes[FSW_SA
     } while (FindNextFileW(find, &fd));
 
     FindClose(find);
+    return count;
+}
+
+uint32_t fsw_xapi_populate_profile_manager_names(uint32_t mgr)
+{
+    WCHAR host_root[MAX_PATH];
+    WCHAR search[MAX_PATH];
+    WIN32_FIND_DATAW fd;
+    HANDLE find;
+    uint32_t count = 0;
+    uint32_t global_found = 0;
+
+    if (!mgr || !xbox_translate_path("U:\\", host_root, MAX_PATH)) {
+        return 0;
+    }
+
+    swprintf_s(search, MAX_PATH, L"%ls\\*", host_root);
+    find = FindFirstFileW(search, &fd);
+    if (find == INVALID_HANDLE_VALUE) {
+        return 0;
+    }
+
+    do {
+        char hash[64];
+        WCHAR save_dir[MAX_PATH];
+        char save_title[128];
+        size_t i;
+
+        for (i = 0; i + 1 < sizeof(hash) && fd.cFileName[i]; ++i) {
+            hash[i] = (char)(fd.cFileName[i] & 0x7F);
+        }
+        hash[i] = '\0';
+
+        if ((fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) == 0 ||
+            !fsw_is_save_hash_name(hash) ||
+            strcmp(hash, "000000000000") == 0) {
+            continue;
+        }
+
+        swprintf_s(save_dir, MAX_PATH, L"%ls\\%ls", host_root, fd.cFileName);
+        if (!fsw_read_save_meta_name_ascii(save_dir, save_title, sizeof(save_title))) {
+            continue;
+        }
+
+        if (strcmp(save_title, "Profile-Settings") == 0) {
+            global_found = 1;
+            continue;
+        }
+        if (strcmp(save_title, "?") == 0 || save_title[0] == '\0' || count >= 0x11) {
+            continue;
+        }
+
+        uint32_t slot = mgr + 0x2A2C + count * 36;
+        memset((void*)XBOX_PTR(slot), 0, 36);
+        MEM16(slot) = 0x11;
+        fsw_copy_ascii_to_xbox_wide(slot + 2, 17, save_title);
+        count++;
+    } while (FindNextFileW(find, &fd));
+
+    FindClose(find);
+
+    if (global_found) {
+        MEM8(mgr + 0x56C1) = 1;
+    }
+    if (count > 0) {
+        MEM32(mgr + 0x2C90) = count;
+        memcpy((void*)XBOX_PTR(mgr + 0x56DC), (void*)XBOX_PTR(mgr + 0x2A2C), 36);
+    }
+
+    fprintf(stderr,
+            "[FSW/Save] repaired profile manager from saves mgr=%08X count=%u global=%u\n",
+            mgr,
+            count,
+            global_found);
     return count;
 }
 

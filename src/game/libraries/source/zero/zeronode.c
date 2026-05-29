@@ -11,10 +11,10 @@
 
 static int fsw_zeronode_va_range_is_valid(uint32_t va, uint32_t size)
 {
-    if (va < 0x00010000u || va >= 0x04000000u) {
+    if (va < 0x00010000u || va >= RECOMP_GUEST_RAM_LIMIT) {
         return 0;
     }
-    if (size > 0x04000000u || va > 0x04000000u - size) {
+    if (size > RECOMP_GUEST_RAM_LIMIT || va > RECOMP_GUEST_RAM_LIMIT - size) {
         return 0;
     }
     return 1;

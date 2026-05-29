@@ -335,9 +335,16 @@ loc_0004E360:
     }
     edx = MEM32(ecx);
     if (!chudgps_va_range_is_valid(edx, 8)) {
-        if (invalid_node_log_count++ < 16) {
-            fprintf(stderr, "[FSW/ZeroList] iterator stopped invalid node=%08X iter=%08X\n",
-                    (unsigned)edx, (unsigned)ecx);
+        if (invalid_node_log_count++ < 32) {
+            fprintf(stderr,
+                    "[FSW/ZeroList] iterator stopped invalid node=%08X iter=%08X out=%08X esp=%08X ebx=%08X esi=%08X edi=%08X next=%08X stack=%08X/%08X/%08X/%08X\n",
+                    (unsigned)edx, (unsigned)ecx, (unsigned)eax, (unsigned)esp,
+                    (unsigned)ebx, (unsigned)esi, (unsigned)edi,
+                    (unsigned)(chudgps_va_range_is_valid(ecx + 4, 4) ? MEM32(ecx + 4) : 0),
+                    (unsigned)(chudgps_va_range_is_valid(esp, 16) ? MEM32(esp) : 0),
+                    (unsigned)(chudgps_va_range_is_valid(esp + 4, 12) ? MEM32(esp + 4) : 0),
+                    (unsigned)(chudgps_va_range_is_valid(esp + 8, 8) ? MEM32(esp + 8) : 0),
+                    (unsigned)(chudgps_va_range_is_valid(esp + 0xC, 4) ? MEM32(esp + 0xC) : 0));
         }
         MEM32(ecx) = 0;
         MEM32(eax) = 0;

@@ -15,12 +15,12 @@ extern uint32_t xbox_HeapAlloc(uint32_t size, uint32_t alignment);
 static int fsw_gameworld_va_range_is_valid(uint32_t va, uint32_t size)
 {
     if (size == 0) {
-        return va >= 0x00010000u && va < 0x04000000u;
+        return va >= 0x00010000u && va < RECOMP_GUEST_RAM_LIMIT;
     }
-    if (va < 0x00010000u || va >= 0x04000000u || va + size < va) {
+    if (va < 0x00010000u || va >= RECOMP_GUEST_RAM_LIMIT || va + size < va) {
         return 0;
     }
-    return va + size <= 0x04000000u;
+    return va + size <= RECOMP_GUEST_RAM_LIMIT;
 }
 
 static uint32_t g_fsw_gameworld_wld_next_cursor;

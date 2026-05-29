@@ -92,6 +92,13 @@ static int mainxbox_is_live_context(uint32_t va)
            mainxbox_va_is_valid(MEM32(vtbl + 0x10));
 }
 
+static int mainxbox_should_restore_direct_context(void)
+{
+    return g_fsw_main_boot_level_enabled ||
+           getenv("FSW_TH_LEVEL") != NULL ||
+           getenv("FSW_TH_FORCE_DIRECT") != NULL;
+}
+
 /**
  * fn_0002DCF0_0_ZeroStrT_0EA_QAE_PBD_Z
  * Symbol: ??0?$ZeroStrT@$0EA@@@QAE@PBD@Z
@@ -561,7 +568,8 @@ loc_003EC79C:
         run_log_count++;
         if (mainxbox_is_live_context(current_context)) {
             g_fsw_main_last_live_context = current_context;
-        } else if (g_fsw_main_boot_level_enabled && mainxbox_va_is_valid(g_fsw_main_last_live_context)) {
+        } else if (mainxbox_should_restore_direct_context() &&
+                   mainxbox_va_is_valid(g_fsw_main_last_live_context)) {
             MEM32(0x615298) = g_fsw_main_last_live_context;
             eax = 1;
             if (run_log_count <= 16) {

@@ -7,6 +7,34 @@
 #define RECOMP_GENERATED_CODE
 #include "recomp_funcs.h"
 #include <math.h>
+#include <stdio.h>
+
+static int fsw_hkconstraint_range_is_valid(uint32_t va, uint32_t size)
+{
+    if (size == 0) {
+        return va >= 0x00010000u && va < RECOMP_GUEST_RAM_LIMIT;
+    }
+    if (va < 0x00010000u || va >= RECOMP_GUEST_RAM_LIMIT || va + size < va) {
+        return 0;
+    }
+    return va + size <= RECOMP_GUEST_RAM_LIMIT;
+}
+
+static int fsw_hkconstraint_copy_is_valid(uint32_t dst, uint32_t src, uint32_t size)
+{
+    static uint32_t warn_count;
+    if (fsw_hkconstraint_range_is_valid(dst, size) &&
+        fsw_hkconstraint_range_is_valid(src, size)) {
+        return 1;
+    }
+    if (warn_count < 16) {
+        fprintf(stderr,
+                "[FSW/Havok] skipping invalid constraint array copy dst=%08X src=%08X size=%u\n",
+                (unsigned)dst, (unsigned)src, (unsigned)size);
+        warn_count++;
+    }
+    return 0;
+}
 
 /**
  * fn_000BD4B0_hkWorldConstraintUtil_removeConstraint
@@ -243,6 +271,7 @@ loc_000BD660:
     ecx = 7;
     edx = edx - 0x1C;
     eax--;
+    if (!fsw_hkconstraint_copy_is_valid(edi, esi, ecx * 4)) { sub_000BD6B6(); return; }
     memcpy((void*)XBOX_PTR(edi), (void*)XBOX_PTR(esi), ecx * 4);
     esi += ecx * 4; edi += ecx * 4; ecx = 0; /* rep movsd */
     if ((eax != 0)) goto loc_000BD65C; /* jne: not equal / not zero */
@@ -272,6 +301,7 @@ loc_000BD693:
     ecx = 7;
     eax = eax - 0x1C;
     edx--;
+    if (!fsw_hkconstraint_copy_is_valid(edi, esi, ecx * 4)) { sub_000BD6B6(); return; }
     memcpy((void*)XBOX_PTR(edi), (void*)XBOX_PTR(esi), ecx * 4);
     esi += ecx * 4; edi += ecx * 4; ecx = 0; /* rep movsd */
     if ((edx != 0)) goto loc_000BD693; /* jne: not equal / not zero */

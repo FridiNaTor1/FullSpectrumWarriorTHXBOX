@@ -15,6 +15,15 @@ static uint8_t g_fsw_host_allow_app_shutdown;
 
 void fsw_applicationmanager_allow_shutdown_host(void)
 {
+    if (getenv("FSW_TH_FORCE_DIRECT") != NULL || getenv("FSW_TH_LEVEL") != NULL) {
+        static uint32_t ignored_direct_shutdown_logs = 0;
+        if (ignored_direct_shutdown_logs < 8 || (ignored_direct_shutdown_logs % 120) == 0) {
+            fprintf(stderr, "[FSW/App] ignoring host shutdown override during direct level run count=%u\n",
+                    (unsigned)(ignored_direct_shutdown_logs + 1));
+        }
+        ignored_direct_shutdown_logs++;
+        return;
+    }
     g_fsw_host_allow_app_shutdown = 1;
 }
 
@@ -1026,6 +1035,8 @@ void sub_002B113A(void)
     uint32_t app_cleanup_esp = esp;
     uint32_t app_enter_esp = esp;
     uint32_t app_update_esp = esp;
+    uint32_t entered_context = 0;
+    uint32_t old_context = 0;
     int _flags = 0; /* fallback flag var */
 
 loc_002B113A:
@@ -1035,15 +1046,25 @@ loc_002B113A:
 loc_002B113F:
     /* nop */
 
-loc_002B1140:
-    ecx = MEM32(esi);
-    if (CMP_EQ(ecx, ebx)) goto loc_002B114B; /* je: equal / zero */
+	loc_002B1140:
+	    ecx = MEM32(esi);
+	    if (CMP_EQ(ecx, ebx)) goto loc_002B114B; /* je: equal / zero */
 
-loc_002B1146:
-    edx = MEM32(ecx);
-    app_cleanup_esp = esp;
-    { uint32_t _icall_esp = g_esp;
-    PUSH32(esp, 0); RECOMP_ICALL_SAFE(MEM32(edx + 8), _icall_esp); /* indirect call */
+	loc_002B1146:
+	    old_context = ecx;
+	    edx = MEM32(ecx);
+	    app_cleanup_esp = esp;
+        if (fsw_app_debug_enabled()) {
+            fprintf(stderr, "[FSW/App] cleanup callback begin ctx=%08X vtbl=%08X fn=%08X esp=%08X pending=%08X\n",
+                    (unsigned)ecx, (unsigned)edx, (unsigned)(edx ? MEM32(edx + 8) : 0),
+                    (unsigned)esp, (unsigned)MEM32(esi + 4));
+        }
+	    { uint32_t _icall_esp = g_esp;
+	    PUSH32(esp, 0); RECOMP_ICALL_SAFE(MEM32(edx + 8), _icall_esp); /* indirect call */
+    }
+    if (fsw_app_debug_enabled()) {
+        fprintf(stderr, "[FSW/App] cleanup callback end ctx=%08X esp=%08X eax=%08X pending=%08X\n",
+                (unsigned)old_context, (unsigned)esp, (unsigned)eax, (unsigned)MEM32(app + 4));
     }
 
 loc_002B114B:
@@ -1055,10 +1076,18 @@ loc_002B114B:
         }
         app_cleanup_stack_repairs++;
         esp = app_cleanup_esp;
-    }
-    esi = app;
-    if (MEM32(esi) == 0) goto loc_002B1150;
-    PUSH32(esp, 0); fn_002B0CE0_CApplicationManager_Cleanup(); /* call 0x002B0CE0 */
+	    }
+	    esi = app;
+	    if (MEM32(esi) == 0 && old_context == 0) goto loc_002B1150;
+        if (fsw_app_debug_enabled()) {
+            fprintf(stderr, "[FSW/App] global cleanup begin old=%08X esp=%08X pending=%08X\n",
+                    (unsigned)old_context, (unsigned)esp, (unsigned)MEM32(esi + 4));
+        }
+	    PUSH32(esp, 0); fn_002B0CE0_CApplicationManager_Cleanup(); /* call 0x002B0CE0 */
+        if (fsw_app_debug_enabled()) {
+            fprintf(stderr, "[FSW/App] global cleanup end old=%08X esp=%08X pending=%08X\n",
+                    (unsigned)old_context, (unsigned)esp, (unsigned)MEM32(app + 4));
+        }
 
 loc_002B1150:
     esi = app;
@@ -1086,6 +1115,7 @@ loc_002B1150:
         goto loc_002B115F;
     }
     edx = MEM32(ecx);
+    entered_context = ecx;
     if (fsw_app_debug_enabled()) {
         fprintf(stderr,
                 "[FSW/App] enter ctx=%08X vtbl=%08X setup=%08X\n",
@@ -1096,6 +1126,32 @@ loc_002B1150:
     app_enter_esp = esp;
     { uint32_t _icall_esp = g_esp;
     PUSH32(esp, 0); RECOMP_ICALL_SAFE(MEM32(edx + 4), _icall_esp); /* indirect call */
+    }
+    if (!fsw_app_context_is_valid(MEM32(app + 4), "pending-after-enter")) {
+        static uint32_t invalid_pending_after_enter_logs = 0;
+        if (MEM32(app + 4) != 0 && (invalid_pending_after_enter_logs < 16 || (invalid_pending_after_enter_logs % 120) == 0)) {
+            fprintf(stderr, "[FSW/App] clearing invalid pending context after enter pending=%08X current=%08X entered=%08X count=%u\n",
+                    (unsigned)MEM32(app + 4), (unsigned)MEM32(app),
+                    (unsigned)entered_context, (unsigned)(invalid_pending_after_enter_logs + 1));
+        }
+        invalid_pending_after_enter_logs++;
+        MEM32(app + 4) = 0;
+    }
+    if (!fsw_app_context_is_valid(MEM32(app), "current-after-enter") &&
+        fsw_app_context_is_valid(entered_context, "entered-after-enter")) {
+        static uint32_t restore_current_after_enter_logs = 0;
+        if (restore_current_after_enter_logs < 16 || (restore_current_after_enter_logs % 120) == 0) {
+            fprintf(stderr, "[FSW/App] restoring current context after enter current=%08X entered=%08X pending=%08X count=%u\n",
+                    (unsigned)MEM32(app), (unsigned)entered_context,
+                    (unsigned)MEM32(app + 4), (unsigned)(restore_current_after_enter_logs + 1));
+        }
+        restore_current_after_enter_logs++;
+        MEM32(app) = entered_context;
+    }
+    if (fsw_app_debug_enabled()) {
+        fprintf(stderr, "[FSW/App] enter callback end ctx=%08X esp=%08X eax=%08X pending=%08X current=%08X\n",
+                (unsigned)entered_context, (unsigned)esp, (unsigned)eax,
+                (unsigned)MEM32(app + 4), (unsigned)MEM32(app));
     }
 
 loc_002B115F:
@@ -1166,6 +1222,11 @@ loc_002B1177:
     }
     { uint32_t _icall_esp = g_esp;
     PUSH32(esp, 0); RECOMP_ICALL_SAFE(MEM32(edx + 0x10), _icall_esp); /* indirect call */
+    }
+    if (fsw_app_debug_enabled()) {
+        fprintf(stderr, "[FSW/App] update callback end ctx=%08X esp=%08X eax=%08X pending=%08X current=%08X\n",
+                (unsigned)ecx, (unsigned)esp, (unsigned)eax,
+                (unsigned)MEM32(app + 4), (unsigned)MEM32(app));
     }
 
 loc_002B117E:

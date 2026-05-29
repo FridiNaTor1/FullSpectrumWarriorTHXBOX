@@ -22,6 +22,7 @@ static uint32_t fsw_loadpak_wld_first_chunk(uint32_t data, uint32_t size);
 static uint32_t fsw_loadpak_find_known_wld_tag(uint32_t data, uint32_t size);
 static uint32_t fsw_loadpak_translate_image_offset(uint32_t offset);
 static uint32_t fsw_loadpak_translate_possible_object_ptr(uint32_t value);
+static int fsw_loadpak_va_range_is_valid(uint32_t va, uint32_t size);
 
 static uint32_t g_fsw_loadpak_header_va;
 static uint32_t g_fsw_loadpak_crc;
@@ -74,6 +75,30 @@ static uint32_t g_fsw_loadpak_mesh_count;
 static uint32_t g_fsw_loadpak_mesh_fallback_node;
 static uint32_t g_fsw_loadpak_clone_walk_log_count;
 uint32_t g_fsw_loadpak_last_mesh_source;
+
+static void fsw_loadpak_restore_mesh_tree_if_needed(void)
+{
+    uint32_t live_root = MEM32(0x5CE9B0);
+    static uint32_t restore_log_count;
+
+    if (fsw_loadpak_va_range_is_valid(live_root, 0x1C)) {
+        return;
+    }
+    if (!fsw_loadpak_va_range_is_valid(g_fsw_loadpak_mesh_tree_root, 0x1C)) {
+        return;
+    }
+
+    MEM32(0x5CE9B0) = g_fsw_loadpak_mesh_tree_root;
+    MEM32(0x5CE9AC) = g_fsw_loadpak_mesh_tree_count;
+    if (restore_log_count < 32) {
+        fprintf(stderr,
+                "[FSW/LoadMesh] restored invalid mesh tree root old=%08X new=%08X count=%u\n",
+                (unsigned)live_root,
+                (unsigned)g_fsw_loadpak_mesh_tree_root,
+                (unsigned)g_fsw_loadpak_mesh_tree_count);
+        restore_log_count++;
+    }
+}
 
 #ifdef XBOXRECOMP_VULKAN_GRAPHICS
 static void fsw_loading_bar_draw_rect(float x, float y, float w, float h, uint32_t argb)
@@ -129,7 +154,7 @@ static void fsw_loading_bar_draw_vulkan(void)
 
 static int fsw_loadpak_va_is_valid(uint32_t va)
 {
-    return va >= 0x00010000u && va < 0x04000000u;
+    return va >= 0x00010000u && va < RECOMP_GUEST_RAM_LIMIT;
 }
 
 static int fsw_loadpak_debug_enabled(void)
@@ -164,7 +189,78 @@ static int fsw_loadpak_va_range_is_valid(uint32_t va, uint32_t size)
     if (va + size < va) {
         return 0;
     }
-    return va + size <= 0x04000000u;
+    return va + size <= RECOMP_GUEST_RAM_LIMIT;
+}
+
+static int fsw_loadpak_path_is_shell(uint32_t path_va)
+{
+    const char *path;
+    if (path_va < 0x10000u || path_va >= 0x80000000u) {
+        return 0;
+    }
+    path = (const char *)XBOX_PTR(path_va);
+    return strstr(path, "Shell.pak") != NULL || strstr(path, "shell.pak") != NULL;
+}
+
+static void fsw_loadpak_clear_previous_cache_for_transition(uint32_t previous_crc,
+                                                            uint32_t next_crc,
+                                                            uint32_t path_va)
+{
+    uint32_t saved_eax;
+    uint32_t saved_ebx;
+    uint32_t saved_ecx;
+    uint32_t saved_edx;
+    uint32_t saved_esi;
+    uint32_t saved_edi;
+    uint32_t saved_esp;
+    uint32_t saved_seh_ebp;
+    uint32_t manager;
+    uint32_t queued_count;
+    uint32_t active_stream;
+
+    if (previous_crc == 0 || previous_crc == next_crc || fsw_loadpak_path_is_shell(path_va)) {
+        return;
+    }
+
+    saved_eax = eax;
+    saved_ebx = ebx;
+    saved_ecx = ecx;
+    saved_edx = edx;
+    saved_esi = esi;
+    saved_edi = edi;
+    saved_esp = esp;
+    saved_seh_ebp = g_seh_ebp;
+
+    PUSH32(esp, 0); fn_002A6470_CCacheManager_Get();
+    manager = eax;
+    if (fsw_loadpak_va_range_is_valid(manager, 0x1Cu)) {
+        active_stream = MEM32(manager);
+        queued_count = MEM32(manager + 4);
+        if (active_stream != 0 || queued_count != 0 || MEM32(manager + 0xC) != 0) {
+            fprintf(stderr,
+                    "[FSW/Load] clearing previous cache before level load prev=%08X next=%08X manager=%08X active=%08X queued=%u\n",
+                    (unsigned)previous_crc,
+                    (unsigned)next_crc,
+                    (unsigned)manager,
+                    (unsigned)active_stream,
+                    (unsigned)queued_count);
+            edi = manager;
+            PUSH32(esp, 0); fn_002A6020_CCacheManager_Abort();
+            ebx = manager + 4;
+            PUSH32(esp, 0); fn_0002E200_PAVZeroDirectStream_ZeroList_ReleaseAll();
+            MEM32(manager + 0x14) = 0;
+            MEM32(manager + 0x18) = 0;
+        }
+    }
+
+    eax = saved_eax;
+    ebx = saved_ebx;
+    ecx = saved_ecx;
+    edx = saved_edx;
+    esi = saved_esi;
+    edi = saved_edi;
+    esp = saved_esp;
+    g_seh_ebp = saved_seh_ebp;
 }
 
 static int fsw_loadpak_stack_va_is_valid(uint32_t va)
@@ -313,6 +409,46 @@ static int fsw_loadpak_object_vtable_is_valid(uint32_t object, uint32_t min_vtbl
     }
     vtbl = MEM32(object);
     return fsw_loadpak_vtable_is_valid(vtbl, min_vtbl_size);
+}
+
+static void fsw_loadpak_scrub_object_links_depth(uint32_t object, const char *phase, uint32_t depth)
+{
+    static uint32_t scrub_log_count;
+    uint32_t fields[] = { 0x10u, 0x14u, 0x18u };
+    uint32_t i;
+
+    if (depth > 4 || !fsw_loadpak_object_vtable_is_valid(object, 0x18)) {
+        return;
+    }
+
+    for (i = 0; i < sizeof(fields) / sizeof(fields[0]); i++) {
+        uint32_t field = object + fields[i];
+        uint32_t linked = MEM32(field);
+        if (linked == 0) {
+            continue;
+        }
+        if (linked == object || !fsw_loadpak_object_vtable_is_valid(linked, 4)) {
+            if (scrub_log_count < 32) {
+                fprintf(stderr,
+                        "[FSW/LoadMesh] scrubbed invalid %s link object=%08X field=%02X value=%08X\n",
+                        phase, (unsigned)object, (unsigned)fields[i], (unsigned)linked);
+                scrub_log_count++;
+            }
+            MEM32(field) = 0;
+        }
+    }
+
+    for (i = 1; i < sizeof(fields) / sizeof(fields[0]); i++) {
+        uint32_t linked = MEM32(object + fields[i]);
+        if (linked != 0 && linked != object && fsw_loadpak_object_vtable_is_valid(linked, 0x18)) {
+            fsw_loadpak_scrub_object_links_depth(linked, phase, depth + 1);
+        }
+    }
+}
+
+static void fsw_loadpak_scrub_object_links(uint32_t object, const char *phase)
+{
+    fsw_loadpak_scrub_object_links_depth(object, phase, 0);
 }
 
 static uint32_t fsw_loadpak_translate_virtual_ptr(uint32_t value)
@@ -2436,17 +2572,7 @@ loc_002A9F60:
     PUSH32(esp, ebx);
     PUSH32(esp, ebp);
     PUSH32(esp, esi);
-    if (MEM32(0x5CE9B0) == 0 &&
-        fsw_loadpak_va_range_is_valid(g_fsw_loadpak_mesh_tree_root, 0x1C)) {
-        MEM32(0x5CE9B0) = g_fsw_loadpak_mesh_tree_root;
-        MEM32(0x5CE9AC) = g_fsw_loadpak_mesh_tree_count;
-        if (g_fsw_loadpak_loadmesh_log_count < 64) {
-            fprintf(stderr,
-                    "[FSW/LoadMesh] restored mesh tree root=%08X count=%u\n",
-                    (unsigned)g_fsw_loadpak_mesh_tree_root,
-                    (unsigned)g_fsw_loadpak_mesh_tree_count);
-        }
-    }
+    fsw_loadpak_restore_mesh_tree_if_needed();
     esi = MEM32(0x5CE9B0);
     PUSH32(esp, edi);
     edi = 0; /* xor self */
@@ -2715,6 +2841,7 @@ loc_002AA060:
 
 loc_002AA066:
     edi = eax;
+    fsw_loadpak_scrub_object_links(edi, "clone");
     if (g_fsw_loadpak_clone_walk_log_count < 64) {
         fprintf(stderr,
                 "[FSW/LoadMesh] clone child CreateClone end source=%08X clone=%08X clone_vtbl=%08X clone_child=%08X\n",
@@ -2725,6 +2852,7 @@ loc_002AA066:
     }
     if (!fsw_loadpak_object_vtable_is_valid(edi, 0x18)) goto loc_002AA07E;
     edx = MEM32(edi);
+    fsw_loadpak_scrub_object_links(ebx, "parent-before-attach");
     if (g_fsw_loadpak_clone_walk_log_count < 64) {
         fprintf(stderr,
                 "[FSW/LoadMesh] clone child Attach begin clone=%08X parent=%08X attach=%08X\n",
@@ -2745,6 +2873,8 @@ loc_002AA066:
     }
 
 loc_002AA070:
+    fsw_loadpak_scrub_object_links(edi, "clone-after-attach");
+    fsw_loadpak_scrub_object_links(ebx, "parent-after-attach");
     if (g_fsw_loadpak_clone_walk_log_count < 64) {
         fprintf(stderr,
                 "[FSW/LoadMesh] clone child Attach end clone=%08X parent=%08X child=%08X sibling=%08X\n",
@@ -7148,6 +7278,26 @@ void fn_002AC280_UpdateLoadingBar(void)
     ebp = g_seh_ebp; /* fpo_leaf: inherit caller's frame */
 
 loc_002AC280:
+#ifdef XBOXRECOMP_VULKAN_GRAPHICS
+    if (getenv("FSW_TH_NATIVE_LOADING_BAR") == NULL) {
+        if (MEM8(0x5FA388)) {
+            float progress = xmm0;
+            if (!isfinite(progress)) {
+                progress = 0.0f;
+            }
+            if (progress < 0.0f) {
+                progress = 0.0f;
+            } else if (progress > 1.0f) {
+                progress = 1.0f;
+            }
+            MEMF(0x5D9670) = progress;
+            MEMF(0x5D9674) = progress;
+            MEM32(0x5D9678) = (uint32_t)(progress * 40.0f);
+            fsw_loading_bar_draw_vulkan();
+        }
+        esp += 4; return; /* ret */
+    }
+#endif
     PUSH32(esp, 0xFFFFFFFFu);
     PUSH32(esp, 0x40B835);
     eax = MEM32(0);
@@ -9906,20 +10056,21 @@ void sub_002ADFF2(void)
 
 loc_002ADFF2:
     eax = MEM32(esp + 0x18);
-    g_fsw_loadpak_crc = eax;
-    g_fsw_loadpak_path_va = esi;
-    g_fsw_loadpak_changed = (MEM32(0x60826C) != eax) ? 1 : 0;
-    {
-        static uint32_t loadlevel_log_count = 0;
+	    g_fsw_loadpak_crc = eax;
+	    g_fsw_loadpak_path_va = esi;
+	    g_fsw_loadpak_changed = (MEM32(0x60826C) != eax) ? 1 : 0;
+	    {
+	        static uint32_t loadlevel_log_count = 0;
         if (loadlevel_log_count < 8) {
             const char *path = (esi >= 0x10000u && esi < 0x80000000u) ? (const char *)XBOX_PTR(esi) : "<bad>";
             fprintf(stderr, "[FSW/Load] LoadLevel path=%s ptr=%08X crc=%08X prev=%08X\n",
                     path, (unsigned)esi, (unsigned)eax, (unsigned)MEM32(0x60826C));
-        }
-        loadlevel_log_count++;
-    }
-    (void)0; /* cmp MEM32(0x60826C), eax - flags set for next jcc */
-    SET_LO8(eax, (CMP_NE(MEM32(0x60826C), eax)) ? 1 : 0); /* setne */
+	        }
+	        loadlevel_log_count++;
+	    }
+	    fsw_loadpak_clear_previous_cache_for_transition(MEM32(0x60826C), eax, esi);
+	    (void)0; /* cmp MEM32(0x60826C), eax - flags set for next jcc */
+	    SET_LO8(eax, (CMP_NE(MEM32(0x60826C), eax)) ? 1 : 0); /* setne */
     (void)0; /* cmp LO8(eax), LO8(ebx) - flags set for next jcc */
     MEM8(esp + 0x17) = LO8(eax);
     MEM8(esp + 0x1B8) = LO8(ebx);
